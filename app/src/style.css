@@ -189,6 +189,10 @@ body {
   margin-top: 1px;
 }
 
+.row.read {
+  opacity: 0.45;
+}
+
 .row-head {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;

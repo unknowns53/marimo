@@ -60,7 +60,7 @@ export function renderPanel(
 }
 
 function detailChildren(plan: PanelPlan, onSelect: (session: SessionState) => void): HTMLElement[] {
-  const children: HTMLElement[] = plan.rows.map((s) => renderRow(s, onSelect));
+  const children: HTMLElement[] = plan.rows.map((s) => renderRow(s, plan.read.has(s.session_id), onSelect));
   if (plan.moreRows > 0) children.push(el("div", "more", `ほか ${plan.moreRows} 件`));
   return children;
 }
@@ -93,8 +93,8 @@ function renderCounts(view: PanelView, onSelect: (session: SessionState) => void
 
 // 行は 2 段に詰めたまま広げない。広げる層を重ねると、押したときに層の開閉とクリックが競り、
 // 1 回で移動できないことがある。要約の全文とコマンドは title のツールチップで読める。
-function renderRow(s: SessionState, onSelect: (session: SessionState) => void): HTMLElement {
-  const row = el("div", "row");
+function renderRow(s: SessionState, read: boolean, onSelect: (session: SessionState) => void): HTMLElement {
+  const row = el("div", read ? "row read" : "row");
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
   const detail = s.activity?.detail ?? "";
   row.title = [s.cwd ?? s.session_id, summary, detail].filter(Boolean).join("\n\n");

@@ -37,15 +37,27 @@ describe("planPanel", () => {
 });
 
 describe("acknowledged sessions", () => {
-  it("folds a done row once seen and shows it again on the next completion", () => {
+  it("keeps a seen done row dimmed until the session moves on", () => {
     const ack = new Acknowledged();
     const done = session("a", "done", 10);
     ack.add(triggerKey(done));
-    expect(ids(planPanel(snap(done), ack).rows)).toEqual([]);
+    const seen = planPanel(snap(done), ack);
+    expect(ids(seen.rows)).toEqual(["a"]);
+    expect(seen.read.has("a")).toBe(true);
     // 次のプロンプトで作業中を経て、再び完了した。
     const again = session("a", "done", 20);
     ack.prune(snap(again));
-    expect(ids(planPanel(snap(again), ack).rows)).toEqual(["a"]);
+    const next = planPanel(snap(again), ack);
+    expect(ids(next.rows)).toEqual(["a"]);
+    expect(next.read.has("a")).toBe(false);
+  });
+
+  it("moves seen done rows behind unread ones so they give up room first", () => {
+    const ack = new Acknowledged();
+    const seen = session("seen", "done", 50);
+    ack.add(triggerKey(seen));
+    const plan = planPanel(snap(seen, session("new", "done", 10), session("w", "working", 1)), ack);
+    expect(ids(plan.rows)).toEqual(["w", "new", "seen"]);
   });
 
   it("keeps waiting and error rows even when seen", () => {

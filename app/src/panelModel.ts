@@ -7,18 +7,25 @@ export const MAX_ROWS = 5;
 export interface PanelPlan {
   rows: SessionState[];
   moreRows: number;
+  /** 見たと示された完了の行の session_id。薄く描く。 */
+  read: ReadonlySet<string>;
 }
 
 /**
  * 詳細の段階で出す行を決める。待機以外のセッションを 1 セッション 1 行で並べ、作業中も畳まない。
- * 完了は見たと示されたら畳み、承認待ちとエラーは解決するまで残す。並びは snapshot の順
+ * 見たと示された完了も、押した直後に行が消えると何を押したのか見失うので、そのセッションが次に
+ * 動き出すまで薄くして残す。場所を譲るよう、未読の行の後ろへ回す。それ以外の並びは snapshot の順
  * （優先度の高い順、同じなら更新の新しい順）を保つ。
  */
 export function planPanel(snapshot: Snapshot | null, ack: Acknowledged): PanelPlan {
-  const rows = (snapshot?.sessions ?? []).filter(
-    (s) => s.status !== "idle" && !(s.status === "done" && ack.has(s)),
-  );
-  return { rows: rows.slice(0, MAX_ROWS), moreRows: Math.max(0, rows.length - MAX_ROWS) };
+  const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle");
+  const isRead = (s: SessionState) => s.status === "done" && ack.has(s);
+  const rows = [...active.filter((s) => !isRead(s)), ...active.filter(isRead)];
+  return {
+    rows: rows.slice(0, MAX_ROWS),
+    moreRows: Math.max(0, rows.length - MAX_ROWS),
+    read: new Set(active.filter(isRead).map((s) => s.session_id)),
+  };
 }
 
 export function isEmpty(plan: PanelPlan): boolean {

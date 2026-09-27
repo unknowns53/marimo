@@ -40,9 +40,8 @@ const acknowledged = new Acknowledged((keys) =>
   void invoke("set_acknowledged", { keys }).catch((e) => console.error("acknowledged", e)),
 );
 const bubbleModel = new BubbleModel(acknowledged);
-// 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も畳む。
-// 完了の吹き出しを閉じるのは知らせを受け取ったという意思表示で、行だけが残っても
-// 同じ知らせが二重に場所を取るだけだからである。
+// 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も既読として薄くする。
+// 完了の吹き出しを閉じるのは知らせを受け取ったという意思表示だからである。
 const speech = new Speech();
 const bubble = new Bubble(bubbleNode, () => {
   if (bubbleModel.view) bubbleModel.dismiss();
@@ -151,7 +150,7 @@ function redrawPanel(): void {
   hits.schedule();
 }
 
-// 行を押してセッションへ移動したら、そのきっかけを見たものとして扱う。完了の行は畳み、
+// 行を押してセッションへ移動したら、そのきっかけを見たものとして扱う。完了の行は既読として薄くし、
 // 同じきっかけの吹き出しも閉じる。承認待ちとエラーの行は、解決するまで残す。
 function selectSession(session: SessionState): void {
   void invoke("focus_session", { sessionId: session.session_id }).catch((e) =>
