@@ -139,6 +139,14 @@ pub struct SessionState {
     /// 今の status になった時刻。吹き出しが「同じ状態が続いている間」を見分けるのに使う。
     #[serde(default)]
     pub status_since: u64,
+    /// 状態になった理由の手がかり。承認待ちでは permission、question、plan のどれか、エラーでは
+    /// StopFailure の error の値（hooks のドキュメントの StopFailure input に列挙がある）を入れる。
+    /// 吹き出しのセリフを状況に合わせて選ぶのに使う。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_reason: Option<String>,
+    /// 今のターンが始まった時刻（UserPromptSubmit を受けた時刻）。完了までにかかった時間を出すのに使う。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_started_at: Option<u64>,
     #[serde(
         default,
         alias = "line",
@@ -162,6 +170,8 @@ impl SessionState {
             cwd: None,
             status: Status::Idle,
             status_since: 0,
+            status_reason: None,
+            turn_started_at: None,
             activity: None,
             last_event: None,
             updated_at: 0,
@@ -326,11 +336,32 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
         _ => return Transition::Nothing,
     };
 
+    let reason: Option<String> = match input.hook_event_name.as_str() {
+        "PermissionRequest" => Some("permission".to_owned()),
+        "PreToolUse" => match input.tool_name.as_deref() {
+            Some("AskUserQuestion") => Some("question".to_owned()),
+            Some("ExitPlanMode") => Some("plan".to_owned()),
+            _ => None,
+        },
+        "StopFailure" => input.error.clone().filter(|e| !e.is_empty()),
+        _ => None,
+    };
+
     let mut next = current
         .cloned()
         .unwrap_or_else(|| SessionState::new(&input.session_id));
-    if current.is_none_or(|c| c.status != status) {
+    let status_changed = current.is_none_or(|c| c.status != status);
+    if status_changed {
         next.status_since = now_ms;
+    }
+    // 同じ状態のまま理由を持たないイベント（承認待ちの Notification など）が来ても、先に分かった理由を残す。
+    if status_changed || reason.is_some() {
+        next.status_reason = reason;
+    }
+    match input.hook_event_name.as_str() {
+        "UserPromptSubmit" => next.turn_started_at = Some(now_ms),
+        "SessionStart" if input.source.as_deref() != Some("compact") => next.turn_started_at = None,
+        _ => {}
     }
     next.status = status;
     match act {
@@ -531,6 +562,58 @@ mod tests {
         assert_eq!((s.status, s.status_since), (Status::Waiting, 30));
         let s = write(transition(&input(perm), Some(&s), 40));
         assert_eq!(s.status_since, 30);
+    }
+
+    #[test]
+    fn reasons_and_turn_start_follow_events() {
+        let s = write(transition(&input(ev("UserPromptSubmit")), None, 100));
+        assert_eq!(
+            (s.turn_started_at, s.status_reason.as_deref()),
+            (Some(100), None)
+        );
+        let perm = json!({"session_id":"s1","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm"}});
+        let s = write(transition(&input(perm), Some(&s), 200));
+        assert_eq!(s.status_reason.as_deref(), Some("permission"));
+        let note = json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"permission_prompt"});
+        let s = write(transition(&input(note), Some(&s), 250));
+        assert_eq!(s.status_reason.as_deref(), Some("permission"));
+        let s = write(transition(&input(ev("PostToolUse")), Some(&s), 300));
+        assert_eq!(s.status_reason, None);
+        let ask = json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{}});
+        assert_eq!(
+            write(transition(&input(ask), Some(&s), 310))
+                .status_reason
+                .as_deref(),
+            Some("question")
+        );
+        let plan = json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{}});
+        assert_eq!(
+            write(transition(&input(plan), Some(&s), 320))
+                .status_reason
+                .as_deref(),
+            Some("plan")
+        );
+        let stop =
+            json!({"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"ok"});
+        let s = write(transition(&input(stop), Some(&s), 900));
+        assert_eq!((s.turn_started_at, s.status_since), (Some(100), 900));
+        let fail = json!({"session_id":"s1","hook_event_name":"StopFailure","error":"rate_limit"});
+        assert_eq!(
+            write(transition(&input(fail), Some(&s), 950))
+                .status_reason
+                .as_deref(),
+            Some("rate_limit")
+        );
+        let start = json!({"session_id":"s1","hook_event_name":"SessionStart","source":"compact"});
+        assert_eq!(
+            write(transition(&input(start), Some(&s), 960)).turn_started_at,
+            Some(100)
+        );
+        let start = json!({"session_id":"s1","hook_event_name":"SessionStart","source":"startup"});
+        assert_eq!(
+            write(transition(&input(start), Some(&s), 970)).turn_started_at,
+            None
+        );
     }
 
     #[test]

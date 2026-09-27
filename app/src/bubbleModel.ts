@@ -1,5 +1,5 @@
 import { triggerKey, type Acknowledged } from "./acknowledged";
-import { folderName } from "./format";
+import { categoryFor, fillTemplate, linesFor } from "./dialogue";
 import type { Dialogue, SessionState, Snapshot, Status } from "./types";
 
 const SPEAKING: ReadonlySet<Status> = new Set(["waiting", "done", "error"]);
@@ -9,10 +9,6 @@ export interface BubbleView {
   sessionId: string;
   status: Status;
   text: string;
-}
-
-export function fillFolder(template: string, folder: string): string {
-  return template.split("{folder}").join(folder);
 }
 
 type Pick = (lines: string[]) => string | undefined;
@@ -50,9 +46,9 @@ export class BubbleModel {
     }
     const key = triggerKey(next);
     if (this.current?.key === key) return this.current;
-    const template = this.pick(dialogue[next.status] ?? []);
+    const template = this.pick(linesFor(dialogue, categoryFor(next)));
     this.current = template
-      ? { key, sessionId: next.session_id, status: next.status, text: fillFolder(template, folderName(next)) }
+      ? { key, sessionId: next.session_id, status: next.status, text: fillTemplate(template, next) }
       : null;
     return this.current;
   }

@@ -7,6 +7,7 @@ import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { Bubble } from "./bubble";
 import { Acknowledged, triggerKey } from "./acknowledged";
 import { BubbleModel } from "./bubbleModel";
+import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, rectOf, type HitRegions, type Rect } from "./hitArea";
 import { renderPanel } from "./panel";
 import { PANEL_MODES, panelView, type PanelMode } from "./panelModel";
@@ -46,7 +47,7 @@ const hits = new HitReporter(collectHitRegions);
 let renderer: CharacterRenderer | undefined;
 let snapshot: Snapshot | null = null;
 let dialogue: Dialogue = {};
-// 利用者の dialogue.json に無い分類（後から足した reaction など）は、素材フォルダの既定で補う。
+// 組み込みの既定のセリフ。利用者の dialogue.json は上書きしたい分類だけを持ち、分類ごとに重ねる。
 let defaultDialogue: Dialogue = {};
 let speechTimer: number | undefined;
 let panelMode: PanelMode = "detail";
@@ -74,11 +75,11 @@ function focusedTool(s: Snapshot): string | null {
 }
 
 async function reloadDialogue(): Promise<void> {
-  const user = await invoke<Dialogue>("get_dialogue").catch((e) => {
+  const user = await invoke<unknown>("get_dialogue").catch((e) => {
     console.error("dialogue", e);
-    return dialogue;
+    return {};
   });
-  dialogue = { ...defaultDialogue, ...user };
+  dialogue = mergeDialogue(defaultDialogue, user);
 }
 
 function showSpeech(): void {
@@ -92,8 +93,11 @@ async function reactToTouch(): Promise<void> {
   renderer?.react();
   if (bubbleModel.view) return;
   await reloadDialogue();
-  const lines = dialogue.reaction ?? [];
-  const text = lines[Math.floor(Math.random() * lines.length)];
+  const aggregate = snapshot?.aggregate ?? "idle";
+  const focus = snapshot?.sessions.find((s) => s.status === aggregate) ?? null;
+  const lines = linesFor(dialogue, reactionCategory(aggregate));
+  const template = lines[Math.floor(Math.random() * lines.length)];
+  const text = template === undefined ? undefined : fillTemplate(template, focus);
   if (!speech.react(text, performance.now(), REACTION_SPEECH_MS, bubbleModel.view)) return;
   showSpeech();
   window.clearTimeout(speechTimer);

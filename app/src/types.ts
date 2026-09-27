@@ -31,6 +31,8 @@ export interface SessionState {
   cwd: string | null;
   status: Status;
   status_since: number;
+  status_reason?: string | null;
+  turn_started_at?: number | null;
   activity: Activity | null;
   last_event: string | null;
   updated_at: number;
@@ -55,4 +57,5 @@ export interface Snapshot {
   rate_limits: RateLimits | null;
 }
 
-export type Dialogue = Partial<Record<Status | "reaction", string[]>>;
+// 分類名はドット区切りで、細かい分類（waiting.permission など）から親の分類（waiting）へ戻れる。
+export type Dialogue = Record<string, string[]>;

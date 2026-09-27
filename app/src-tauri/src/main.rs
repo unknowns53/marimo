@@ -1,6 +1,7 @@
 // リリースビルドの Windows でコンソール窓を開かないようにする。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod dialogue;
 mod focus;
 mod hit;
 mod scale;
@@ -8,14 +9,11 @@ mod watch;
 mod window_pos;
 
 use std::fs;
-use std::io;
 use std::sync::Arc;
 
 use marimo_core::{MarimoHome, Snapshot, store};
 use serde_json::Value;
 use tauri::{AppHandle, LogicalSize, Manager, State, WebviewWindow};
-
-const DEFAULT_DIALOGUE: &str = include_str!("../../../assets/character/default/dialogue.json");
 
 struct AppState {
     home: MarimoHome,
@@ -27,23 +25,9 @@ fn get_snapshot(state: State<'_, AppState>) -> Snapshot {
     store::load_snapshot(&state.home)
 }
 
-// ユーザーが編集する `$MARIMO_HOME/dialogue.json` を優先する。無ければ既定のセリフを
-// そこへ書き出し、編集の起点になるファイルを用意しておく。
 #[tauri::command]
 fn get_dialogue(state: State<'_, AppState>) -> Value {
-    let path = state.home.dialogue_file();
-    match fs::read(&path) {
-        Ok(bytes) => {
-            if let Ok(value) = serde_json::from_slice(&bytes) {
-                return value;
-            }
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            let _ = store::write_atomic(&path, DEFAULT_DIALOGUE.as_bytes());
-        }
-        Err(_) => {}
-    }
-    serde_json::from_str(DEFAULT_DIALOGUE).unwrap_or(Value::Null)
+    dialogue::user_overrides(&state.home)
 }
 
 #[tauri::command]
@@ -97,6 +81,9 @@ fn main() {
     let home =
         MarimoHome::resolve().expect("cannot resolve the marimo home directory; set MARIMO_HOME");
     let _ = fs::create_dir_all(home.sessions_dir());
+    if let Err(e) = dialogue::retire_shipped_default(&home) {
+        eprintln!("marimo: cannot set aside the old default dialogue: {e}");
+    }
     let context = tauri::generate_context!();
     let hits = Arc::new(hit::HitState::default());
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { Acknowledged } from "./acknowledged";
-import { BubbleModel, fillFolder } from "./bubbleModel";
+import { BubbleModel } from "./bubbleModel";
 import { session, snap } from "./testFixtures";
 import type { Dialogue } from "./types";
 
@@ -90,7 +90,6 @@ describe("BubbleModel", () => {
     expect(m.update(snap(session("a", "waiting", 1)), { waiting: ["確認してね"] })?.text).toBe("確認してね");
     const n = model();
     expect(n.update(snap(session("a", "done", 1)), { waiting: ["x"] })).toBeNull();
-    expect(fillFolder("{folder} と {folder}", "m")).toBe("m と m");
   });
 });
 
