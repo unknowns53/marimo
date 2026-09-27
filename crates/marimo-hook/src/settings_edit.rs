@@ -30,6 +30,16 @@ pub struct Marimo {
     exe: String,
     raw: String,
     quoted: String,
+    status_line: StatusLinePolicy,
+}
+
+enum StatusLinePolicy {
+    Wrap,
+    // Windows の statusLine は Git Bash があれば Git Bash、なければ PowerShell で動く。
+    // 両者で引用の規則が違い、既存のコマンドを包む方法も確かめていないので、statusLine が
+    // 無いときだけ、どちらのシェルでも同じように読める一語のパスで登録する。
+    // plain はその一語で、そう書けないときは None になる。
+    AddOnly { plain: Option<String> },
 }
 
 impl Marimo {
@@ -38,6 +48,7 @@ impl Marimo {
             exe: exe_path.to_owned(),
             raw: exe_path.to_owned(),
             quoted: shell_quote(exe_path),
+            status_line: StatusLinePolicy::Wrap,
         }
     }
 
@@ -45,11 +56,14 @@ impl Marimo {
     // シェルを通す statusLine と、以前の shell form のフックでは、Git Bash が引用していない \ を
     // エスケープとして消してしまうので、statusline のドキュメントの Windows configuration の節に
     // あるとおり区切りを / にする。
-    pub fn windows(exe_path: &str) -> Self {
+    pub fn windows(exe_path: &str, home: Option<&str>) -> Self {
         let raw = exe_path.replace('\\', "/");
         Self {
             exe: exe_path.to_owned(),
             quoted: shell_quote(&raw),
+            status_line: StatusLinePolicy::AddOnly {
+                plain: shell_agnostic_path(exe_path, home),
+            },
             raw,
         }
     }
@@ -91,8 +105,13 @@ impl Marimo {
         Value::Object(out)
     }
 
-    fn statusline_command(&self) -> String {
-        format!("{} statusline", self.quoted)
+    fn statusline_command(&self) -> Option<String> {
+        match &self.status_line {
+            StatusLinePolicy::Wrap => Some(format!("{} statusline", self.quoted)),
+            StatusLinePolicy::AddOnly { plain } => {
+                plain.as_ref().map(|p| format!("{p} statusline"))
+            }
+        }
     }
 
     fn wrapped_statusline(&self, original: &str) -> String {
@@ -118,11 +137,50 @@ impl Marimo {
     }
 
     fn statusline_rest<'a>(&self, command: &'a str) -> Option<&'a str> {
+        let mut spellings = vec![self.quoted.as_str(), self.raw.as_str()];
+        if let StatusLinePolicy::AddOnly { plain: Some(p) } = &self.status_line {
+            spellings.push(p);
+        }
         let rest = self
-            .args_after(command, &[&self.quoted, &self.raw])?
+            .args_after(command, &spellings)?
             .strip_prefix(" statusline")?;
         (rest.is_empty() || rest.starts_with(" -- ")).then_some(rest)
     }
+}
+
+// Git Bash と PowerShell のどちらに渡しても、引用なしで同じ一つのパスとして読まれる書き方を返す。
+// ホームフォルダの下なら、ホームのパスに空白があっても避けられるよう ~/ で始める。
+// statusline のドキュメントの Windows configuration の節にあるとおり、~ はどちらのシェルでも
+// Windows のホームフォルダに展開される。Windows のパスは大文字と小文字を区別しないので、
+// ホームの下かどうかも区別せずに判定する。
+fn shell_agnostic_path(exe_path: &str, home: Option<&str>) -> Option<String> {
+    let exe = exe_path.replace('\\', "/");
+    let under_home = home
+        .map(|h| h.replace('\\', "/").trim_end_matches('/').to_owned())
+        .filter(|h| !h.is_empty())
+        .and_then(|h| {
+            let head = exe.get(..h.len())?;
+            let rest = exe.get(h.len()..)?.strip_prefix('/')?;
+            head.eq_ignore_ascii_case(&h).then(|| rest.to_owned())
+        });
+    match under_home {
+        Some(rest) => plain_word(&rest).then(|| format!("~/{rest}")),
+        None => plain_word(&exe).then_some(exe),
+    }
+}
+
+// 空白のほか、どちらかのシェルが特別に扱う記号を含まない一語だけを受け付ける。
+// 先頭の ~ はホームへの展開になるので、明示的に ~/ を付ける場合のほかは避ける。
+fn plain_word(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('~')
+        && s.chars().all(|c| {
+            if c.is_ascii() {
+                c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+' | ':' | '~')
+            } else {
+                !c.is_whitespace()
+            }
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,11 +228,7 @@ impl UninstallReport {
     }
 }
 
-pub fn install(
-    settings: &mut Value,
-    marimo: &Marimo,
-    wrap_status_line: bool,
-) -> Result<InstallReport, String> {
+pub fn install(settings: &mut Value, marimo: &Marimo) -> Result<InstallReport, String> {
     let root = settings
         .as_object_mut()
         .ok_or("settings.json の最上位が JSON のオブジェクトではありません")?;
@@ -226,14 +280,7 @@ pub fn install(
         added.push(event);
     }
 
-    let status_line = if wrap_status_line {
-        install_status_line(root, marimo)
-    } else {
-        StatusLineChange::Untouched {
-            reason: "Windows での statusLine の包み方は検証していないため、書き換えませんでした"
-                .to_owned(),
-        }
-    };
+    let status_line = install_status_line(root, marimo);
     Ok(InstallReport {
         added,
         migrated,
@@ -242,9 +289,17 @@ pub fn install(
     })
 }
 
+const API_HINT: &str = "利用制限を表示するには、アプリの右クリックメニューで「利用制限を API から取得」を有効にしてください";
+
 fn install_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> StatusLineChange {
     let Some(existing) = root.get_mut("statusLine") else {
-        let after = marimo.statusline_command();
+        let Some(after) = marimo.statusline_command() else {
+            return StatusLineChange::Untouched {
+                reason: format!(
+                    "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、statusLine を登録しませんでした。{API_HINT}"
+                ),
+            };
+        };
         root.insert(
             "statusLine".to_owned(),
             json!({ "type": "command", "command": after }),
@@ -258,6 +313,13 @@ fn install_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> Status
     };
     if marimo.statusline_rest(&command).is_some() {
         return StatusLineChange::AlreadyMarimo { current: command };
+    }
+    if let StatusLinePolicy::AddOnly { .. } = marimo.status_line {
+        return StatusLineChange::Untouched {
+            reason: format!(
+                "Windows では既存の statusLine を包む方法を検証していないため、書き換えませんでした。{API_HINT}"
+            ),
+        };
     }
     let after = marimo.wrapped_statusline(&command);
     existing["command"] = Value::String(after.clone());
@@ -512,7 +574,7 @@ mod tests {
     fn install_writes_exec_form_handlers() {
         let m = Marimo::new("/x y/marimo-hook");
         let mut settings = json!({});
-        let report = install(&mut settings, &m, true).unwrap();
+        let report = install(&mut settings, &m).unwrap();
         assert_eq!(report.added, EVENTS);
         for event in EVENTS {
             assert_eq!(
@@ -521,16 +583,16 @@ mod tests {
                 "{event}"
             );
         }
-        let again = install(&mut settings.clone(), &m, true).unwrap();
+        let again = install(&mut settings.clone(), &m).unwrap();
         assert!(!again.changed());
         assert_eq!(again.already, EVENTS);
     }
 
     #[test]
     fn exec_form_uses_the_native_windows_path() {
-        let m = Marimo::windows(r"C:\Users\a b\.marimo\bin\marimo-hook.exe");
+        let m = Marimo::windows(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", None);
         let mut settings = json!({});
-        install(&mut settings, &m, false).unwrap();
+        install(&mut settings, &m).unwrap();
         assert_eq!(
             settings["hooks"]["Stop"][0]["hooks"][0],
             exec(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", json!(["hook"]))
@@ -557,7 +619,7 @@ mod tests {
                 {"type": "command", "command": "/x y/marimo-hook hook", "async": true, "timeout": 5}
             ]}]
         }});
-        let report = install(&mut settings, &m, true).unwrap();
+        let report = install(&mut settings, &m).unwrap();
         assert!(report.changed());
         assert_eq!(report.migrated, ["SessionStart", "Stop"]);
         assert!(!report.added.contains(&"Stop"));
@@ -578,7 +640,7 @@ mod tests {
         assert_eq!(migrated["command"], "/x y/marimo-hook");
 
         let before = settings.clone();
-        let again = install(&mut settings, &m, true).unwrap();
+        let again = install(&mut settings, &m).unwrap();
         assert!(!again.changed());
         assert!(again.migrated.is_empty());
         assert_eq!(settings, before);
@@ -616,7 +678,7 @@ mod tests {
         ]}]);
         let original = json!({"hooks": {"Stop": foreign}});
         let mut settings = original.clone();
-        let report = install(&mut settings, &m, true).unwrap();
+        let report = install(&mut settings, &m).unwrap();
         assert!(report.added.contains(&"Stop"));
         assert!(report.migrated.is_empty());
         assert_eq!(settings["hooks"]["Stop"][0], original["hooks"]["Stop"][0]);
@@ -628,6 +690,154 @@ mod tests {
     }
 
     #[test]
+    fn windows_status_line_path_reads_the_same_in_git_bash_and_powershell() {
+        let home = Some(r"C:\Users\user");
+        let cases = [
+            (
+                r"C:\Users\user\.marimo\bin\marimo-hook.exe",
+                home,
+                Some("~/.marimo/bin/marimo-hook.exe"),
+            ),
+            // ホームのパスに空白があっても、~/ で始めれば引用せずに済む。
+            (
+                r"C:\Users\A User\.marimo\bin\marimo-hook.exe",
+                Some(r"C:\Users\A User"),
+                Some("~/.marimo/bin/marimo-hook.exe"),
+            ),
+            (
+                r"C:\Users\USER\.marimo\bin\marimo-hook.exe",
+                Some(r"c:\users\user\"),
+                Some("~/.marimo/bin/marimo-hook.exe"),
+            ),
+            (
+                r"C:\Users\山田\.marimo\bin\marimo-hook.exe",
+                Some(r"C:\Users\山田"),
+                Some("~/.marimo/bin/marimo-hook.exe"),
+            ),
+            (
+                r"D:\tools\marimo\bin\marimo-hook.exe",
+                home,
+                Some("D:/tools/marimo/bin/marimo-hook.exe"),
+            ),
+            (
+                r"D:\tools\marimo-hook.exe",
+                None,
+                Some("D:/tools/marimo-hook.exe"),
+            ),
+            // 名前の先頭だけがホームと同じフォルダは、ホームの下ではない。
+            (
+                r"C:\Users\username\.marimo\bin\marimo-hook.exe",
+                home,
+                Some("C:/Users/username/.marimo/bin/marimo-hook.exe"),
+            ),
+            // 8.3 形式の短い名前の途中にある ~ は、どちらのシェルでも展開されない。
+            (
+                r"C:\Users\RUNNER~1\AppData\Local\Temp\m\bin\marimo-hook.exe",
+                Some(r"C:\Users\runneradmin"),
+                Some("C:/Users/RUNNER~1/AppData/Local/Temp/m/bin/marimo-hook.exe"),
+            ),
+            (r"D:\My Tools\marimo-hook.exe", home, None),
+            (r"C:\Users\user\marimo home\bin\marimo-hook.exe", home, None),
+            (
+                r"C:\Users\user\マリモ　ホーム\bin\marimo-hook.exe",
+                home,
+                None,
+            ),
+            (r"D:\a$b\marimo-hook.exe", home, None),
+            (r"D:\a(b)\marimo-hook.exe", home, None),
+            (r"D:\it's\marimo-hook.exe", home, None),
+            (r"D:\a;b\marimo-hook.exe", home, None),
+        ];
+        for (exe, home, expected) in cases {
+            assert_eq!(shell_agnostic_path(exe, home).as_deref(), expected, "{exe}");
+        }
+    }
+
+    #[test]
+    fn windows_registers_a_plain_status_line_only_when_none_exists() {
+        let m = Marimo::windows(
+            r"C:\Users\user\.marimo\bin\marimo-hook.exe",
+            Some(r"C:\Users\user"),
+        );
+        let mut settings = json!({"model": "opus"});
+        let report = install(&mut settings, &m).unwrap();
+        let command = "~/.marimo/bin/marimo-hook.exe statusline";
+        assert_eq!(
+            report.status_line,
+            StatusLineChange::Added {
+                after: command.to_owned()
+            }
+        );
+        assert_eq!(
+            settings["statusLine"],
+            json!({"type": "command", "command": command})
+        );
+
+        let before = settings.clone();
+        let again = install(&mut settings, &m).unwrap();
+        assert!(!again.changed());
+        assert_eq!(
+            again.status_line,
+            StatusLineChange::AlreadyMarimo {
+                current: command.to_owned()
+            }
+        );
+        assert_eq!(settings, before);
+
+        let report = uninstall(&mut settings, &m).unwrap();
+        assert_eq!(
+            report.status_line,
+            StatusLineChange::Removed {
+                before: command.to_owned()
+            }
+        );
+        assert_eq!(settings, json!({"model": "opus"}));
+
+        // ホームの外に置いた場合の / 区切りの絶対パスも、marimo のものとして取り除く。
+        let outside = Marimo::windows(r"D:\tools\marimo-hook.exe", Some(r"C:\Users\user"));
+        let mut settings = json!({});
+        install(&mut settings, &outside).unwrap();
+        assert_eq!(
+            settings["statusLine"]["command"],
+            "D:/tools/marimo-hook.exe statusline"
+        );
+        uninstall(&mut settings, &outside).unwrap();
+        assert_eq!(settings, json!({}));
+    }
+
+    #[test]
+    fn windows_leaves_existing_or_unwritable_status_lines_alone() {
+        let m = Marimo::windows(
+            r"C:\Users\user\.marimo\bin\marimo-hook.exe",
+            Some(r"C:\Users\user"),
+        );
+        let original =
+            json!({"statusLine": {"type": "command", "command": "bash ~/.claude/statusline.sh"}});
+        let mut settings = original.clone();
+        let report = install(&mut settings, &m).unwrap();
+        let StatusLineChange::Untouched { reason } = &report.status_line else {
+            panic!("{:?}", report.status_line);
+        };
+        assert!(reason.contains("「利用制限を API から取得」"), "{reason}");
+        assert_eq!(settings["statusLine"], original["statusLine"]);
+        uninstall(&mut settings, &m).unwrap();
+        assert_eq!(settings, original);
+
+        let spaced = Marimo::windows(r"D:\My Tools\marimo-hook.exe", Some(r"C:\Users\user"));
+        let mut settings = json!({});
+        let report = install(&mut settings, &spaced).unwrap();
+        let StatusLineChange::Untouched { reason } = &report.status_line else {
+            panic!("{:?}", report.status_line);
+        };
+        assert!(reason.contains("「利用制限を API から取得」"), "{reason}");
+        assert!(settings.get("statusLine").is_none());
+        assert_eq!(
+            settings["hooks"]["Stop"][0]["hooks"][0]["command"],
+            r"D:\My Tools\marimo-hook.exe"
+        );
+    }
+
+    #[test]
     fn install_and_uninstall_leave_foreign_prefix_commands_alone() {
         let m = Marimo::new("/x/marimo-hook");
         let foreign_hook = "/x/marimo-hook-backup hook";
@@ -636,7 +846,7 @@ mod tests {
             "hooks": {"Stop": [{"hooks": [{"type": "command", "command": foreign_hook}]}]},
             "statusLine": {"type": "command", "command": foreign_status}
         });
-        let report = install(&mut settings, &m, true).unwrap();
+        let report = install(&mut settings, &m).unwrap();
         assert!(report.added.contains(&"Stop"));
         assert_eq!(
             report.status_line,

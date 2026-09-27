@@ -70,7 +70,8 @@ fn default_settings_path() -> Result<PathBuf, String> {
 fn marimo_for(exe: &Path) -> Marimo {
     let exe = exe.to_string_lossy();
     if cfg!(windows) {
-        Marimo::windows(&exe)
+        let home = user_home().map(|h| h.to_string_lossy().into_owned());
+        Marimo::windows(&exe, home.as_deref())
     } else {
         Marimo::new(&exe)
     }
@@ -81,7 +82,7 @@ fn install(opts: &Options, exe: &Path, marimo: &Marimo) -> Result<(), String> {
     let mut settings = original
         .as_ref()
         .map_or_else(|| Value::Object(Default::default()), |s| s.value.clone());
-    let report = settings_edit::install(&mut settings, marimo, !cfg!(windows))?;
+    let report = settings_edit::install(&mut settings, marimo)?;
     let mut out = String::new();
 
     if opts.dry_run {
@@ -125,9 +126,6 @@ fn install(opts: &Options, exe: &Path, marimo: &Marimo) -> Result<(), String> {
         )?;
     } else {
         out += "変更はありません（すでにインストール済みです）。\n";
-    }
-    if cfg!(windows) {
-        out += "Windows では statusLine を書き換えていないため、利用制限は statusLine からは届きません。表示するには、アプリの右クリックメニューで「利用制限を API から取得」を有効にしてください。\n";
     }
     print(&out);
     Ok(())

@@ -22,7 +22,7 @@ const EVENTS: [&str; 14] = [
 ];
 
 struct Env {
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
     home: PathBuf,
     settings: PathBuf,
 }
@@ -36,7 +36,7 @@ impl Env {
         Self {
             home,
             settings: claude.join("settings.json"),
-            _dir: dir,
+            dir,
         }
     }
 
@@ -53,6 +53,10 @@ impl Env {
             .arg("--settings")
             .arg(&self.settings)
             .env("MARIMO_HOME", &self.home)
+            // Windows の statusLine の書き方はホームフォルダの下かどうかで変わるので、
+            // 一時フォルダをホームとして渡して結果を決まったものにする。
+            .env("HOME", self.dir.path())
+            .env("USERPROFILE", self.dir.path())
             .env_remove("CLAUDE_CONFIG_DIR")
             .stdin(Stdio::null())
             .output()
@@ -224,12 +228,18 @@ fn install_then_uninstall_restores_realistic_settings() {
         3
     );
     assert_eq!(installed["hooks"]["PreToolUse"][0]["matcher"], "Bash");
+    #[cfg(unix)]
     assert_eq!(
         installed["statusLine"]["command"],
         format!(
             "'{}' statusline -- sh -c 'bash ~/.claude/statusline.sh'",
             exe.display()
         )
+    );
+    #[cfg(windows)]
+    assert_eq!(
+        installed["statusLine"]["command"],
+        "bash ~/.claude/statusline.sh"
     );
     assert_eq!(installed["statusLine"]["padding"], 0);
     let keys: Vec<_> = installed.as_object().unwrap().keys().cloned().collect();
@@ -251,10 +261,13 @@ fn install_then_uninstall_restores_realistic_settings() {
     assert_eq!(fs::read_to_string(&backups[0]).unwrap(), original);
     let text = stdout(&out);
     assert!(text.contains("バックアップ"), "{text}");
+    #[cfg(unix)]
     assert!(
         text.contains("変更前: bash ~/.claude/statusline.sh"),
         "{text}"
     );
+    #[cfg(windows)]
+    assert!(text.contains("「利用制限を API から取得」"), "{text}");
 
     let out = env.run(&["uninstall"]);
     assert!(
@@ -267,6 +280,7 @@ fn install_then_uninstall_restores_realistic_settings() {
         env.json(),
         serde_json::from_str::<Value>(&original).unwrap()
     );
+    #[cfg(unix)]
     assert!(stdout(&out).contains("元のコマンドへ戻します"));
     assert!(exe.is_file(), "uninstall must not delete the executable");
 }
@@ -304,15 +318,21 @@ fn minimal_settings_round_trip() {
         for event in EVENTS {
             assert!(installed["hooks"][event].is_array(), "{original} {event}");
         }
-        let status = installed["statusLine"]["command"].as_str().unwrap();
-        if original.get("statusLine").is_none() {
-            assert!(status.ends_with(" statusline"), "{status}");
-        } else {
-            assert!(
-                status.ends_with(" statusline -- sh -c 'echo hi'"),
-                "{status}"
-            );
+        #[cfg(unix)]
+        {
+            let status = installed["statusLine"]["command"].as_str().unwrap();
+            if original.get("statusLine").is_none() {
+                assert!(status.ends_with(" statusline"), "{status}");
+            } else {
+                assert!(
+                    status.ends_with(" statusline -- sh -c 'echo hi'"),
+                    "{status}"
+                );
+            }
         }
+        // 既存の statusLine は包まない。実行ファイルのパスに空白があるので、新しく登録もしない。
+        #[cfg(windows)]
+        assert_eq!(installed.get("statusLine"), original.get("statusLine"));
         let out = env.run(&["uninstall"]);
         assert!(out.status.success());
         assert_eq!(env.text(), text, "round trip of {original}");
@@ -468,6 +488,7 @@ fn commands_sharing_the_executable_prefix_are_left_alone() {
         installed["hooks"]["Stop"][0]["hooks"][0]["command"],
         foreign_hook
     );
+    #[cfg(unix)]
     assert_eq!(
         installed["statusLine"]["command"],
         format!(
@@ -475,6 +496,8 @@ fn commands_sharing_the_executable_prefix_are_left_alone() {
             env.installed_exe().display()
         )
     );
+    #[cfg(windows)]
+    assert_eq!(installed["statusLine"]["command"], foreign_status);
 
     let once = env.text();
     let out = env.run(&["install"]);
@@ -629,6 +652,39 @@ fn exec_handlers_that_only_look_like_marimo_are_left_alone() {
 
     assert!(env.run(&["uninstall"]).status.success());
     assert_eq!(env.text(), original);
+}
+
+// ホームフォルダの下に置いた実行ファイルは、Git Bash と PowerShell のどちらでも読める ~/ の形で
+// statusLine に登録する。
+#[cfg(windows)]
+#[test]
+fn windows_status_line_uses_the_home_relative_path() {
+    let env = Env::new("m");
+    fs::write(&env.settings, "{}").unwrap();
+    let out = env.run(&["install"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let installed = env.json();
+    assert_eq!(
+        installed["statusLine"],
+        json!({"type": "command", "command": "~/m/bin/marimo-hook.exe statusline"})
+    );
+    assert_eq!(
+        installed["hooks"]["Stop"],
+        json!([{"hooks": [env.exec_handler()]}])
+    );
+
+    let once = env.text();
+    let out = env.run(&["install"]);
+    assert!(out.status.success());
+    assert_eq!(env.text(), once);
+    assert!(stdout(&out).contains("変更はありません"));
+
+    assert!(env.run(&["uninstall"]).status.success());
+    assert_eq!(env.json(), json!({}));
 }
 
 #[cfg(unix)]
