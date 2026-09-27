@@ -13,3 +13,6 @@ app/src-tauri/gen/
 
 # Python の仮想環境（素材の背景除去に使う rembg など）
 .venv/
+
+# ツールを import したときに Python が作るキャッシュ
+__pycache__/

@@ -1,16 +1,74 @@
 {
   "base": "art/default/base.png",
   "out_dir": "assets/character/default",
-  "canvas": [800, 1200],
+  "canvas": [
+    800,
+    1200
+  ],
   "rembg_model": "isnet-anime",
-  "face_ellipse": { "cx": 505, "cy": 500, "rx": 265, "ry": 215 },
+  "face_ellipse": {
+    "cx": 505,
+    "cy": 500,
+    "rx": 265,
+    "ry": 215
+  },
   "states": {
-    "idle": { "source": "base" },
-    "idle_blink": { "face": "art/default/idle_blink.png" },
-    "working": { "face": "art/default/working.png" },
-    "working_blink": { "face": "art/default/working_blink.png", "onto": "working" },
-    "waiting": { "whole": "art/default/waiting.png" },
-    "done": { "face": "art/default/done.png" },
-    "error": { "face": "art/default/error.png" }
+    "idle": {
+      "source": "base"
+    },
+    "idle_blink": {
+      "face": "art/default/idle_blink.png"
+    },
+    "working": {
+      "face": "art/default/working.png"
+    },
+    "working_blink": {
+      "face": "art/default/working_blink.png",
+      "onto": "working"
+    },
+    "waiting": {
+      "whole": "art/default/waiting.png"
+    },
+    "done": {
+      "face": "art/default/done.png"
+    },
+    "error": {
+      "face": "art/default/error.png"
+    },
+    "working_focus": {
+      "face": "art/default/working_focus.png"
+    },
+    "working_focus_blink": {
+      "face": "art/default/working_focus_blink.png",
+      "onto": "working_focus"
+    },
+    "working_curious": {
+      "face": "art/default/working_curious.png"
+    },
+    "working_curious_blink": {
+      "face": "art/default/working_curious_blink.png",
+      "onto": "working_curious"
+    },
+    "idle_look_away": {
+      "face": "art/default/idle_look_away.png"
+    },
+    "react_shy": {
+      "face": "art/default/react_shy.png"
+    },
+    "idle_hair": {
+      "whole": "art/default/idle_hair.png"
+    },
+    "idle_yawn": {
+      "whole": "art/default/idle_yawn.png"
+    },
+    "idle_tea": {
+      "whole": "art/default/idle_tea.png"
+    },
+    "idle_chin": {
+      "whole": "art/default/idle_chin.png"
+    },
+    "idle_stretch": {
+      "whole": "art/default/idle_stretch.png"
+    }
   }
 }
