@@ -4,9 +4,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use marimo_core::MarimoHome;
 use marimo_core::paths::user_home;
 use marimo_core::time::now_ms;
+use marimo_core::{MarimoHome, store};
 use serde_json::Value;
 
 use crate::settings_edit::{self, Marimo, StatusLineChange};
@@ -259,13 +259,25 @@ fn write_replacing(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .and_then(|n| n.to_str())
         .unwrap_or("settings.json");
     let tmp = dir.join(format!(".{name}.marimo-{}.tmp", std::process::id()));
+    // 前に失敗した実行の一時ファイルが残っていると create_new が失敗するので、先に消す。
+    let _ = fs::remove_file(&tmp);
+    let original = fs::metadata(path).ok().map(|m| m.permissions());
     let result = (|| -> io::Result<()> {
-        let mut f = fs::File::create(&tmp)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // 書き込む前から元のファイルの権限で作り、0600 の設定が umask の既定の権限で
+        // 一瞬でも他人に読める状態にならないようにする。元のファイルがなければ本人だけにする。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            options.mode(original.as_ref().map_or(0o600, |p| p.mode() & 0o777));
+        }
+        let mut f = options.open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
-        // 元のファイルの権限（0600 など）を新しいファイルにも引き継ぐ。
-        if let Ok(meta) = fs::metadata(path) {
-            fs::set_permissions(&tmp, meta.permissions())?;
+        // umask で落ちたビットも含めて、元のファイルの権限を引き継ぐ。
+        if let Some(permissions) = original {
+            fs::set_permissions(&tmp, permissions)?;
         }
         fs::rename(&tmp, path)
     })();
@@ -287,7 +299,8 @@ fn copy_self(dest: &Path) -> Result<bool, String> {
         return Ok(false);
     }
     let dir = dest.parent().ok_or("実行ファイルの置き場所が不正です")?;
-    fs::create_dir_all(dir).map_err(|e| format!("{} を作れません: {e}", dir.display()))?;
+    store::create_private_dir_all(dir)
+        .map_err(|e| format!("{} を作れません: {e}", dir.display()))?;
     // 実行中の古いバイナリを上書きせず、別名で書いてから rename して差し替える。
     // macOS は同じ inode への上書きで署名の検証に失敗し、実行中のプロセスを落とすことがある。
     let tmp = dir.join(format!(".marimo-hook.{}.tmp", std::process::id()));
@@ -344,5 +357,31 @@ mod tests {
     #[test]
     fn stamp_format() {
         assert_eq!(utc_stamp(1_790_509_325_123), "20260927-114205");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_keeps_the_original_mode_and_new_files_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        for original in [0o600, 0o644, 0o664] {
+            let path = dir.path().join(format!("settings-{original:o}.json"));
+            fs::write(&path, "{}").unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(original)).unwrap();
+            write_replacing(&path, b"{\"a\": 1}\n").unwrap();
+            assert_eq!(mode(&path), original);
+            assert_eq!(fs::read(&path).unwrap(), b"{\"a\": 1}\n");
+        }
+
+        let fresh = dir.path().join("fresh.json");
+        // 前の実行が残した一時ファイルがあっても書き込める。
+        let stale = dir
+            .path()
+            .join(format!(".fresh.json.marimo-{}.tmp", std::process::id()));
+        fs::write(&stale, "stale").unwrap();
+        write_replacing(&fresh, b"{}\n").unwrap();
+        assert_eq!(mode(&fresh), 0o600);
+        assert!(!stale.exists());
     }
 }

@@ -21,11 +21,35 @@ use crate::transcript::TranscriptUsage;
 // 起きうるのは同時に来た更新の片方が失われることだけである。
 const LOCK_WAIT: Duration = Duration::from_millis(300);
 
+// セッションのファイルは実行中のコマンドの文字列を含むので、marimo が作るフォルダと
+// ファイルは本人だけが読めるようにする。すでにあるフォルダの権限は利用者が決めたものとして変えない。
+pub fn create_private_dir_all(dir: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(dir)
+}
+
+fn private_file_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+}
+
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
-    fs::create_dir_all(dir)?;
+    create_private_dir_all(dir)?;
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("state");
     // 監視側は `.` で始まる名前と `.tmp` を無視する。同じディレクトリに置くのは、
     // rename が同一ボリューム内でしか原子的にならないためである。
@@ -37,7 +61,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         TMP_SEQ.fetch_add(1, Ordering::Relaxed)
     ));
     {
-        let mut f = File::create(&tmp)?;
+        let mut f = private_file_options().truncate(true).open(&tmp)?;
         f.write_all(bytes)?;
         // 状態ファイルは次のフックで作り直せるので、fsync は呼ばない。macOS の
         // sync_all は F_FULLFSYNC になり、数十ミリ秒の予算を一回で使い切ることがある。
@@ -83,7 +107,7 @@ pub fn lock_home(home: &MarimoHome) -> HomeLock {
 }
 
 fn try_lock_file(path: &Path) -> Option<File> {
-    fs::create_dir_all(path.parent()?).ok()?;
+    create_private_dir_all(path.parent()?).ok()?;
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -257,12 +281,11 @@ pub fn append_record(home: &MarimoHome, label: &str, stdin: &[u8]) -> io::Result
 
     let path = home.record_file();
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        create_private_dir_all(dir)?;
     }
     let _lock = lock_home(home);
     // 一行を一回の write で追記し、並行する記録どうしが行の途中で混ざらないようにする。
-    OpenOptions::new()
-        .create(true)
+    private_file_options()
         .append(true)
         .open(&path)?
         .write_all(&line)
@@ -302,6 +325,34 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(names, vec![std::ffi::OsString::from("a.json")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn created_files_and_folders_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let home = MarimoHome::at(dir.path().join("new-home"));
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        hook(
+            &home,
+            json!({"session_id":"s1","hook_event_name":"SessionStart","source":"startup"}),
+        );
+        append_record(&home, "Stop", b"{}").unwrap();
+        assert_eq!(mode(home.root()), 0o700);
+        assert_eq!(mode(&home.sessions_dir()), 0o700);
+        assert_eq!(mode(home.record_file().parent().unwrap()), 0o700);
+        assert_eq!(mode(&home.session_file("s1").unwrap()), 0o600);
+        assert_eq!(mode(&home.record_file()), 0o600);
+
+        // 利用者がすでに用意していたフォルダの権限は変えない。
+        let existing = dir.path().join("existing");
+        fs::create_dir(&existing).unwrap();
+        fs::set_permissions(&existing, fs::Permissions::from_mode(0o755)).unwrap();
+        write_atomic(&existing.join("a.json"), b"{}").unwrap();
+        assert_eq!(mode(&existing), 0o755);
+        assert_eq!(mode(&existing.join("a.json")), 0o600);
     }
 
     #[test]

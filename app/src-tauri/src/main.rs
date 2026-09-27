@@ -11,7 +11,6 @@ mod usage;
 mod watch;
 mod window_pos;
 
-use std::fs;
 use std::sync::Arc;
 
 use marimo_core::{MarimoHome, Snapshot, store};
@@ -106,7 +105,7 @@ fn quit(app: AppHandle) {
 fn main() {
     let home =
         MarimoHome::resolve().expect("cannot resolve the marimo home directory; set MARIMO_HOME");
-    let _ = fs::create_dir_all(home.sessions_dir());
+    let _ = store::create_private_dir_all(&home.sessions_dir());
     if let Err(e) = dialogue::retire_shipped_default(&home) {
         eprintln!("marimo: cannot set aside the old default dialogue: {e}");
     }
