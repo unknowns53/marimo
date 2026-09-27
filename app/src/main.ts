@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Bubble } from "./bubble";
 import { renderPanel } from "./panel";
 import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
+import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import type { Dialogue, Snapshot, Status } from "./types";
 
 const CHARACTER_BASE = new URL("/character/default/", window.location.href).href;
@@ -25,6 +26,7 @@ let renderer: CharacterRenderer | undefined;
 let snapshot: Snapshot | null = null;
 let shown: Status = "idle";
 let showRows = readShowRows();
+let scale: ScaleControl | undefined;
 
 function applySnapshot(next: Snapshot): void {
   snapshot = next;
@@ -68,6 +70,17 @@ function setShowRows(value: boolean): void {
 }
 
 async function openMenu(): Promise<void> {
+  const marked = scale ? nearestPreset(scale.current) : undefined;
+  const sizeItems = await Promise.all(
+    SCALE_PRESETS.map((p) =>
+      CheckMenuItem.new({
+        text: p.label,
+        checked: p.scale === marked,
+        enabled: scale !== undefined,
+        action: () => scale?.set(p.scale),
+      }),
+    ),
+  );
   const menu = await Menu.new({
     items: [
       await CheckMenuItem.new({
@@ -75,6 +88,8 @@ async function openMenu(): Promise<void> {
         checked: showRows,
         action: () => setShowRows(!showRows),
       }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      ...sizeItems,
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({ text: "終了", action: () => void invoke("quit") }),
     ],
@@ -95,6 +110,12 @@ function bindWindowControls(): void {
 
 async function start(): Promise<void> {
   bindWindowControls();
+  try {
+    scale = new ScaleControl(await invoke<number>("get_scale"));
+    scale.bindWheel(stage);
+  } catch (e) {
+    console.error("scale", e);
+  }
   try {
     const manifest = await loadManifest(CHARACTER_BASE);
     renderer = createRenderer(manifest, CHARACTER_BASE);

@@ -53,6 +53,10 @@ impl MarimoHome {
     pub fn dialogue_file(&self) -> PathBuf {
         self.root.join("dialogue.json")
     }
+
+    pub fn display_file(&self) -> PathBuf {
+        self.root.join("display.json")
+    }
 }
 
 fn is_safe_id(id: &str) -> bool {

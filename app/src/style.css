@@ -8,6 +8,8 @@
   --waiting: #f59e0b;
   --done: #34d399;
   --error: #f87171;
+  /* 立ち絵の表示倍率。Rust の set_scale が返した値を main.ts が入れる。 */
+  --scale: 1;
 }
 
 html,
@@ -37,8 +39,8 @@ body {
 
 #stage {
   position: relative;
-  width: 180px;
-  height: 270px;
+  width: calc(180px * var(--scale));
+  height: calc(270px * var(--scale));
   flex: none;
 }
 
@@ -79,7 +81,7 @@ body {
 
 #bubble {
   position: absolute;
-  bottom: calc(100% - 28px);
+  bottom: calc(100% - 28px * var(--scale));
   left: 50%;
   z-index: 2;
   width: max-content;
