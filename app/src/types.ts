@@ -39,6 +39,17 @@ export interface SessionState {
   updated_at: number;
   context: ContextUsage | null;
   origin?: Origin | null;
+  own_status?: Status;
+  own_activity?: Activity;
+  own_status_reason?: string;
+  agents?: Record<string, AgentRun>;
+}
+
+export interface AgentRun {
+  agent_type?: string;
+  started_at: number;
+  last_seen: number;
+  pending?: Activity;
 }
 
 export interface RateWindow {

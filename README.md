@@ -39,13 +39,19 @@ marimo は Claude Code のセッションを次の五つの状態に分けて扱
 
 | 状態 | 意味 | この状態になるきっかけ |
 | --- | --- | --- |
-| 承認待ち | Claude Code が利用者の操作を待っています | ツールの実行許可の確認（PermissionRequest）、質問（AskUserQuestion）、計画の承認（ExitPlanMode）、入力の要求（Elicitation）、承認待ちの通知 |
+| 承認待ち | Claude Code が利用者の操作を待っています | ツールの実行許可の確認（PermissionRequest。サブエージェントからのものを含みます）、質問（AskUserQuestion）、計画の承認（ExitPlanMode）、入力の要求（Elicitation）、承認待ちの通知 |
 | エラー | 応答が途中で失敗しました | StopFailure（利用制限に達したときなど） |
-| 作業中 | Claude が考えているか、ツールを使っています | プロンプトの送信、ツールの実行の前後 |
-| 完了 | 応答が終わりました | Stop |
+| 作業中 | Claude が考えているか、ツールを使っているか、サブエージェントが動いています | プロンプトの送信、ツールの実行の前後、サブエージェントの開始（SubagentStart） |
+| 完了 | 応答が終わり、動いているサブエージェントもありません | Stop、最後のサブエージェントの終了（SubagentStop） |
 | 待機 | 何もしていません | セッションの開始。中断などで作業中のまま残ったセッションは、応答の終了から 60 秒ほどで届く待機の通知（idle_prompt）でも待機へ戻ります |
 
 完了は「応答が終わった」ことだけを意味し、成功したとは限りません。完了の状態は、次のプロンプトを送るまで続きます。セッションが終わる（SessionEnd）と、marimo はそのセッションを一覧から消します。
+
+サブエージェント（Claude が Agent ツールで起動する別の Claude）の中で発火したフックも、親のセッションと同じ session_id で届きます。marimo は、フックの入力にある `agent_id` の項目でこれを見分けます。hooks のドキュメントの Common input fields によると、この項目はサブエージェントの中で発火したときだけ入ります。`--agent` で起動したセッションでは親の会話のフックにも `agent_type` が入るので、`agent_type` は見分けには使いません。
+
+サブエージェントのフックは、行の作業フォルダ名も、セッション自身の進み具合も書き換えません。worktree で隔離されたサブエージェントが別のフォルダで動いても、行の名前は親のセッションのフォルダのままです。marimo は SubagentStart と SubagentStop で動いているサブエージェントを覚えておき、一つでも動いている間は、親のセッションの応答が終わった後でも作業中として出します。最後のサブエージェントが終わると完了になり、完了までにかかった時間もそこまでで数えます。サブエージェントがツールの実行許可を求めたときは承認待ちとして出し、許可か拒否が済むと元の表示に戻ります。サブエージェントが失敗したときなどに SubagentStop が届くとは限らないので、30 分のあいだ何のイベントも届かないサブエージェントは終わったものとして扱います。
+
+SubagentStart と SubagentStop のフックを登録していない以前の版の設定では、サブエージェントの終わりが分からず、終わった後も 30 分ほど作業中のまま残ります。以前の版で `install` を実行していた場合は、`install` を実行し直してください。足りないイベントだけが追加され、すでに登録してあるフックはそのまま残ります。
 
 複数のセッションが同時に動いているとき、立ち絵の表情にはいちばん優先度の高い状態が出ます。優先度は高い順に、承認待ち、エラー、作業中、完了、待機です。完了を作業中より下に置いているのは、あるセッションの作業を見守っている間に、他のセッションが終わるたびに表情が切り替わらないようにするためです。完了したことはパネルの行の色で分かります。
 
@@ -152,8 +158,8 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。`target/
 `install` は次のことを行います。
 
 1. 自分自身を `~/.marimo/bin/marimo-hook` へコピーします。settings.json にはこのパスが書かれるので、リポジトリの `target/` を消したりビルドし直したりしても、フックは動き続けます。
-2. 設定ファイルの `hooks` に、次の 14 のイベントそれぞれについて、`~/.marimo/bin/marimo-hook` に `hook` という引数を渡して呼ぶフックを追加します。タイムアウトは 5 秒です。
-   SessionStart、UserPromptSubmit、PreToolUse、PermissionRequest、PermissionDenied、PostToolUse、PostToolUseFailure、Notification、Elicitation、ElicitationResult、Stop、StopFailure、SessionEnd、MessageDisplay
+2. 設定ファイルの `hooks` に、次の 16 のイベントそれぞれについて、`~/.marimo/bin/marimo-hook` に `hook` という引数を渡して呼ぶフックを追加します。タイムアウトは 5 秒です。
+   SessionStart、UserPromptSubmit、PreToolUse、PermissionRequest、PermissionDenied、PostToolUse、PostToolUseFailure、Notification、Elicitation、ElicitationResult、Stop、StopFailure、SessionEnd、MessageDisplay、SubagentStart、SubagentStop
 
    追加するフックは、macOS では次の形になります。`command` には実行ファイルの絶対パスが入り、Windows では `C:\Users\<ユーザー名>\.marimo\bin\marimo-hook.exe` のような `\` 区切りのパスになります。
 

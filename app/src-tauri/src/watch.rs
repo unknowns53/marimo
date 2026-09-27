@@ -56,7 +56,7 @@ pub fn spawn(app: AppHandle, home: MarimoHome) {
     });
 }
 
-// 消したファイルは監視が削除のイベントとして受け取り、スナップショットを送り直すので、
+// 消したファイルや書き直したファイルは監視が受け取り、スナップショットを送り直すので、
 // ここから画面へ知らせる必要はない。
 pub fn spawn_pruner(home: MarimoHome) {
     thread::spawn(move || {

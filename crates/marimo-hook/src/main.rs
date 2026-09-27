@@ -98,8 +98,10 @@ fn hook() -> Result<(), String> {
                 .ok()
                 .flatten()
         });
+    // サブエージェントのフックで親の行を書くのは承認待ちの出入りだけなので、起動元の手がかりは
+    // 親の会話のフックからだけ取る。
     let extras = store::HookExtras {
-        origin: Some(origin::detect()),
+        origin: parsed.subagent().is_none().then(origin::detect),
         transcript,
     };
     store::apply_hook(&home()?, &parsed, &extras).map_err(|e| format!("write failed: {e}"))

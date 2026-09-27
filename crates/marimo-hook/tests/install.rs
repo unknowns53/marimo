@@ -4,7 +4,7 @@ use std::process::{Command, Output, Stdio};
 
 use serde_json::{Value, json};
 
-const EVENTS: [&str; 14] = [
+const EVENTS: [&str; 16] = [
     "SessionStart",
     "UserPromptSubmit",
     "PreToolUse",
@@ -19,6 +19,8 @@ const EVENTS: [&str; 14] = [
     "StopFailure",
     "SessionEnd",
     "MessageDisplay",
+    "SubagentStart",
+    "SubagentStop",
 ];
 
 struct Env {

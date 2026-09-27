@@ -8,6 +8,6 @@ pub mod transcript;
 pub use activity::{Activity, ActivityKind};
 pub use paths::MarimoHome;
 pub use state::{
-    ContextUsage, HookInput, Origin, RateLimits, RateWindow, SessionState, Snapshot, Status,
-    Transition, aggregate,
+    AgentRun, ContextUsage, HookInput, Origin, RateLimits, RateWindow, SessionState, Snapshot,
+    Status, Transition, aggregate,
 };

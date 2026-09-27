@@ -2,7 +2,7 @@ use serde_json::{Map, Value, json};
 
 // フックの設定の形（イベントごとの matcher グループの配列と、その中の hooks 配列）は
 // https://code.claude.com/docs/en/hooks の Configuration の節に従う。
-pub const EVENTS: [&str; 14] = [
+pub const EVENTS: [&str; 16] = [
     "SessionStart",
     "UserPromptSubmit",
     "PreToolUse",
@@ -17,6 +17,8 @@ pub const EVENTS: [&str; 14] = [
     "StopFailure",
     "SessionEnd",
     "MessageDisplay",
+    "SubagentStart",
+    "SubagentStop",
 ];
 
 const HOOK_TIMEOUT_SECS: u64 = 5;
@@ -586,6 +588,31 @@ mod tests {
         let again = install(&mut settings.clone(), &m).unwrap();
         assert!(!again.changed());
         assert_eq!(again.already, EVENTS);
+    }
+
+    #[test]
+    fn reinstall_adds_only_the_missing_events() {
+        let m = Marimo::new("/x/marimo-hook");
+        let mut settings = json!({});
+        install(&mut settings, &m).unwrap();
+        let hooks = settings["hooks"].as_object_mut().unwrap();
+        hooks.remove("SubagentStart");
+        hooks.remove("SubagentStop");
+        assert_eq!(hooks.len(), 14);
+        let before = settings.clone();
+
+        let report = install(&mut settings, &m).unwrap();
+        assert_eq!(report.added, ["SubagentStart", "SubagentStop"]);
+        assert_eq!(report.already.len(), 14);
+        for event in ["SubagentStart", "SubagentStop"] {
+            assert_eq!(
+                settings["hooks"][event],
+                json!([{"hooks": [exec("/x/marimo-hook", json!(["hook"]))]}])
+            );
+        }
+        for (event, groups) in before["hooks"].as_object().unwrap() {
+            assert_eq!(&settings["hooks"][event], groups, "{event}");
+        }
     }
 
     #[test]

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::paths::MarimoHome;
 use crate::state::{
     ContextUsage, HookInput, Origin, RateLimits, RateWindow, SessionState, Snapshot, Transition,
-    aggregate, context_from_transcript, transition,
+    aggregate, context_from_transcript, expire_agents, transition,
 };
 use crate::time::{now_ms, rfc3339_utc, utc_date};
 use crate::transcript::TranscriptUsage;
@@ -286,9 +286,12 @@ fn is_temp_file_name(name: &str) -> bool {
 }
 
 /// `max_age` のあいだ更新のないセッションのファイルと、残った一時ファイルを消し、消した数を返す。
+/// 残したセッションのうち、SubagentStop が届かないまま `AGENT_STALE_MS` を過ぎたサブエージェントを
+/// 持つものは、そのサブエージェントを外して書き直す。親の会話もサブエージェントもフックを送らなく
+/// なったセッションは、次のフックを待っていると作業中のまま残るからである。
 ///
-/// 消したセッションがまだ動いていても、SessionEnd 以外のフックが次に届けば `transition` が
-/// ファイルを作り直すので、行は次の操作で戻る。`transition` がファイルのないセッションに
+/// 消したセッションがまだ動いていても、SessionEnd と SubagentStop 以外のフックが次に届けば
+/// `transition` がファイルを作り直すので、行は次の操作で戻る。`transition` がファイルのないセッションに
 /// `Transition::Nothing` を返すイベントを増やすときは、この前提を確かめ直す。
 pub fn prune_stale_sessions(
     home: &MarimoHome,
@@ -318,17 +321,22 @@ pub fn prune_stale_sessions(
         let name = name.to_string_lossy();
         let path = entry.path();
         let stale = if is_session_file_name(&name) {
+            let session = fs::read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<SessionState>(&bytes).ok());
             // updated_at が 0 のファイルは、この項目を持たない古い形式で書かれたものなので、
             // 更新時刻が分からないものとして読めないファイルと同じく mtime で判定する。
-            let updated_at = fs::read(&path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<SessionState>(&bytes).ok())
-                .map(|s| s.updated_at)
-                .filter(|&t| t != 0);
-            match updated_at {
+            let stale = match session.as_ref().map(|s| s.updated_at).filter(|&t| t != 0) {
                 Some(t) => t.saturating_add(max_age_ms) < now_ms,
                 None => modified_before(&path, now, max_age),
+            };
+            if !stale
+                && let Some(next) = session.and_then(|s| expire_agents(&s, now_ms))
+                && let Err(e) = write_json_atomic(&path, &next)
+            {
+                first_err.get_or_insert(e);
             }
+            stale
         } else {
             is_temp_file_name(&name) && modified_before(&path, now, max_age)
         };
@@ -559,6 +567,26 @@ mod tests {
     }
 
     #[test]
+    fn subagent_worktree_cwd_does_not_rename_the_session() {
+        let (_d, home) = home();
+        hook(
+            &home,
+            json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","cwd":"/w/proj"}),
+        );
+        hook(
+            &home,
+            json!({"session_id":"s1","hook_event_name":"SubagentStart","agent_id":"a1","agent_type":"Explore","cwd":"/w/proj/.claude/worktrees/agent-a1"}),
+        );
+        hook(
+            &home,
+            json!({"session_id":"s1","hook_event_name":"PreToolUse","agent_id":"a1","cwd":"/w/proj/.claude/worktrees/agent-a1","tool_name":"Bash","tool_input":{"command":"ls"}}),
+        );
+        let s = read_session(&home, "s1").unwrap();
+        assert_eq!(s.cwd.as_deref(), Some("/w/proj"));
+        assert_eq!(s.agents.keys().collect::<Vec<_>>(), ["a1"]);
+    }
+
+    #[test]
     fn statusline_updates_context_and_rate_limits() {
         let (_d, home) = home();
         let status = json!({
@@ -705,6 +733,37 @@ mod tests {
             read_session(&home, "stale").unwrap().status,
             Status::Working
         );
+    }
+
+    #[test]
+    fn prune_expires_agents_that_never_stopped() {
+        let (_d, home) = home();
+        hook(
+            &home,
+            json!({"session_id":"s1","hook_event_name":"SubagentStart","agent_id":"a1","agent_type":"Explore"}),
+        );
+        hook(
+            &home,
+            json!({"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"ok"}),
+        );
+        let before = read_session(&home, "s1").unwrap();
+        assert_eq!(before.status, Status::Working);
+
+        let soon = before.updated_at + 60_000;
+        assert_eq!(
+            prune_stale_sessions(&home, soon, STALE_SESSION_AGE).unwrap(),
+            0
+        );
+        assert_eq!(read_session(&home, "s1").unwrap(), before);
+
+        let later = before.updated_at + crate::state::AGENT_STALE_MS + 60_000;
+        assert_eq!(
+            prune_stale_sessions(&home, later, STALE_SESSION_AGE).unwrap(),
+            0
+        );
+        let after = read_session(&home, "s1").unwrap();
+        assert_eq!((after.status, after.agents.len()), (Status::Done, 0));
+        assert_eq!(after.updated_at, before.updated_at);
     }
 
     #[test]

@@ -1,5 +1,7 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::activity::{self, Activity};
 
@@ -100,6 +102,10 @@ impl Origin {
     }
 }
 
+/// SubagentStop は、サブエージェントが失敗したときや取り消されたときに届くとは hooks のドキュメントに
+/// 書かれていない。届かないまま作業中に見え続けないよう、最後のイベントからこれだけ経ったサブエージェントは外す。
+pub const AGENT_STALE_MS: u64 = 30 * 60 * 1000;
+
 // statusLine は応答ごとに走るので、この時間より新しい値があれば会話ログからの計算より優先する。
 const STATUSLINE_FRESH_MS: u64 = 5 * 60 * 1000;
 
@@ -166,6 +172,31 @@ pub struct SessionState {
     pub context: Option<ContextUsage>,
     #[serde(default)]
     pub origin: Option<Origin>,
+    /// 親の会話だけで決まる状態。status、activity、status_reason は、これに動いているサブエージェントを
+    /// 重ねて表示用に組み立てた値である。サブエージェントのフックは親と同じ session_id で届くので、
+    /// 分けて持たないと親が終えた後もサブエージェントのイベントで作業中へ戻ってしまう。
+    /// この項目を持たない古いファイルでは、表示用の値を親の会話の状態として読む。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_status: Option<Status>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_activity: Option<Activity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_status_reason: Option<String>,
+    /// 動いているサブエージェント。キーは agent_id。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub agents: BTreeMap<String, AgentRun>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentRun {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_type: Option<String>,
+    pub started_at: u64,
+    /// このサブエージェントのイベントを最後に受けた時刻。SubagentStop が届かなかったものを外すのに使う。
+    pub last_seen: u64,
+    /// 利用者の承認を待っているツールの要約。PermissionRequest で入れ、このサブエージェントのツールの結果か拒否が届いたら消す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending: Option<Activity>,
 }
 
 impl SessionState {
@@ -183,7 +214,24 @@ impl SessionState {
             updated_at: 0,
             context: None,
             origin: None,
+            own_status: None,
+            own_activity: None,
+            own_status_reason: None,
+            agents: BTreeMap::new(),
         }
+    }
+
+    // own_status を持たない古いファイルの表示用の値を、親の会話の状態として引き継ぐ。
+    fn fill_own(&mut self) {
+        if self.own_status.is_none() {
+            self.own_status = Some(self.status);
+            self.own_activity = self.activity.clone();
+            self.own_status_reason = self.status_reason.clone();
+        }
+    }
+
+    fn own(&self) -> Status {
+        self.own_status.unwrap_or(self.status)
     }
 }
 
@@ -236,13 +284,25 @@ pub struct HookInput {
     pub delta: Option<String>,
     #[serde(default)]
     pub transcript_path: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub agent_type: Option<String>,
 }
 
 impl HookInput {
+    /// サブエージェントの中で発火したフックなら、その agent_id を返す。hooks のドキュメントの
+    /// Common input fields によると、agent_id はサブエージェントの中で発火したときだけ入る。
+    /// agent_type は `--agent` で起動した親の会話にも入るので、見分けには使わない。
+    pub fn subagent(&self) -> Option<&str> {
+        self.agent_id.as_deref().filter(|a| !a.is_empty())
+    }
+
     // ツールの実行ごとに API の呼び出しが一回挟まるので、PostToolUse と Stop で数え直せば
-    // 使用量の変化に追いつける。
+    // 使用量の変化に追いつける。サブエージェントのツールの実行は親のコンテキストの使用量を変えないので数えない。
     pub fn wants_transcript_usage(&self) -> bool {
-        matches!(self.hook_event_name.as_str(), "PostToolUse" | "Stop")
+        self.subagent().is_none()
+            && matches!(self.hook_event_name.as_str(), "PostToolUse" | "Stop")
             && self
                 .transcript_path
                 .as_deref()
@@ -264,7 +324,31 @@ enum Act {
 }
 
 pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64) -> Transition {
-    let cur_status = current.map(|s| s.status);
+    let next = match input.subagent() {
+        Some(agent) => subagent_update(input, agent, current, now_ms),
+        None => match main_update(input, current, now_ms) {
+            Ok(next) => Some(next),
+            Err(t) => return t,
+        },
+    };
+    let Some(mut next) = next else {
+        return Transition::Nothing;
+    };
+    if next.started_at == 0 {
+        next.started_at = now_ms;
+    }
+    settle(&mut next, current.map(|c| c.status), now_ms, now_ms);
+    next.updated_at = now_ms;
+    Transition::Write(Box::new(next))
+}
+
+// 親の会話のイベントで own_status と own_activity を決める。表示用の値は settle が組み立てる。
+fn main_update(
+    input: &HookInput,
+    current: Option<&SessionState>,
+    now_ms: u64,
+) -> Result<SessionState, Transition> {
+    let cur_status = current.map(SessionState::own);
     let cwd = input
         .cwd
         .as_deref()
@@ -276,8 +360,9 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
             activity::tool_activity(name, input.tool_input.as_ref(), cwd),
         )
     };
+    let agent_pending = current.is_some_and(|c| c.agents.values().any(|a| a.pending.is_some()));
     let (status, act) = match input.hook_event_name.as_str() {
-        "SessionEnd" => return Transition::Delete,
+        "SessionEnd" => return Err(Transition::Delete),
         // compaction が作業の途中で起きても状態を戻さないよう、compact だけは現状を保つ。
         "SessionStart" if input.source.as_deref() == Some("compact") => {
             (cur_status.unwrap_or_default(), Act::Keep)
@@ -299,6 +384,12 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
         }
         "Elicitation" => (Status::Waiting, Act::Keep),
         "Notification" => match input.notification_type.as_deref() {
+            // Notification の入力に agent_id が入るとはドキュメントに書かれていない。親の会話が承認を
+            // 待っていないのにサブエージェントが承認を待っているなら、この通知はサブエージェントの承認の
+            // 画面のものなので、親の会話の状態にしない。
+            Some("permission_prompt") if agent_pending && cur_status != Some(Status::Waiting) => {
+                return Err(Transition::Nothing);
+            }
             Some("permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog") => {
                 (Status::Waiting, Act::Keep)
             }
@@ -306,7 +397,7 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
             // idle_prompt は応答を終えて 60 秒ほど経ったときに届く。ユーザーの割り込みで
             // Stop が発火せず作業中のまま残ったセッションを、ここで待機へ戻す。
             Some("idle_prompt") if cur_status == Some(Status::Working) => (Status::Idle, Act::Keep),
-            _ => return Transition::Nothing,
+            _ => return Err(Transition::Nothing),
         },
         // 応答の文章が流れるたびに届く。状態は変えず、いま表示された最後の行を一行表示に使う。
         "MessageDisplay" => {
@@ -317,7 +408,7 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
                 .and_then(Activity::message);
             match last {
                 Some(a) => (cur_status.unwrap_or_default(), Act::Set(a)),
-                None => return Transition::Nothing,
+                None => return Err(Transition::Nothing),
             }
         }
         "Stop" => {
@@ -339,7 +430,7 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
                 .unwrap_or_default();
             (Status::Error, Act::Set(Activity::error(text)))
         }
-        _ => return Transition::Nothing,
+        _ => return Err(Transition::Nothing),
     };
 
     let reason: Option<String> = match input.hook_event_name.as_str() {
@@ -356,35 +447,160 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
     let mut next = current
         .cloned()
         .unwrap_or_else(|| SessionState::new(&input.session_id));
-    let status_changed = current.is_none_or(|c| c.status != status);
-    if status_changed {
-        next.status_since = now_ms;
-    }
-    if next.started_at == 0 {
-        next.started_at = now_ms;
-    }
+    next.fill_own();
     // 同じ状態のまま理由を持たないイベント（承認待ちの Notification など）が来ても、先に分かった理由を残す。
-    if status_changed || reason.is_some() {
-        next.status_reason = reason;
+    if cur_status != Some(status) || reason.is_some() {
+        next.own_status_reason = reason;
     }
     match input.hook_event_name.as_str() {
         "UserPromptSubmit" => next.turn_started_at = Some(now_ms),
-        "SessionStart" if input.source.as_deref() != Some("compact") => next.turn_started_at = None,
+        // startup、resume、clear では Claude Code のプロセスか会話が新しくなり、前のサブエージェントは続かない。
+        "SessionStart" if input.source.as_deref() != Some("compact") => {
+            next.turn_started_at = None;
+            next.agents.clear();
+        }
         _ => {}
     }
-    next.status = status;
+    next.own_status = Some(status);
     match act {
         Act::Keep => {}
-        Act::Clear => next.activity = None,
-        Act::Set(a) if a.summary.is_empty() => next.activity = None,
-        Act::Set(a) => next.activity = Some(a),
+        Act::Clear => next.own_activity = None,
+        Act::Set(a) if a.summary.is_empty() => next.own_activity = None,
+        Act::Set(a) => next.own_activity = Some(a),
     }
     if let Some(cwd) = input.cwd.as_ref().filter(|c| !c.is_empty()) {
         next.cwd = Some(cwd.clone());
     }
     next.last_event = Some(input.hook_event_name.clone());
-    next.updated_at = now_ms;
-    Transition::Write(Box::new(next))
+    Ok(next)
+}
+
+// サブエージェントのイベントは、動いているサブエージェントの一覧と承認待ちだけを変える。
+// worktree で隔離されたサブエージェントの cwd を行の名前にしないよう、cwd も親の会話の状態も触らない。
+fn subagent_update(
+    input: &HookInput,
+    agent: &str,
+    current: Option<&SessionState>,
+    now_ms: u64,
+) -> Option<SessionState> {
+    if input.hook_event_name == "SubagentStop" {
+        let mut next = current.filter(|c| c.agents.contains_key(agent))?.clone();
+        next.fill_own();
+        next.agents.remove(agent);
+        return Some(next);
+    }
+    // ファイルがまだ無くても作る。サブエージェントが動いている間は行を作業中として出すので、
+    // フックを入れる前から動いていた会話でも、ここで行が現れる。作業フォルダ名は親の会話の次の
+    // イベントが cwd を持ってくるまで出せない。
+    let mut next = current
+        .cloned()
+        .unwrap_or_else(|| SessionState::new(&input.session_id));
+    next.fill_own();
+    let cwd = next.cwd.clone();
+    let run = next.agents.entry(agent.to_owned()).or_insert(AgentRun {
+        agent_type: None,
+        started_at: now_ms,
+        last_seen: now_ms,
+        pending: None,
+    });
+    run.last_seen = now_ms;
+    if run.agent_type.is_none() {
+        run.agent_type = input.agent_type.clone().filter(|t| !t.is_empty());
+    }
+    match input.hook_event_name.as_str() {
+        "PermissionRequest" => {
+            let name = input.tool_name.as_deref().unwrap_or("");
+            run.pending = Some(activity::tool_activity(
+                name,
+                input.tool_input.as_ref(),
+                cwd.as_deref(),
+            ));
+        }
+        "PostToolUse" | "PostToolUseFailure" | "PermissionDenied" => run.pending = None,
+        _ => {}
+    }
+    Some(next)
+}
+
+/// `AGENT_STALE_MS` のあいだイベントのないサブエージェントを外す。表示が変わるなら新しい状態を返す。
+/// updated_at は変えない。セッションを消すまでの 24 時間を、最後のフックから数え続けるためである。
+pub fn expire_agents(state: &SessionState, now_ms: u64) -> Option<SessionState> {
+    let last_stale = state
+        .agents
+        .values()
+        .filter(|a| is_stale(a, now_ms))
+        .map(|a| a.last_seen)
+        .max()?;
+    let mut next = state.clone();
+    next.fill_own();
+    // 表示が変わる時刻は、外したサブエージェントが最後に動いた時刻にする。外した時刻にすると、
+    // 完了までにかかった時間に AGENT_STALE_MS と見回りの間隔ぶんが足されてしまう。
+    settle(
+        &mut next,
+        Some(state.status),
+        now_ms,
+        last_stale.max(state.status_since),
+    );
+    Some(next)
+}
+
+fn is_stale(agent: &AgentRun, now_ms: u64) -> bool {
+    now_ms.saturating_sub(agent.last_seen) >= AGENT_STALE_MS
+}
+
+// 期限切れのサブエージェントを外してから、親の会話の状態とサブエージェントを重ねて表示用の値を決める。
+// 承認待ちをいちばん優先し、親の会話の承認待ちを先に見せる。親が完了や待機でも、サブエージェントが
+// 動いていれば作業中として見せる。
+fn settle(next: &mut SessionState, before: Option<Status>, now_ms: u64, changed_at: u64) {
+    next.agents.retain(|_, a| !is_stale(a, now_ms));
+    let own = next.own();
+    let pending = next
+        .agents
+        .values()
+        .filter_map(|a| a.pending.as_ref().map(|p| (a.last_seen, p)))
+        .max_by_key(|(seen, _)| *seen)
+        .map(|(_, p)| p.clone());
+    let (status, activity, reason) = match pending {
+        Some(p) if own != Status::Waiting => {
+            (Status::Waiting, Some(p), Some("permission".to_owned()))
+        }
+        _ if matches!(own, Status::Idle | Status::Done) => match agents_activity(&next.agents) {
+            Some(a) => (Status::Working, Some(a), None),
+            None => (
+                own,
+                next.own_activity.clone(),
+                next.own_status_reason.clone(),
+            ),
+        },
+        _ => (
+            own,
+            next.own_activity.clone(),
+            next.own_status_reason.clone(),
+        ),
+    };
+    if before != Some(status) {
+        next.status_since = changed_at;
+    }
+    next.status = status;
+    next.activity = activity;
+    next.status_reason = reason;
+}
+
+// 親の会話の Agent ツールの一行表示と同じ形で、動いているサブエージェントの種類を並べる。
+fn agents_activity(agents: &BTreeMap<String, AgentRun>) -> Option<Activity> {
+    if agents.is_empty() {
+        return None;
+    }
+    let mut runs: Vec<&AgentRun> = agents.values().collect();
+    runs.sort_by_key(|a| a.started_at);
+    let mut types: Vec<&str> = Vec::new();
+    for t in runs.iter().filter_map(|a| a.agent_type.as_deref()) {
+        if !types.contains(&t) {
+            types.push(t);
+        }
+    }
+    let input = (!types.is_empty()).then(|| json!({ "description": types.join(", ") }));
+    Some(activity::tool_activity("Agent", input.as_ref(), None))
 }
 
 #[cfg(test)]
@@ -774,6 +990,357 @@ mod tests {
         let again =
             context_from_transcript(Some(&later), 100_000, 1_000_000 + 11 * 60_000).unwrap();
         assert_eq!(again.used_percentage, Some(50.0));
+    }
+
+    const WORKTREE: &str = "/w/proj/.claude/worktrees/agent-a1";
+
+    fn sub(name: &str, agent: &str) -> HookInput {
+        input(json!({
+            "session_id": "s1", "hook_event_name": name, "agent_id": agent,
+            "agent_type": "Explore", "cwd": WORKTREE,
+            "tool_name": "Bash", "tool_input": {"command": "rm x"}
+        }))
+    }
+
+    fn working_parent() -> SessionState {
+        let s = write(transition(&input(ev("UserPromptSubmit")), None, 5));
+        let pre = json!({
+            "session_id": "s1", "hook_event_name": "PreToolUse", "cwd": "/w/proj",
+            "tool_name": "Agent", "tool_input": {"description": "調べる", "run_in_background": true}
+        });
+        write(transition(&input(pre), Some(&s), 10))
+    }
+
+    fn stop() -> HookInput {
+        input(
+            json!({"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"終わりました。"}),
+        )
+    }
+
+    #[test]
+    fn background_agent_keeps_a_stopped_parent_working() {
+        let s = write(transition(
+            &sub("SubagentStart", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        let s = write(transition(&stop(), Some(&s), 30));
+        assert_eq!(
+            (s.status, s.own_status, s.status_since),
+            (Status::Working, Some(Status::Done), 5)
+        );
+        assert_eq!(
+            s.activity.as_ref().unwrap().summary,
+            "サブエージェント: Explore"
+        );
+        assert_eq!(s.own_activity.as_ref().unwrap().summary, "終わりました。");
+
+        let s = write(transition(&sub("PostToolUse", "a1"), Some(&s), 40));
+        assert_eq!((s.status, s.status_since), (Status::Working, 5));
+        let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 50));
+        assert_eq!((s.status, s.status_since), (Status::Done, 50));
+        assert_eq!(s.activity.unwrap().summary, "終わりました。");
+        assert!(s.agents.is_empty());
+        assert_eq!(s.turn_started_at, Some(5));
+    }
+
+    #[test]
+    fn subagent_tool_events_leave_the_parent_state_alone() {
+        let parent = working_parent();
+        let mut s = parent.clone();
+        for (i, name) in [
+            "SubagentStart",
+            "PreToolUse",
+            "PostToolUse",
+            "MessageDisplay",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            s = write(transition(&sub(name, "a1"), Some(&s), 20 + i as u64));
+            assert_eq!(
+                (s.own_status, &s.own_activity, s.cwd.as_deref()),
+                (Some(Status::Working), &parent.activity, Some("/w/proj")),
+                "{name}"
+            );
+            assert_eq!((s.status, &s.activity), (Status::Working, &parent.activity));
+        }
+        assert_eq!(s.agents["a1"].last_seen, 23);
+        assert_eq!(s.agents["a1"].started_at, 20);
+    }
+
+    #[test]
+    fn subagent_worktree_cwd_never_renames_the_row() {
+        let mut s = working_parent();
+        for name in [
+            "SubagentStart",
+            "PermissionRequest",
+            "PostToolUse",
+            "SubagentStop",
+        ] {
+            s = write(transition(&sub(name, "a1"), Some(&s), 20));
+            assert_eq!(s.cwd.as_deref(), Some("/w/proj"), "{name}");
+        }
+    }
+
+    #[test]
+    fn subagent_approval_shows_waiting_until_answered() {
+        let s = write(transition(
+            &sub("SubagentStart", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        let done = write(transition(&stop(), Some(&s), 30));
+        let s = write(transition(&sub("PermissionRequest", "a1"), Some(&done), 40));
+        assert_eq!(
+            (s.status, s.status_since, s.status_reason.as_deref()),
+            (Status::Waiting, 40, Some("permission"))
+        );
+        assert_eq!(s.activity.as_ref().unwrap().summary, "rm x");
+        assert_eq!(s.own_status, Some(Status::Done));
+
+        for end in ["PostToolUse", "PostToolUseFailure", "PermissionDenied"] {
+            let after = write(transition(&sub(end, "a1"), Some(&s), 50));
+            assert_eq!(
+                (after.status, after.status_since, after.status_reason),
+                (Status::Working, 50, None),
+                "{end}"
+            );
+        }
+        let s = write(transition(&sub("PostToolUse", "a1"), Some(&s), 50));
+        let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 60));
+        assert_eq!((s.status, s.status_since), (Status::Done, 60));
+        assert_eq!(s.activity.unwrap().summary, "終わりました。");
+    }
+
+    #[test]
+    fn another_agents_tool_result_keeps_the_approval() {
+        let s = write(transition(
+            &sub("PermissionRequest", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        let s = write(transition(&sub("PostToolUse", "a2"), Some(&s), 30));
+        assert_eq!(s.status, Status::Waiting);
+        assert!(s.agents["a1"].pending.is_some());
+    }
+
+    #[test]
+    fn main_thread_waiting_takes_precedence() {
+        let ask = input(json!({
+            "session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [{"question": "どちら？"}]}
+        }));
+        let s = write(transition(
+            &sub("PermissionRequest", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        let s = write(transition(&ask, Some(&s), 30));
+        assert_eq!(
+            (s.status, s.status_since, s.status_reason.as_deref()),
+            (Status::Waiting, 20, Some("question"))
+        );
+        assert_eq!(s.activity.as_ref().unwrap().summary, "質問: どちら？");
+
+        // 親の会話の回答が済めば、まだ残っているサブエージェントの承認待ちを見せる。
+        let s = write(transition(&input(ev("PostToolUse")), Some(&s), 40));
+        assert_eq!(
+            (s.status, s.status_reason.as_deref(), s.own_status),
+            (Status::Waiting, Some("permission"), Some(Status::Working))
+        );
+        assert_eq!(s.activity.unwrap().summary, "rm x");
+    }
+
+    #[test]
+    fn permission_notification_for_a_subagent_does_not_stick() {
+        let s = write(transition(
+            &sub("SubagentStart", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        let done = write(transition(&stop(), Some(&s), 30));
+        let s = write(transition(&sub("PermissionRequest", "a1"), Some(&done), 40));
+        let note = input(
+            json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"permission_prompt"}),
+        );
+        assert_eq!(transition(&note, Some(&s), 45), Transition::Nothing);
+        let s = write(transition(&sub("PostToolUse", "a1"), Some(&s), 50));
+        let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 60));
+        assert_eq!(s.status, Status::Done);
+
+        // サブエージェントが承認を待っていなければ、今までどおり親の会話の承認待ちにする。
+        let s = write(transition(&note, Some(&done), 70));
+        assert_eq!(s.own_status, Some(Status::Waiting));
+    }
+
+    #[test]
+    fn stale_agents_expire() {
+        let s = write(transition(
+            &sub("SubagentStart", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        let s = write(transition(&sub("SubagentStart", "a2"), Some(&s), 1_000));
+        let done = write(transition(&stop(), Some(&s), 2_000));
+        assert_eq!(done.agents.len(), 2);
+
+        // a1 は 30 分イベントがないので、次に書くときに外す。
+        let t = 20 + AGENT_STALE_MS;
+        let s = write(transition(&sub("PostToolUse", "a2"), Some(&done), t));
+        assert_eq!(s.agents.keys().collect::<Vec<_>>(), ["a2"]);
+        assert_eq!(s.status, Status::Working);
+
+        // 見回りからも外す。表示が変わる時刻は最後に動いた時刻にし、updated_at は変えない。
+        assert_eq!(expire_agents(&s, t + 1), None);
+        let later = t + AGENT_STALE_MS + 60_000;
+        let e = expire_agents(&s, later).unwrap();
+        assert!(e.agents.is_empty());
+        assert_eq!(
+            (e.status, e.status_since, e.updated_at),
+            (Status::Done, t, s.updated_at)
+        );
+        assert_eq!(e.activity.unwrap().summary, "終わりました。");
+    }
+
+    #[test]
+    fn unknown_agent_creates_its_entry() {
+        let s = write(transition(
+            &sub("PreToolUse", "zz"),
+            Some(&working_parent()),
+            20,
+        ));
+        let run = &s.agents["zz"];
+        assert_eq!(
+            (
+                run.agent_type.as_deref(),
+                run.started_at,
+                run.last_seen,
+                &run.pending
+            ),
+            (Some("Explore"), 20, 20, &None)
+        );
+        let s = write(transition(&sub("PermissionRequest", "yy"), Some(&s), 30));
+        assert_eq!(s.agents["yy"].pending.as_ref().unwrap().summary, "rm x");
+    }
+
+    #[test]
+    fn subagent_events_without_a_session_file() {
+        assert_eq!(
+            transition(&sub("SubagentStop", "a1"), None, 10),
+            Transition::Nothing
+        );
+        assert_eq!(
+            transition(&sub("SubagentStop", "a1"), Some(&working_parent()), 10),
+            Transition::Nothing
+        );
+        let s = write(transition(&sub("SubagentStart", "a1"), None, 10));
+        assert_eq!(
+            (s.status, s.own_status, s.cwd.as_deref(), s.started_at),
+            (Status::Working, Some(Status::Idle), None, 10)
+        );
+        let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 20));
+        assert_eq!(s.status, Status::Idle);
+    }
+
+    #[test]
+    fn session_start_clears_agents_but_stop_does_not() {
+        let s = write(transition(
+            &sub("SubagentStart", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        let s = write(transition(&stop(), Some(&s), 30));
+        assert_eq!(s.agents.len(), 1);
+        let compact =
+            input(json!({"session_id":"s1","hook_event_name":"SessionStart","source":"compact"}));
+        assert_eq!(write(transition(&compact, Some(&s), 40)).agents.len(), 1);
+        let resume =
+            input(json!({"session_id":"s1","hook_event_name":"SessionStart","source":"resume"}));
+        let s = write(transition(&resume, Some(&s), 50));
+        assert_eq!((s.status, s.agents.len()), (Status::Idle, 0));
+    }
+
+    #[test]
+    fn agent_type_alone_is_the_main_thread() {
+        // `--agent` で起動したセッションでは、親の会話のフックにも agent_type が入る。
+        let pre = json!({
+            "session_id": "s1", "hook_event_name": "PreToolUse", "agent_type": "reviewer",
+            "cwd": "/w/other", "tool_name": "Bash", "tool_input": {"command": "ls"}
+        });
+        let mut plain = pre.clone();
+        plain.as_object_mut().unwrap().remove("agent_type");
+        let parent = working_parent();
+        let typed = write(transition(&input(pre), Some(&parent), 20));
+        assert_eq!(typed, write(transition(&input(plain), Some(&parent), 20)));
+        assert_eq!(typed.cwd.as_deref(), Some("/w/other"));
+        assert!(typed.agents.is_empty());
+        let empty_id = json!({"session_id":"s1","hook_event_name":"Stop","agent_id":""});
+        assert_eq!(
+            write(transition(&input(empty_id), Some(&parent), 30)).own_status,
+            Some(Status::Done)
+        );
+    }
+
+    #[test]
+    fn older_files_without_own_status() {
+        let legacy: SessionState = serde_json::from_value(json!({
+            "session_id": "s1", "cwd": "/w/p", "status": "done", "status_since": 7,
+            "activity": {"kind": "message", "summary": "前の応答"}, "updated_at": 7
+        }))
+        .unwrap();
+        assert_eq!((legacy.own_status, legacy.agents.len()), (None, 0));
+        let s = write(transition(&sub("SubagentStart", "a1"), Some(&legacy), 20));
+        assert_eq!(
+            (
+                s.status,
+                s.own_status,
+                s.own_activity.as_ref().unwrap().summary.as_str()
+            ),
+            (Status::Working, Some(Status::Done), "前の応答")
+        );
+        let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 30));
+        assert_eq!((s.status, s.status_since), (Status::Done, 30));
+        assert_eq!(s.activity.unwrap().summary, "前の応答");
+
+        // 親の会話のイベントでも、古いファイルの状態を引き継いで判断する。
+        let idle = json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"});
+        let working: SessionState =
+            serde_json::from_value(json!({"session_id": "s1", "status": "working"})).unwrap();
+        assert_eq!(
+            write(transition(&input(idle), Some(&working), 5)).status,
+            Status::Idle
+        );
+    }
+
+    #[test]
+    fn subagent_tool_calls_do_not_recount_usage() {
+        let main = input(
+            json!({"session_id":"s1","hook_event_name":"PostToolUse","transcript_path":"/t.jsonl"}),
+        );
+        assert!(main.wants_transcript_usage());
+        let sub = input(
+            json!({"session_id":"s1","hook_event_name":"PostToolUse","transcript_path":"/t.jsonl","agent_id":"a1"}),
+        );
+        assert!(!sub.wants_transcript_usage());
+        let typed = input(
+            json!({"session_id":"s1","hook_event_name":"PostToolUse","transcript_path":"/t.jsonl","agent_type":"reviewer"}),
+        );
+        assert!(typed.wants_transcript_usage());
+    }
+
+    #[test]
+    fn agents_round_trip() {
+        let s = write(transition(
+            &sub("PermissionRequest", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        let text = serde_json::to_string(&s).unwrap();
+        assert!(text.contains("\"agents\"") && text.contains("\"own_status\""));
+        assert_eq!(serde_json::from_str::<SessionState>(&text).unwrap(), s);
+        let plain = serde_json::to_string(&working_parent()).unwrap();
+        assert!(!plain.contains("\"agents\""));
     }
 
     #[test]
