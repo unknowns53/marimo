@@ -38,8 +38,13 @@ impl MarimoHome {
         self.root.join("rate_limits.json")
     }
 
-    pub fn record_file(&self) -> PathBuf {
-        self.root.join("logs").join("record.jsonl")
+    pub fn logs_dir(&self) -> PathBuf {
+        self.root.join("logs")
+    }
+
+    /// `date` は `YYYY-MM-DD` の形の UTC の日付。
+    pub fn record_file(&self, date: &str) -> PathBuf {
+        self.logs_dir().join(format!("record-{date}.jsonl"))
     }
 
     pub fn lock_file(&self) -> PathBuf {

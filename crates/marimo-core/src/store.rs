@@ -13,7 +13,7 @@ use crate::state::{
     ContextUsage, HookInput, Origin, RateLimits, RateWindow, SessionState, Snapshot, Transition,
     aggregate, context_from_transcript, transition,
 };
-use crate::time::{now_ms, rfc3339_utc};
+use crate::time::{now_ms, rfc3339_utc, utc_date};
 use crate::transcript::TranscriptUsage;
 
 // フックは Claude Code の処理を止めてしまうので、ロックを待つ時間に上限を設ける。
@@ -23,6 +23,12 @@ const LOCK_WAIT: Duration = Duration::from_millis(300);
 
 /// SessionEnd が届かずに終わったセッションを、最後の更新からこれだけ経ったら消す。
 pub const STALE_SESSION_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// 調査用の記録はプロンプトやツールの引数を含みうるので、UTC の今日よりこの日数を超えて前の日のファイルは消す。
+pub const RECORD_RETENTION_DAYS: u64 = 7;
+
+// 以前の版が書いた記録のファイルは名前に日付を持たないので、mtime で判定して消す。
+const LEGACY_RECORD_FILE: &str = "record.jsonl";
 
 // セッションのファイルは実行中のコマンドの文字列を含むので、marimo が作るフォルダと
 // ファイルは本人だけが読めるようにする。すでにあるフォルダの権限は利用者が決めたものとして変えない。
@@ -362,16 +368,50 @@ pub fn append_record(home: &MarimoHome, label: &str, stdin: &[u8]) -> io::Result
     .map_err(io::Error::other)?;
     line.push(b'\n');
 
-    let path = home.record_file();
-    if let Some(dir) = path.parent() {
-        create_private_dir_all(dir)?;
+    create_private_dir_all(&home.logs_dir())?;
+    {
+        let _lock = lock_home(home);
+        // 一行を一回の write で追記し、並行する記録どうしが行の途中で混ざらないようにする。
+        private_file_options()
+            .append(true)
+            .open(home.record_file(&utc_date(now)))?
+            .write_all(&line)?;
     }
-    let _lock = lock_home(home);
-    // 一行を一回の write で追記し、並行する記録どうしが行の途中で混ざらないようにする。
-    private_file_options()
-        .append(true)
-        .open(&path)?
-        .write_all(&line)
+    // 古いファイルを消せなくても記録そのものは済んでいるので、失敗は返さない。
+    prune_records(home, now);
+    Ok(())
+}
+
+fn prune_records(home: &MarimoHome, now_ms: u64) {
+    let Ok(entries) = fs::read_dir(home.logs_dir()) else {
+        return;
+    };
+    let retention = Duration::from_secs(RECORD_RETENTION_DAYS * 24 * 60 * 60);
+    let oldest_kept = utc_date(now_ms.saturating_sub(retention.as_millis() as u64));
+    let now = UNIX_EPOCH + Duration::from_millis(now_ms);
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let path = entry.path();
+        let expired = match record_file_date(&name) {
+            // 日付は固定長の数字なので、文字列の大小がそのまま日付の前後になる。
+            Some(date) => date < oldest_kept.as_str(),
+            None => name == LEGACY_RECORD_FILE && modified_before(&path, now, retention),
+        };
+        if expired {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
+fn record_file_date(name: &str) -> Option<&str> {
+    let date = name.strip_prefix("record-")?.strip_suffix(".jsonl")?;
+    let shaped = date.len() == 10
+        && date.bytes().enumerate().all(|(i, b)| match i {
+            4 | 7 => b == b'-',
+            _ => b.is_ascii_digit(),
+        });
+    shaped.then_some(date)
 }
 
 #[cfg(test)]
@@ -385,6 +425,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = MarimoHome::at(dir.path());
         (dir, home)
+    }
+
+    fn record_files(home: &MarimoHome) -> Vec<std::path::PathBuf> {
+        let mut files: Vec<_> = fs::read_dir(home.logs_dir())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        files.sort();
+        files
     }
 
     fn hook(home: &MarimoHome, v: Value) {
@@ -425,9 +474,9 @@ mod tests {
         append_record(&home, "Stop", b"{}").unwrap();
         assert_eq!(mode(home.root()), 0o700);
         assert_eq!(mode(&home.sessions_dir()), 0o700);
-        assert_eq!(mode(home.record_file().parent().unwrap()), 0o700);
+        assert_eq!(mode(&home.logs_dir()), 0o700);
         assert_eq!(mode(&home.session_file("s1").unwrap()), 0o600);
-        assert_eq!(mode(&home.record_file()), 0o600);
+        assert_eq!(mode(&record_files(&home)[0]), 0o600);
 
         // 利用者がすでに用意していたフォルダの権限は変えない。
         let existing = dir.path().join("existing");
@@ -704,9 +753,21 @@ mod tests {
     #[test]
     fn record_appends_lines() {
         let (_d, home) = home();
+        let before = utc_date(now_ms());
         append_record(&home, "PreToolUse", br#"{"a":1}"#).unwrap();
         append_record(&home, "statusline", b"not json").unwrap();
-        let text = fs::read_to_string(home.record_file()).unwrap();
+        let after = utc_date(now_ms());
+        // 二回の追記のあいだに UTC の日付が変わった場合だけ、ファイルが二つに分かれる。
+        let files = record_files(&home);
+        let expected: Vec<_> = [before, after]
+            .iter()
+            .map(|d| home.record_file(d))
+            .collect();
+        assert!(files.iter().all(|f| expected.contains(f)), "{files:?}");
+        let text: String = files
+            .iter()
+            .map(|f| fs::read_to_string(f).unwrap())
+            .collect();
         let lines: Vec<Value> = text
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
@@ -716,5 +777,54 @@ mod tests {
         assert_eq!(lines[0]["payload"]["a"], 1);
         assert_eq!(lines[1]["payload"]["raw"], "not json");
         assert!(lines[1]["received_at"].as_str().unwrap().ends_with('Z'));
+    }
+
+    #[test]
+    fn record_files_older_than_retention_are_removed() {
+        let (_d, home) = home();
+        let logs = home.logs_dir();
+        let names = [
+            "record-2026-09-19.jsonl",
+            "record-2026-09-20.jsonl",
+            "record-2026-09-27.jsonl",
+            "record-2026-09-28.jsonl",
+            "record-2026-9-1.jsonl",
+            "record-notes.jsonl",
+            "other.jsonl",
+        ];
+        for name in names {
+            put_file(&logs.join(name), b"{}\n", NOW_MS - 30 * 24 * HOUR_MS);
+        }
+        // NOW_MS は 2026-09-27 なので、7 日より前の 09-19 だけが消える。
+        prune_records(&home, NOW_MS);
+        let left: Vec<_> = record_files(&home)
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        let mut expected: Vec<_> = names[1..].iter().map(|n| n.to_string()).collect();
+        expected.sort();
+        assert_eq!(left, expected);
+    }
+
+    #[test]
+    fn legacy_record_file_is_judged_by_mtime() {
+        let (_d, home) = home();
+        let legacy = home.logs_dir().join("record.jsonl");
+        put_file(&legacy, b"{}\n", NOW_MS - 6 * 24 * HOUR_MS);
+        prune_records(&home, NOW_MS);
+        assert!(legacy.exists());
+        set_mtime(&legacy, NOW_MS - 8 * 24 * HOUR_MS);
+        prune_records(&home, NOW_MS);
+        assert!(!legacy.exists());
+    }
+
+    #[test]
+    fn append_record_removes_expired_files() {
+        let (_d, home) = home();
+        let old = home.record_file(&utc_date(now_ms() - 30 * 24 * HOUR_MS));
+        put_file(&old, b"{}\n", now_ms());
+        append_record(&home, "Stop", b"{}").unwrap();
+        assert!(!old.exists());
+        assert_eq!(record_files(&home).len(), 1);
     }
 }

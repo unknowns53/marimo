@@ -263,7 +263,20 @@ fn record_appends_without_stdout() {
     assert!(out.status.success() && out.stdout.is_empty());
     let out = run(dir.path(), &["record", "statusline"], b"raw text");
     assert!(out.status.success() && out.stdout.is_empty());
-    let text = std::fs::read_to_string(dir.path().join("logs").join("record.jsonl")).unwrap();
+    // 記録は UTC の日付ごとのファイルに分かれるので、日付をまたいだ場合も含めてすべて読む。
+    let mut files: Vec<_> = std::fs::read_dir(dir.path().join("logs"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    files.sort();
+    assert!(files.iter().all(|f| {
+        let name = f.file_name().unwrap().to_string_lossy();
+        name.starts_with("record-") && name.ends_with(".jsonl")
+    }));
+    let text: String = files
+        .iter()
+        .map(|f| std::fs::read_to_string(f).unwrap())
+        .collect();
     let lines: Vec<Value> = text
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())

@@ -96,6 +96,7 @@ mod tests {
         assert!(!is_relevant(Path::new("/h/sessions/.abc.json.1.2.tmp")));
         assert!(!is_relevant(Path::new("/h/window.json")));
         assert!(!is_relevant(Path::new("/h/logs/record.jsonl")));
+        assert!(!is_relevant(Path::new("/h/logs/record-2026-01-01.jsonl")));
         assert!(!is_relevant(Path::new("/h/.lock")));
     }
 }
