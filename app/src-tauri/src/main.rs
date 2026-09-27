@@ -67,6 +67,16 @@ fn set_scale(window: WebviewWindow, state: State<'_, AppState>, scale: f64) -> f
 }
 
 #[tauri::command]
+fn get_panel_mode(state: State<'_, AppState>) -> Option<String> {
+    scale::load_panel_mode(&state.home)
+}
+
+#[tauri::command]
+fn set_panel_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
+    scale::save_panel_mode(&state.home, &mode).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn focus_session(state: State<'_, AppState>, session_id: String) {
     if let Some(session) = store::read_session(&state.home, &session_id) {
         focus::run(focus::plan(&session));
@@ -113,6 +123,8 @@ fn main() {
             get_dialogue,
             get_scale,
             set_scale,
+            get_panel_mode,
+            set_panel_mode,
             focus_session,
             set_hit_regions,
             quit

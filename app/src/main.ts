@@ -9,14 +9,16 @@ import { Acknowledged, triggerKey } from "./acknowledged";
 import { BubbleModel } from "./bubbleModel";
 import { HitReporter, rectOf, type HitRegions, type Rect } from "./hitArea";
 import { renderPanel } from "./panel";
-import { planPanel } from "./panelModel";
+import { PANEL_MODES, panelView, type PanelMode } from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
 import type { Dialogue, SessionState, Snapshot } from "./types";
 
 const CHARACTER_BASE = new URL("/character/default/", window.location.href).href;
-const SHOW_ROWS_KEY = "marimo.showRows";
+// 以前は行を隠す設定だけをこの名前で localStorage に持っていた。段階の保存先を MARIMO_HOME へ
+// 移したので、初回だけ読み替えて引き継ぐ。
+const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";
 // 利用制限の「古い」「リセット済み」は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
 const REACTION_SPEECH_MS = 2500;
@@ -47,7 +49,7 @@ let dialogue: Dialogue = {};
 // 利用者の dialogue.json に無い分類（後から足した reaction など）は、素材フォルダの既定で補う。
 let defaultDialogue: Dialogue = {};
 let speechTimer: number | undefined;
-let showRows = readShowRows();
+let panelMode: PanelMode = "detail";
 let scale: ScaleControl | undefined;
 // スナップショットは続けて届くことがあり、セリフの読み込みを待つ間に順序が入れ替わらないよう直列にする。
 let applying: Promise<void> = Promise.resolve();
@@ -112,8 +114,8 @@ function collectHitRegions(): HitRegions {
 }
 
 function redrawPanel(): void {
-  const plan = planPanel(snapshot, acknowledged);
-  renderPanel(panelElements, plan, snapshot?.rate_limits ?? null, showRows, Date.now(), selectSession);
+  const view = panelView(snapshot, acknowledged, panelMode);
+  renderPanel(panelElements, view, snapshot?.rate_limits ?? null, Date.now(), selectSession);
   hits.schedule();
 }
 
@@ -131,23 +133,31 @@ function selectSession(session: SessionState): void {
   redrawPanel();
 }
 
-function readShowRows(): boolean {
+async function loadPanelMode(): Promise<PanelMode> {
+  const saved = await invoke<string | null>("get_panel_mode").catch(() => null);
+  if (saved && (PANEL_MODES as readonly string[]).includes(saved)) return saved as PanelMode;
+  let legacyHidden = false;
   try {
-    return localStorage.getItem(SHOW_ROWS_KEY) !== "false";
+    legacyHidden = localStorage.getItem(LEGACY_SHOW_ROWS_KEY) === "false";
   } catch {
-    return true;
+    // 読めなければ引き継ぐものは無いとみなす。
   }
+  const mode: PanelMode = legacyHidden ? "picture" : "detail";
+  if (legacyHidden) void invoke("set_panel_mode", { mode }).catch(() => {});
+  return mode;
 }
 
-function setShowRows(value: boolean): void {
-  showRows = value;
-  try {
-    localStorage.setItem(SHOW_ROWS_KEY, String(value));
-  } catch {
-    // 保存できなくても、この起動中の切り替えは効かせる。
-  }
+function setPanelMode(mode: PanelMode): void {
+  panelMode = mode;
+  void invoke("set_panel_mode", { mode }).catch((e) => console.error("panel mode", e));
   redrawPanel();
 }
+
+const PANEL_MODE_LABEL: Record<PanelMode, string> = {
+  detail: "詳細を表示",
+  counts: "件数だけ表示",
+  picture: "絵だけ表示",
+};
 
 async function openMenu(): Promise<void> {
   const marked = scale ? nearestPreset(scale.current) : undefined;
@@ -168,11 +178,15 @@ async function openMenu(): Promise<void> {
   });
   const menu = await Menu.new({
     items: [
-      await CheckMenuItem.new({
-        text: "セッションの行を表示",
-        checked: showRows,
-        action: () => setShowRows(!showRows),
-      }),
+      ...(await Promise.all(
+        PANEL_MODES.map((mode) =>
+          CheckMenuItem.new({
+            text: PANEL_MODE_LABEL[mode],
+            checked: mode === panelMode,
+            action: () => setPanelMode(mode),
+          }),
+        ),
+      )),
       await PredefinedMenuItem.new({ item: "Separator" }),
       ...sizeItems,
       await PredefinedMenuItem.new({ item: "Separator" }),
@@ -196,7 +210,7 @@ function bindWindowControls(): void {
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.button !== 0 || target?.closest(".row, .working-group, #bubble")) {
+    if (e.button !== 0 || target?.closest(".row, .working-group, .counts-group, #bubble")) {
       press = null;
       return;
     }
@@ -220,6 +234,7 @@ function bindWindowControls(): void {
 
 async function start(): Promise<void> {
   bindWindowControls();
+  panelMode = await loadPanelMode();
   try {
     scale = new ScaleControl(await invoke<number>("get_scale"));
     scale.bindWheel(stage);

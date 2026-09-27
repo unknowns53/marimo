@@ -1,5 +1,5 @@
 import { folderName, formatTokens } from "./format";
-import type { PanelPlan } from "./panelModel";
+import { hasContent, type PanelPlan, type PanelView } from "./panelModel";
 import type { RateLimits, RateWindow, SessionState, Status } from "./types";
 
 // statusLine はアシスタントの応答ごとに走るので、これより古い値は手元の作業が
@@ -20,22 +20,67 @@ export interface PanelElements {
   limits: HTMLElement;
 }
 
+const STATUS_LABEL: Record<Status, string> = {
+  idle: "待機",
+  working: "作業中",
+  waiting: "承認待ち",
+  done: "完了",
+  error: "エラー",
+};
+
 export function renderPanel(
   { panel, rows, limits }: PanelElements,
-  plan: PanelPlan,
+  view: PanelView,
   rateLimits: RateLimits | null,
-  showRows: boolean,
   now: number,
   onSelect: (session: SessionState) => void,
 ): void {
+  if (view.mode === "picture") {
+    panel.hidden = true;
+    return;
+  }
   const limitText = rateLimits ? renderLimits(limits, rateLimits, now) : false;
-  const children: HTMLElement[] = plan.attention.map((s) => renderRow(s, onSelect));
-  if (plan.moreAttention > 0) children.push(el("div", "more", `ほか ${plan.moreAttention} 件`));
-  if (plan.working.length > 0) children.push(renderWorking(plan, onSelect));
+  let children: HTMLElement[] = [];
+  if (hasContent(view)) {
+    children =
+      view.mode === "detail" ? detailChildren(view.plan, onSelect) : [renderCounts(view, onSelect)];
+  }
   rows.replaceChildren(...children);
   rows.hidden = children.length === 0;
   limits.hidden = !limitText;
-  panel.hidden = !showRows || (children.length === 0 && !limitText);
+  panel.hidden = children.length === 0 && !limitText;
+}
+
+function detailChildren(plan: PanelPlan, onSelect: (session: SessionState) => void): HTMLElement[] {
+  const children: HTMLElement[] = plan.attention.map((s) => renderRow(s, onSelect));
+  if (plan.moreAttention > 0) children.push(el("div", "more", `ほか ${plan.moreAttention} 件`));
+  if (plan.working.length > 0) children.push(renderWorking(plan, onSelect));
+  return children;
+}
+
+// 件数だけの段階は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
+// 押したときは、最も優先度の高い要対応のセッションへ移動する。
+function renderCounts(view: PanelView, onSelect: (session: SessionState) => void): HTMLElement {
+  const line = () => {
+    const node = el("div", "counts-line");
+    view.counts.forEach((c, i) => {
+      if (i > 0) node.append(el("span", "counts-sep", "·"));
+      const item = el("span", "counts-item");
+      item.append(el("span", `dot ${c.status}`), el("span", "", `${STATUS_LABEL[c.status]} ${c.count}`));
+      node.append(item);
+    });
+    return node;
+  };
+  const wrap = el("div", "counts-group");
+  const layer = el("div", "counts-detail hover-layer");
+  layer.append(...detailChildren(view.plan, onSelect), line());
+  wrap.append(line(), layer);
+  const target = view.target;
+  if (target) {
+    wrap.classList.add("clickable");
+    wrap.addEventListener("click", () => onSelect(target));
+  }
+  return wrap;
 }
 
 // 行はふだん 2 段に詰め、マウスを載せたときだけ、要約の全文とコマンドの段を持つ層を行の上へ重ねて

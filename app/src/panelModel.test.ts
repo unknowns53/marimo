@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { Acknowledged, triggerKey } from "./acknowledged";
-import { isEmpty, planPanel } from "./panelModel";
+import { hasContent, isEmpty, panelView, planPanel } from "./panelModel";
 import { session, snap } from "./testFixtures";
 
 const ids = (list: { session_id: string }[]) => list.map((s) => s.session_id);
@@ -77,5 +77,50 @@ describe("acknowledged sessions", () => {
     ack.add(triggerKey(done));
     ack.prune(snap(session("a", "working", 15)));
     expect(ack.has(done)).toBe(false);
+  });
+});
+
+describe("panelView", () => {
+  const sessions = () =>
+    snap(
+      session("ask", "waiting", 5),
+      session("d1", "done", 1),
+      session("d2", "done", 2),
+      session("w1", "working", 3),
+      session("w2", "working", 4),
+      session("w3", "working", 6),
+      session("i", "idle", 7),
+    );
+
+  it("counts sessions per status in priority order and skips zero counts", () => {
+    const v = panelView(sessions(), new Acknowledged(), "counts");
+    expect(v.counts).toEqual([
+      { status: "waiting", count: 1 },
+      { status: "done", count: 2 },
+      { status: "working", count: 3 },
+    ]);
+    expect(v.target?.session_id).toBe("ask");
+    expect(hasContent(v)).toBe(true);
+  });
+
+  it("does not count seen done sessions", () => {
+    const ack = new Acknowledged();
+    const s = sessions();
+    for (const x of s.sessions.filter((x) => x.status === "done")) ack.add(triggerKey(x));
+    const v = panelView(s, ack, "counts");
+    expect(v.counts.find((c) => c.status === "done")).toBeUndefined();
+  });
+
+  it("has nothing to show when every count is zero or in picture mode", () => {
+    const idle = snap(session("i", "idle", 1));
+    expect(hasContent(panelView(idle, new Acknowledged(), "counts"))).toBe(false);
+    expect(hasContent(panelView(idle, new Acknowledged(), "detail"))).toBe(false);
+    expect(hasContent(panelView(sessions(), new Acknowledged(), "picture"))).toBe(false);
+  });
+
+  it("has no click target when nothing needs attention", () => {
+    const v = panelView(snap(session("w", "working", 1)), new Acknowledged(), "counts");
+    expect(v.target).toBeNull();
+    expect(v.counts).toEqual([{ status: "working", count: 1 }]);
   });
 });

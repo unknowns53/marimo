@@ -19,23 +19,57 @@ const BUBBLE_ROOM: f64 = 100.0;
 // パネルは行の増減や、作業中の一覧を広げたときに上へ伸びる。その最大の高さ。
 const PANEL_COLUMN_H: f64 = 380.0;
 
-#[derive(Debug, Serialize, Deserialize)]
+/// パネルの表示の段階。詳細、件数だけ、絵だけ、の三つ。
+pub const PANEL_MODES: [&str; 3] = ["detail", "counts", "picture"];
+
+// display.json には倍率とパネルの段階を一緒に置く。片方を保存するときにもう片方を消さないよう、
+// 読んでから書き戻す。
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct Display {
-    scale: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scale: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    panel_mode: Option<String>,
+}
+
+fn read_display(home: &MarimoHome) -> Display {
+    fs::read(home.display_file())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Display>(&bytes).ok())
+        .unwrap_or_default()
 }
 
 // 手で編集されたり壊れたりした値で窓が極端な大きさにならないよう、範囲外は既定値へ戻す。
 pub fn load(home: &MarimoHome) -> f64 {
-    fs::read(home.display_file())
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Display>(&bytes).ok())
-        .map(|d| d.scale)
+    read_display(home)
+        .scale
         .filter(|s| s.is_finite() && (MIN..=MAX).contains(s))
         .unwrap_or(DEFAULT)
 }
 
 pub fn save(home: &MarimoHome, scale: f64) -> io::Result<()> {
-    store::write_json_atomic(&home.display_file(), &Display { scale })
+    let mut d = read_display(home);
+    d.scale = Some(scale);
+    store::write_json_atomic(&home.display_file(), &d)
+}
+
+/// 保存されていない、または知らない値なら None を返し、フロントエンドに既定を決めさせる。
+pub fn load_panel_mode(home: &MarimoHome) -> Option<String> {
+    read_display(home)
+        .panel_mode
+        .filter(|m| PANEL_MODES.contains(&m.as_str()))
+}
+
+pub fn save_panel_mode(home: &MarimoHome, mode: &str) -> io::Result<()> {
+    if !PANEL_MODES.contains(&mode) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unknown panel mode",
+        ));
+    }
+    let mut d = read_display(home);
+    d.panel_mode = Some(mode.to_owned());
+    store::write_json_atomic(&home.display_file(), &d)
 }
 
 // ホイールで 0.1 ずつ足すと 1.2000000000000002 のような誤差が積もるので、
@@ -90,6 +124,30 @@ mod tests {
             fs::write(home.display_file(), content).unwrap();
             assert_eq!(load(&home), DEFAULT, "content {content:?}");
         }
+    }
+
+    #[test]
+    fn scale_and_panel_mode_share_the_file_without_losing_each_other() {
+        let (_d, home) = home();
+        assert_eq!(load_panel_mode(&home), None);
+        save(&home, 1.5).unwrap();
+        save_panel_mode(&home, "counts").unwrap();
+        assert_eq!(
+            (load(&home), load_panel_mode(&home).as_deref()),
+            (1.5, Some("counts"))
+        );
+        save(&home, 2.0).unwrap();
+        assert_eq!(load_panel_mode(&home).as_deref(), Some("counts"));
+        assert!(save_panel_mode(&home, "bogus").is_err());
+        fs::write(
+            home.display_file(),
+            r#"{"scale": 1.2, "panel_mode": "tiny"}"#,
+        )
+        .unwrap();
+        assert_eq!((load(&home), load_panel_mode(&home)), (1.2, None));
+        // 倍率だけを持つ古い形式もそのまま読める。
+        fs::write(home.display_file(), r#"{"scale": 1.7}"#).unwrap();
+        assert_eq!((load(&home), load_panel_mode(&home)), (1.7, None));
     }
 
     #[test]

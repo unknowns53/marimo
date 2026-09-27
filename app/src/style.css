@@ -227,8 +227,45 @@ body {
 }
 
 .row:hover > .row-full,
-.working-group:hover > .working-list {
+.working-group:hover > .working-list,
+.counts-group:hover > .counts-detail {
   display: block;
+}
+
+.counts-group {
+  position: relative;
+  margin: 0 -6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+
+.counts-group.clickable {
+  cursor: pointer;
+}
+
+.counts-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+
+.counts-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.counts-sep {
+  opacity: 0.5;
+}
+
+.counts-detail {
+  padding: 3px 6px;
+}
+
+.counts-detail .counts-line {
+  margin-top: 2px;
 }
 
 .working-group {
