@@ -6,9 +6,13 @@ use std::thread;
 
 use marimo_core::{HookInput, MarimoHome, store};
 
-// marimo の内部で何が失敗しても終了コード 0 で抜ける。フックの終了コードと stdout は
-// Claude Code に読まれ、終了コード 2 は操作を止め、UserPromptSubmit や SessionStart の
-// stdout は Claude の文脈に加わるためである。
+mod install;
+mod settings_edit;
+
+// hook、statusline、record は、marimo の内部で何が失敗しても終了コード 0 で抜ける。
+// フックの終了コードと stdout は Claude Code に読まれ、終了コード 2 は操作を止め、
+// UserPromptSubmit や SessionStart の stdout は Claude の文脈に加わるためである。
+// install と uninstall は利用者が端末で実行するので、失敗は非 0 と stderr で知らせる。
 fn main() -> ExitCode {
     // 既定の panic メッセージは stderr に出るだけで害はないが、Claude Code の
     // デバッグログに紛らわしい行を残さないよう一行にまとめる。
@@ -16,7 +20,16 @@ fn main() -> ExitCode {
         let _ = writeln!(io::stderr(), "marimo-hook: panic: {info}");
     }));
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    panic::catch_unwind(|| run(&args)).unwrap_or(ExitCode::SUCCESS)
+    let interactive = matches!(
+        args.first().and_then(|a| a.to_str()),
+        Some("install" | "uninstall")
+    );
+    let on_panic = if interactive {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    };
+    panic::catch_unwind(|| run(&args)).unwrap_or(on_panic)
 }
 
 fn run(args: &[OsString]) -> ExitCode {
@@ -28,6 +41,8 @@ fn run(args: &[OsString]) -> ExitCode {
             ExitCode::SUCCESS
         }
         "statusline" => statusline(rest),
+        "install" => interactive(install::run(install::Mode::Install, rest)),
+        "uninstall" => interactive(install::run(install::Mode::Uninstall, rest)),
         "record" => {
             let label = rest.first().map(|l| l.to_string_lossy().into_owned());
             report(record(label.as_deref().unwrap_or("")));
@@ -36,6 +51,16 @@ fn run(args: &[OsString]) -> ExitCode {
         _ => {
             report(Err(format!("unknown subcommand {sub:?}")));
             ExitCode::SUCCESS
+        }
+    }
+}
+
+fn interactive(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(msg) => {
+            let _ = writeln!(io::stderr(), "marimo-hook: {msg}");
+            ExitCode::FAILURE
         }
     }
 }

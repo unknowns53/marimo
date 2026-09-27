@@ -6,7 +6,8 @@ rust-version.workspace = true
 
 [dependencies]
 marimo-core.workspace = true
-serde_json.workspace = true
+# 利用者の settings.json を書き戻すとき、既存のキーの順序を保つために必要になる。
+serde_json = { workspace = true, features = ["preserve_order"] }
 
 [dev-dependencies]
 serde_json.workspace = true

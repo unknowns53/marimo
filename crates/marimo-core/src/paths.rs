@@ -57,6 +57,15 @@ impl MarimoHome {
     pub fn display_file(&self) -> PathBuf {
         self.root.join("display.json")
     }
+
+    pub fn bin_dir(&self) -> PathBuf {
+        self.root.join("bin")
+    }
+
+    pub fn hook_executable(&self) -> PathBuf {
+        self.bin_dir()
+            .join(format!("marimo-hook{}", env::consts::EXE_SUFFIX))
+    }
 }
 
 fn is_safe_id(id: &str) -> bool {
@@ -68,7 +77,7 @@ fn is_safe_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 
-fn user_home() -> Option<PathBuf> {
+pub fn user_home() -> Option<PathBuf> {
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     env::var_os(var)
         .filter(|v| !v.is_empty())
