@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
 use serde_json::{Value, json};
@@ -463,7 +463,7 @@ fn commands_sharing_the_executable_prefix_are_left_alone() {
 }
 
 #[cfg(unix)]
-fn sh(command: &str, stdin: &str, home: &Path) -> String {
+fn sh(command: &str, stdin: &str, home: &std::path::Path) -> String {
     use std::io::Write;
     let mut child = Command::new("sh")
         .arg("-c")
