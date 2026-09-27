@@ -9,10 +9,10 @@ pub const MAX: f64 = 2.5;
 pub const DEFAULT: f64 = 1.0;
 
 // style.css の配置と揃えておく必要がある。立ち絵（倍率 1.0 で 180×270）を窓の右下に固定し、
-// パネル（幅 260）をその左に下端を揃えて置く。倍率 1.0 の窓の大きさは tauri.conf.json にも書く。
+// パネル（幅 312）をその左に下端を揃えて置く。倍率 1.0 の窓の大きさは tauri.conf.json にも書く。
 const STAGE_W: f64 = 180.0;
 const STAGE_H: f64 = 270.0;
-const PANEL_W: f64 = 260.0;
+const PANEL_W: f64 = 312.0;
 const MARGIN: f64 = 8.0;
 // 吹き出しは立ち絵の頭の上に出すので、その分を立ち絵の上に空けておく。
 const BUBBLE_ROOM: f64 = 100.0;
@@ -160,8 +160,8 @@ mod tests {
 
     #[test]
     fn window_grows_with_portrait_only() {
-        assert_eq!(window_size(1.0), (464.0, 380.0));
-        assert_eq!(window_size(2.5), (734.0, 783.0));
-        assert_eq!(window_size(0.6), (392.0, 380.0));
+        assert_eq!(window_size(1.0), (516.0, 380.0));
+        assert_eq!(window_size(2.5), (786.0, 783.0));
+        assert_eq!(window_size(0.6), (444.0, 380.0));
     }
 }

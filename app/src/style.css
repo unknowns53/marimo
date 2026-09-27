@@ -123,7 +123,7 @@ body {
   position: absolute;
   right: calc(8px + 180px * var(--scale) + 8px);
   bottom: 8px;
-  width: 260px;
+  width: 312px;
   padding: 5px 8px;
   box-sizing: border-box;
   border-radius: 10px;
