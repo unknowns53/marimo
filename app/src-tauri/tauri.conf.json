@@ -15,8 +15,8 @@
       {
         "label": "main",
         "title": "marimo",
-        "width": 276,
-        "height": 560,
+        "width": 464,
+        "height": 380,
         "resizable": false,
         "maximizable": false,
         "minimizable": false,

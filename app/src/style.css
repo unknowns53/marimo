@@ -28,21 +28,19 @@ body {
   cursor: default;
 }
 
+/* 立ち絵は窓の右下に固定し、パネルや吹き出しがどう変わっても動かさない。窓の右下の角は
+   画面上で固定されているので、立ち絵は画面上でも動かない。数値は scale.rs と揃える。 */
 #app {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: center;
+  position: relative;
   height: 100%;
-  padding-bottom: 8px;
-  box-sizing: border-box;
 }
 
 #stage {
-  position: relative;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
   width: calc(180px * var(--scale));
   height: calc(270px * var(--scale));
-  flex: none;
 }
 
 .character {
@@ -83,7 +81,7 @@ body {
 #bubble {
   position: absolute;
   bottom: calc(100% + 2px);
-  left: 50%;
+  right: 0;
   z-index: 2;
   width: max-content;
   max-width: 240px;
@@ -95,7 +93,7 @@ body {
   line-height: 1.5;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   opacity: 0;
-  transform: translate(-50%, 4px);
+  transform: translateY(4px);
   transition:
     opacity 0.3s ease,
     transform 0.3s ease;
@@ -106,8 +104,7 @@ body {
   content: "";
   position: absolute;
   top: 100%;
-  left: 50%;
-  margin-left: -6px;
+  right: calc(90px * var(--scale) - 6px);
   border: 6px solid transparent;
   border-top-color: var(--bubble-bg);
 }
@@ -115,16 +112,18 @@ body {
 /* 出したままにするので、押して閉じられるようにする。 */
 #bubble.show {
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: translateY(0);
   pointer-events: auto;
   cursor: pointer;
 }
 
 /* 画面の隅で場所を取りすぎないよう、立ち絵の倍率とは別に幅を決める。 */
+/* パネルは立ち絵の左に、下端を揃えて置く。行が増えるとパネルだけが上へ伸びる。 */
 #panel {
-  position: relative;
+  position: absolute;
+  right: calc(8px + 180px * var(--scale) + 8px);
+  bottom: 8px;
   width: 260px;
-  margin-top: 4px;
   padding: 5px 8px;
   box-sizing: border-box;
   border-radius: 10px;

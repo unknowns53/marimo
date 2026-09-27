@@ -8,13 +8,16 @@ pub const MIN: f64 = 0.6;
 pub const MAX: f64 = 2.5;
 pub const DEFAULT: f64 = 1.0;
 
-// 倍率 1.0 のときの大きさ。STAGE は style.css の #stage、WINDOW は tauri.conf.json の
-// 窓の大きさと揃えておく必要がある。
+// style.css の配置と揃えておく必要がある。立ち絵（倍率 1.0 で 180×270）を窓の右下に固定し、
+// パネル（幅 260）をその左に下端を揃えて置く。倍率 1.0 の窓の大きさは tauri.conf.json にも書く。
 const STAGE_W: f64 = 180.0;
 const STAGE_H: f64 = 270.0;
-const WINDOW_W: f64 = 276.0;
-const WINDOW_H: f64 = 560.0;
-const SIDE_MARGIN: f64 = 16.0;
+const PANEL_W: f64 = 260.0;
+const MARGIN: f64 = 8.0;
+// 吹き出しは立ち絵の頭の上に出すので、その分を立ち絵の上に空けておく。
+const BUBBLE_ROOM: f64 = 100.0;
+// パネルは行の増減や、作業中の一覧を広げたときに上へ伸びる。その最大の高さ。
+const PANEL_COLUMN_H: f64 = 380.0;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Display {
@@ -46,8 +49,8 @@ pub fn clamp(scale: f64) -> f64 {
 
 // 行と吹き出しの文字は倍率で変えないので、窓は立ち絵が大きくなった分だけ広げる。
 pub fn window_size(scale: f64) -> (f64, f64) {
-    let width = WINDOW_W.max(STAGE_W * scale + SIDE_MARGIN * 2.0);
-    let height = WINDOW_H + STAGE_H * (scale - 1.0);
+    let width = MARGIN + PANEL_W + MARGIN + STAGE_W * scale + MARGIN;
+    let height = PANEL_COLUMN_H.max(MARGIN + STAGE_H * scale + BUBBLE_ROOM);
     (width.round(), height.round())
 }
 
@@ -99,8 +102,8 @@ mod tests {
 
     #[test]
     fn window_grows_with_portrait_only() {
-        assert_eq!(window_size(1.0), (WINDOW_W, WINDOW_H));
-        assert_eq!(window_size(2.5), (482.0, 965.0));
-        assert_eq!(window_size(0.6), (WINDOW_W, 452.0));
+        assert_eq!(window_size(1.0), (464.0, 380.0));
+        assert_eq!(window_size(2.5), (734.0, 783.0));
+        assert_eq!(window_size(0.6), (392.0, 380.0));
     }
 }
