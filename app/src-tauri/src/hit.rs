@@ -3,12 +3,14 @@ use std::thread;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tauri::{AppHandle, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Emitter, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
 
 // カーソルが窓の上にあるときは、切り替えの遅れが体感に出ないよう短い周期で判定する。
 // 窓の外では判定を急ぐ必要がないので、周期を延ばして常駐の負担を減らす。
 const INSIDE_INTERVAL: Duration = Duration::from_millis(40);
 const OUTSIDE_INTERVAL: Duration = Duration::from_millis(150);
+
+pub const PORTRAIT_HOVER_EVENT: &str = "portrait-hover";
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 pub struct Rect {
@@ -78,6 +80,16 @@ impl HitState {
         }
     }
 
+    fn over_portrait(&self, x: f64, y: f64) -> bool {
+        match self.regions.lock() {
+            Ok(r) => r
+                .as_ref()
+                .and_then(|r| r.mask.as_ref())
+                .is_some_and(|m| m.hit(x, y)),
+            Err(_) => false,
+        }
+    }
+
     // 領域がまだ届いていないうちは、窓全体でクリックを受け取る。操作できない状態を作らないためである。
     fn wants_cursor(&self, x: f64, y: f64) -> bool {
         match self.regions.lock() {
@@ -120,6 +132,7 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
 
     thread::spawn(move || {
         let mut ignoring = false;
+        let mut hovering = false;
         loop {
             let Ok(cursor) = app.cursor_position() else {
                 thread::sleep(OUTSIDE_INTERVAL);
@@ -140,6 +153,12 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
                 if want_ignore != ignoring && window.set_ignore_cursor_events(want_ignore).is_ok() {
                     ignoring = want_ignore;
                 }
+            }
+            // 透明な部分では窓にマウスのイベントが届かず、DOM の mouseleave が来ないことがあるので、
+            // 立ち絵の上にいるかどうかもここで判定してフロントエンドへ知らせる。
+            let over = inside && state.over_portrait(x, y);
+            if over != hovering && app.emit(PORTRAIT_HOVER_EVENT, over).is_ok() {
+                hovering = over;
             }
             thread::sleep(if inside {
                 INSIDE_INTERVAL
@@ -198,6 +217,11 @@ mod tests {
         state.set(regions());
         assert!(!state.wants_cursor(1.0, 1.0));
         assert!(state.wants_cursor(140.0, 160.0));
+        assert!(state.over_portrait(140.0, 160.0));
+        assert!(
+            !state.over_portrait(10.0, 350.0),
+            "the panel is not the portrait"
+        );
     }
 
     #[test]

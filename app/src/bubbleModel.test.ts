@@ -93,3 +93,20 @@ describe("BubbleModel", () => {
     expect(fillFolder("{folder} と {folder}", "m")).toBe("m と m");
   });
 });
+
+describe("Speech", () => {
+  it("lets notification bubbles win over the touch reaction", async () => {
+    const { Speech } = await import("./speech");
+    const s = new Speech();
+    const status = { key: "k", sessionId: "a", status: "waiting" as const, text: "確認してね" };
+    expect(s.react("ふふ", 0, 2500, status)).toBe(false);
+    expect(s.current(status, 100)).toBe("確認してね");
+    expect(s.react("ふふ", 0, 2500, null)).toBe(true);
+    expect(s.current(null, 2499)).toBe("ふふ");
+    expect(s.current(null, 2500)).toBeNull();
+    // ひとことの途中で知らせが来たら、知らせに切り替えて、ひとことは戻さない。
+    s.react("ふふ", 3000, 2500, null);
+    expect(s.current(status, 3100)).toBe("確認してね");
+    expect(s.current(null, 3200)).toBeNull();
+  });
+});

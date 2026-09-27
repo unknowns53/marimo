@@ -12,12 +12,16 @@ import { renderPanel } from "./panel";
 import { planPanel } from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
+import { Speech } from "./speech";
 import type { Dialogue, SessionState, Snapshot } from "./types";
 
 const CHARACTER_BASE = new URL("/character/default/", window.location.href).href;
 const SHOW_ROWS_KEY = "marimo.showRows";
 // 利用制限の「古い」「リセット済み」は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
+const REACTION_SPEECH_MS = 2500;
+// 押してからこれ以上動いたらドラッグとみなし、立ち絵の反応は出さない。
+const DRAG_THRESHOLD_PX = 4;
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 const stage = $("stage");
@@ -28,9 +32,11 @@ const bubbleModel = new BubbleModel(acknowledged);
 // 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も畳む。
 // 完了の吹き出しを閉じるのは知らせを受け取ったという意思表示で、行だけが残っても
 // 同じ知らせが二重に場所を取るだけだからである。
+const speech = new Speech();
 const bubble = new Bubble(bubbleNode, () => {
-  bubbleModel.dismiss();
-  bubble.hide();
+  if (bubbleModel.view) bubbleModel.dismiss();
+  speech.clearReaction();
+  showSpeech();
   redrawPanel();
 });
 const hits = new HitReporter(collectHitRegions);
@@ -38,6 +44,9 @@ const hits = new HitReporter(collectHitRegions);
 let renderer: CharacterRenderer | undefined;
 let snapshot: Snapshot | null = null;
 let dialogue: Dialogue = {};
+// 利用者の dialogue.json に無い分類（後から足した reaction など）は、素材フォルダの既定で補う。
+let defaultDialogue: Dialogue = {};
+let speechTimer: number | undefined;
 let showRows = readShowRows();
 let scale: ScaleControl | undefined;
 // スナップショットは続けて届くことがあり、セリフの読み込みを待つ間に順序が入れ替わらないよう直列にする。
@@ -50,18 +59,43 @@ function queueSnapshot(next: Snapshot): void {
 async function applySnapshot(next: Snapshot): Promise<void> {
   snapshot = next;
   acknowledged.prune(next);
-  renderer?.setStatus(next.aggregate);
+  renderer?.update({ status: next.aggregate, tool: focusedTool(next) });
   // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
-  if (bubbleModel.needsText(next)) {
-    dialogue = await invoke<Dialogue>("get_dialogue").catch((e) => {
-      console.error("dialogue", e);
-      return dialogue;
-    });
-  }
-  const view = bubbleModel.update(next, dialogue);
-  if (view) bubble.show(view.text);
-  else bubble.hide();
+  if (bubbleModel.needsText(next)) await reloadDialogue();
+  bubbleModel.update(next, dialogue);
+  showSpeech();
   redrawPanel();
+}
+
+function focusedTool(s: Snapshot): string | null {
+  return s.sessions.find((x) => x.status === s.aggregate)?.activity?.tool ?? null;
+}
+
+async function reloadDialogue(): Promise<void> {
+  const user = await invoke<Dialogue>("get_dialogue").catch((e) => {
+    console.error("dialogue", e);
+    return dialogue;
+  });
+  dialogue = { ...defaultDialogue, ...user };
+}
+
+function showSpeech(): void {
+  const text = speech.current(bubbleModel.view, performance.now());
+  if (text) bubble.show(text);
+  else bubble.hide();
+  hits.schedule();
+}
+
+async function reactToTouch(): Promise<void> {
+  renderer?.react();
+  if (bubbleModel.view) return;
+  await reloadDialogue();
+  const lines = dialogue.reaction ?? [];
+  const text = lines[Math.floor(Math.random() * lines.length)];
+  if (!speech.react(text, performance.now(), REACTION_SPEECH_MS, bubbleModel.view)) return;
+  showSpeech();
+  window.clearTimeout(speechTimer);
+  speechTimer = window.setTimeout(showSpeech, REACTION_SPEECH_MS);
 }
 
 function collectHitRegions(): HitRegions {
@@ -157,11 +191,26 @@ async function openMenu(): Promise<void> {
 
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
+  // ドラッグはすぐには始めず、押したまま少し動いてから始める。動かずに離したら、立ち絵を押した
+  // ことになる。行と吹き出しは押して操作するので、そこからはドラッグを始めない。
+  let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
-    // 行と吹き出しは押して操作するので、そこからはドラッグを始めない。
     const target = e.target as HTMLElement | null;
-    if (target?.closest(".row, #bubble")) return;
-    if (e.button === 0) void getCurrentWindow().startDragging();
+    if (e.button !== 0 || target?.closest(".row, .working-group, #bubble")) {
+      press = null;
+      return;
+    }
+    press = { x: e.screenX, y: e.screenY, onStage: !!target?.closest("#stage"), dragging: false };
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!press || press.dragging || !(e.buttons & 1)) return;
+    if (Math.hypot(e.screenX - press.x, e.screenY - press.y) < DRAG_THRESHOLD_PX) return;
+    press.dragging = true;
+    void getCurrentWindow().startDragging();
+  });
+  document.addEventListener("mouseup", () => {
+    if (press && !press.dragging && press.onStage) void reactToTouch();
+    press = null;
   });
   document.addEventListener("contextmenu", (e) => {
     e.preventDefault();
@@ -177,13 +226,21 @@ async function start(): Promise<void> {
   } catch (e) {
     console.error("scale", e);
   }
+  defaultDialogue = await fetch(new URL("dialogue.json", CHARACTER_BASE))
+    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
+    .catch(() => ({}));
+  dialogue = { ...defaultDialogue };
   try {
     const manifest = await loadManifest(CHARACTER_BASE);
     renderer = createRenderer(manifest, CHARACTER_BASE);
+    renderer.onShapeChange = () => hits.schedule();
     await renderer.mount(stage);
   } catch (e) {
     console.error("character", e);
   }
+  // マウスが立ち絵の上にあるかは Rust 側がクリックを通す判定のついでに調べて知らせる。透明な部分では
+  // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
+  await listen<boolean>("portrait-hover", (e) => renderer?.setHover(e.payload));
   await listen<Snapshot>("snapshot", (e) => queueSnapshot(e.payload));
   queueSnapshot(await invoke<Snapshot>("get_snapshot"));
   window.setInterval(redrawPanel, PANEL_REFRESH_MS);

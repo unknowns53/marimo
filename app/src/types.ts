@@ -55,4 +55,4 @@ export interface Snapshot {
   rate_limits: RateLimits | null;
 }
 
-export type Dialogue = Partial<Record<Status, string[]>>;
+export type Dialogue = Partial<Record<Status | "reaction", string[]>>;
