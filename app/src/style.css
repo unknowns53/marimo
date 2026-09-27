@@ -86,12 +86,18 @@ body {
   width: max-content;
   /* 長いセリフでも 3 行に収め、scale.rs の BUBBLE_ROOM（立ち絵の上に空ける高さ）からはみ出さない幅にする。 */
   max-width: 340px;
+  /* しっぽは立ち絵の頭の真上に固定なので、短いセリフでもしっぽが枠の中に収まる幅を保つ。 */
+  min-width: calc(90px * var(--scale));
   padding: 10px 16px;
   border-radius: 18px;
   background: var(--bubble-bg);
   color: var(--bubble-fg);
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.5;
+  /* 改行してよい位置は bubble.ts が <wbr> で示すので、それ以外では改行させない。区切りの間が
+     収まらない長さのときだけ、どこででも折り返す。 */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
   box-shadow: 0 3px 14px rgba(0, 0, 0, 0.28);
   opacity: 0;
   transform: translateY(4px);
