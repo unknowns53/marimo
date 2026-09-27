@@ -10,6 +10,9 @@ marimo は、Claude Code の作業状況を画面の隅で知らせるデスク�
 
 別の作業をしていても、Claude Code のウィンドウを見に行かずに状況が分かるようにすることが marimo の目的です。情報源は Claude Code のフック（hook。特定の出来事が起きたときに Claude Code が呼び出す外部コマンド）と statusLine（CLI の画面下部に一行を表示するための外部コマンド）で、どちらも Claude Code の公式の仕組みです。
 
+> [!NOTE]
+> marimo は有志が作った非公式のツールで、Anthropic とは関係がなく、Anthropic が承認したものでもありません。Claude と Claude Code は Anthropic の商標です。利用制限の取得に使う API は Anthropic が公開していないもので、予告なく使えなくなる可能性があります（[利用制限の表示](#利用制限の表示)を参照）。
+
 ## 目次
 
 - [marimo が見せるもの](#marimo-が見せるもの)
@@ -25,6 +28,8 @@ marimo は、Claude Code の作業状況を画面の隅で知らせるデスク�
 - [困ったとき](#困ったとき)
 - [開発](#開発)
 - [今後の予定](#今後の予定)
+- [不具合の報告と貢献](#不具合の報告と貢献)
+- [ライセンス](#ライセンス)
 
 ## marimo が見せるもの
 
@@ -592,3 +597,19 @@ npm run build
 
 - **Windows への対応** Windows でのビルド、フック、statusLine の動作を確かめ、macOS と同じ機能で使えるようにすることを目指しています。
 - **Anthropic 以外のツールへの対応** Codex など、Claude Code 以外のコーディングエージェントの作業状況も表示できるようにすることを考えています。
+
+## 不具合の報告と貢献
+
+不具合の報告や改善の提案は、GitHub の Issue で受け付けています。再現の手順と、macOS や Claude Code のバージョン、CLI とデスクトップアプリのどちらで使っているかを添えてもらえると助かります。状態ファイルや会話ログを添えるときは、作業フォルダ名やコマンドに人に見せたくない情報が入っていないかを先に確かめてください。
+
+トークンの扱いや settings.json の書き換えなど、安全に関わる問題を見つけた場合は、公開の Issue ではなく、GitHub の Security Advisories から非公開で報告してください。
+
+プルリクエストを送るときは、[テストと検査](#テストと検査)のコマンドがすべて通ることを確かめてください。挙動を変える変更には、その挙動を確かめるテストを付けてください。
+
+## ライセンス
+
+コードは、[MIT License](LICENSE-MIT) と [Apache License 2.0](LICENSE-APACHE) のどちらかを、利用する人が選んで使えます。
+
+立ち絵などの画像とセリフは、[クリエイティブ・コモンズ 表示 4.0 国際ライセンス（CC BY 4.0）](https://creativecommons.org/licenses/by/4.0/deed.ja)で公開しています。対象は `assets/`、`art/`、`docs/images/`、`app/src-tauri/icons/`、`app/src-tauri/shipped-dialogue/` です。詳しくは [LICENSE-ASSETS](LICENSE-ASSETS) を見てください。
+
+立ち絵は OpenAI の画像生成モデルで作った画像を元に、`tools/character/build.py` で顔の差分の合成と背景の除去をして仕上げています。`art/` の元の画像には、生成したサービスが埋め込んだメタデータがそのまま残っています。
