@@ -70,7 +70,7 @@ marimo は macOS で動作を確かめています。Claude Code のどの画面
 | macOS の端末で動かす CLI（コマンドラインインターフェース） | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます |
 | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限を出すには[利用制限を API から取得](#利用制限の表示)を有効にします |
 | VS Code の拡張機能の画面 | 未確認 | statusLine が動くかどうかを確かめていません |
-| Windows | 未確認 | ビルドとインストールのためのコードはありますが、動作を確かめていません。`install` は Windows では statusLine を書き換えず、フックだけを登録します。利用制限は「利用制限を API から取得」を使えば出せる作りですが、これも確かめていません。行を押してセッションへ移動する機能は macOS だけのものです |
+| Windows | 未確認 | ビルドとインストールのためのコードはありますが、動作を確かめていません。`install` は Windows では既存の statusLine を書き換えません。statusLine が無い場合だけ、Git Bash と PowerShell のどちらでも同じように読める `~/.marimo/bin/marimo-hook.exe statusline` のような形で登録しますが、これが動くかどうかは確かめていません。既存の statusLine を使っている場合も、利用制限は「利用制限を API から取得」を使えば出せる作りですが、これも確かめていません。行を押してセッションへ移動する機能は macOS だけのものです |
 | Linux | 未確認 | 動作を確かめていません |
 | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | 手元の `~/.claude/settings.json` を読まないので、フックが届きません |
 | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
@@ -91,6 +91,8 @@ marimo は配布用のバイナリを用意していないので、リポジト�
 | Node.js と npm | Node.js 22.12 以降 | アプリの画面部分のビルドとテスト |
 
 Node.js のバージョンは、依存しているビルドツールの Vite と、テストツールの Vitest が求める範囲から決めています。アプリ本体は Tauri v2（Web の技術で画面を作り、Rust で OS の機能を呼ぶデスクトップアプリの枠組み）で作られています。
+
+アプリは利用量の API との通信の暗号化に OS の TLS の実装を使います。Linux では、そのための Rust のライブラリ native-tls が OpenSSL を使うので、ビルドの前に OpenSSL の開発用パッケージ（Debian や Ubuntu では `libssl-dev`、Fedora では `openssl-devel`）を入れてください。macOS と Windows では OS に含まれる実装を使うので、追加で入れるものはありません。
 
 ### ビルドの手順
 
@@ -150,9 +152,26 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。`target/
 `install` は次のことを行います。
 
 1. 自分自身を `~/.marimo/bin/marimo-hook` へコピーします。settings.json にはこのパスが書かれるので、リポジトリの `target/` を消したりビルドし直したりしても、フックは動き続けます。
-2. 設定ファイルの `hooks` に、次の 14 のイベントそれぞれについて `~/.marimo/bin/marimo-hook hook` を呼ぶフックを追加します。タイムアウトは 5 秒です。
+2. 設定ファイルの `hooks` に、次の 14 のイベントそれぞれについて、`~/.marimo/bin/marimo-hook` に `hook` という引数を渡して呼ぶフックを追加します。タイムアウトは 5 秒です。
    SessionStart、UserPromptSubmit、PreToolUse、PermissionRequest、PermissionDenied、PostToolUse、PostToolUseFailure、Notification、Elicitation、ElicitationResult、Stop、StopFailure、SessionEnd、MessageDisplay
-3. statusLine を登録します。statusLine がまだ無ければ `marimo-hook statusline` だけを登録します。すでに自分の statusLine を使っている場合は、元のコマンドを `marimo-hook statusline -- sh -c '<元のコマンド>'` の形で包みます。marimo は受け取った入力をそのまま元のコマンドへ渡し、元のコマンドの出力と終了コードもそのまま返すので、statusLine の見た目は変わりません。statusLine が command 形式でない場合は書き換えません。
+
+   追加するフックは、macOS では次の形になります。`command` には実行ファイルの絶対パスが入り、Windows では `C:\Users\<ユーザー名>\.marimo\bin\marimo-hook.exe` のような `\` 区切りのパスになります。
+
+   ```json
+   {
+     "type": "command",
+     "command": "/Users/<ユーザー名>/.marimo/bin/marimo-hook",
+     "args": ["hook"],
+     "timeout": 5
+   }
+   ```
+
+   `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを通さずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを通さないので、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form は Claude Code 2.1.139 で加わった書き方なので、Claude Code 2.1.139 以降が必要です。
+
+   以前の marimo は、`~/.marimo/bin/marimo-hook hook` という文字列をシェルに渡す形でフックを登録していました。この形の登録が残っている状態で `install` を実行し直すと、同じグループの同じ位置のまま exec form へ書き換えます。
+3. statusLine を登録します。statusLine がまだ無ければ `marimo-hook statusline` だけを登録します。すでに自分の statusLine を使っている場合は、元のコマンドを `marimo-hook statusline -- sh -c '<元のコマンド>'` の形で包みます。marimo は受け取った入力をそのまま元のコマンドへ渡し、元のコマンドの出力と終了コードもそのまま返すので、statusLine の見た目は変わりません。statusLine が command 形式でない場合は書き換えません。statusLine には exec form がないので、こちらはシェルを通すコマンドの文字列で登録します。
+
+   Windows の Claude Code は、Git Bash が入っていれば Git Bash で、なければ PowerShell で statusLine を実行します。どちらで動くかが環境によって変わり、両者で引用の規則も違うので、既存の statusLine は包まずにそのまま残します。statusLine が無い場合だけ、引用符を使わずにどちらのシェルでも同じように読める形で登録します。実行ファイルがホームフォルダの下にあれば `~/.marimo/bin/marimo-hook.exe statusline` のように `~/` で始め、そうでなければ `/` 区切りの絶対パスを書きます。パスに空白などが含まれていてどちらの形でも書けない場合は、statusLine を登録しません。Windows でのこの動作は確かめていません。
 
 既存の設定は次のように守られます。
 
@@ -165,7 +184,7 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。`target/
 
 対象の設定ファイルは `--settings <パス>` で指定できます。省略すると、環境変数 `CLAUDE_CONFIG_DIR` が設定されていればその下の `settings.json` を、なければ `~/.claude/settings.json` を使います。
 
-marimo を新しくビルドし直したときも、同じ `install` を実行すれば `~/.marimo/bin/marimo-hook` だけが新しいものに差し替わります。settings.json はすでに登録済みなので変わりません。
+marimo を新しくビルドし直したときも、同じ `install` を実行すれば `~/.marimo/bin/marimo-hook` だけが新しいものに差し替わります。settings.json はすでに登録済みなので変わりません。以前の形のフックが残っていた場合だけ、exec form へ書き換えます。
 
 ### 2. アプリを置いて起動する
 
@@ -201,7 +220,7 @@ macOS では、`~/Library/LaunchAgents/com.marimo.desktop.plist` に LaunchAgent
    ~/.marimo/bin/marimo-hook uninstall
    ```
 
-   `uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。取り除くのは marimo が足したものだけです。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
+   `uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。取り除くのは marimo が足したものだけで、以前のシェルを通す形で登録したフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
 
 4. `/Applications/marimo.app` を削除します。
 5. `uninstall` は実行ファイルとデータを残すので、不要なら `~/.marimo` フォルダを手で削除します。`uninstall` の最後に、消してよいパスが表示されます。settings.json のバックアップ（`settings.json.marimo-backup-*`）も、不要になったら手で削除してください。
@@ -509,10 +528,11 @@ marimo は、状態ファイルも会話の内容も、手元のコンピュー�
    ~/.marimo/bin/marimo-hook install --dry-run
    ```
 
-2. `CLAUDE_CONFIG_DIR` を使っている場合は、`install` がその下の settings.json を書き換えたかどうかを確かめます。別の設定ファイルを使っているなら、`--settings` で指定して登録し直します。
-3. `~/.marimo/sessions/` にファイルができているかを確かめます。ファイルがあるのに表示されない場合は、アプリを起動し直します。
-4. 登録より前から開いていたセッションで状態が出ない場合は、そのセッションを開き直してみてください。
-5. クラウドで動くセッションと Cowork では、フックが届かないので表示できません。
+2. Claude Code のバージョンが 2.1.139 以降かを `claude --version` で確かめます。marimo のフックは exec form で登録するので、`args` を解釈しない古い Claude Code では正しく呼ばれません。
+3. `CLAUDE_CONFIG_DIR` を使っている場合は、`install` がその下の settings.json を書き換えたかどうかを確かめます。別の設定ファイルを使っているなら、`--settings` で指定して登録し直します。
+4. `~/.marimo/sessions/` にファイルができているかを確かめます。ファイルがあるのに表示されない場合は、アプリを起動し直します。
+5. 登録より前から開いていたセッションで状態が出ない場合は、そのセッションを開き直してみてください。
+6. クラウドで動くセッションと Cowork では、フックが届かないので表示できません。
 
 ### 終わったはずのセッションが残り続ける
 
