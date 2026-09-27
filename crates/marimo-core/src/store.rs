@@ -1,6 +1,7 @@
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -27,10 +28,12 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("state");
     // 監視側は `.` で始まる名前と `.tmp` を無視する。同じディレクトリに置くのは、
     // rename が同一ボリューム内でしか原子的にならないためである。
+    // 一時ファイルの名前はプロセスとプロセス内の通し番号で一意にする。macOS の時計は
+    // マイクロ秒単位なので、時刻を使うと同じプロセスのスレッドどうしで名前がぶつかる。
     let tmp = dir.join(format!(
         ".{name}.{}.{}.tmp",
         std::process::id(),
-        now_nanos()
+        TMP_SEQ.fetch_add(1, Ordering::Relaxed)
     ));
     {
         let mut f = File::create(&tmp)?;
@@ -61,12 +64,7 @@ fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
-fn now_nanos() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
-}
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     let bytes = serde_json::to_vec_pretty(value).map_err(io::Error::other)?;
@@ -245,7 +243,7 @@ mod tests {
     use super::*;
     use crate::state::Status;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
 
     fn home() -> (tempfile::TempDir, MarimoHome) {
         let dir = tempfile::tempdir().unwrap();
