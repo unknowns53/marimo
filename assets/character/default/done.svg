@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200" viewBox="0 0 800 1200">
+  <path d="M170 1200 q0 -330 150 -400 h160 q150 70 150 400 z" fill="#3fae84"/>
+  <rect x="360" y="600" width="80" height="230" rx="30" fill="#f6dccb"/>
+  <path d="M250 520 q-20 -300 150 -310 q170 10 150 310 q10 140 -40 200 l-20 -220 h-180 l-20 220 q-50 -60 -40 -200 z" fill="#5a3b2e"/>
+  <ellipse cx="400" cy="470" rx="130" ry="160" fill="#f6dccb"/>
+  <path d="M272 430 q10 -170 128 -170 q118 0 128 170 q-60 -90 -128 -90 q-68 0 -128 90 z" fill="#5a3b2e"/>
+  
+  <ellipse cx="360" cy="452" rx="13" ry="18" fill="#3b2f2f"/><ellipse cx="440" cy="452" rx="13" ry="18" fill="#3b2f2f"/>
+  <path d="M366 512 q34 40 68 0 z" fill="#a0524d"/>
+  
+  <rect x="190" y="1010" width="420" height="120" rx="24" fill="#ffffff" fill-opacity="0.9"/>
+  <text x="400" y="1070" text-anchor="middle" font-family="sans-serif" font-size="56" font-weight="700" fill="#3fae84">完了</text>
+  <text x="400" y="1112" text-anchor="middle" font-family="sans-serif" font-size="30" fill="#555">done · placeholder</text>
+</svg>
