@@ -1,0 +1,4 @@
+numpy==2.5.3
+pillow==12.3.0
+PyMatting==1.1.16
+rembg[cpu]==2.0.85
