@@ -51,8 +51,11 @@ export function renderPanel(
   limits.hidden = !limitText;
   panel.hidden = children.length === 0 && !limitText;
   // 今の段階を短い文字で示し、押すと詳細と件数だけを行き来する。
-  toggle.textContent = view.mode === "detail" ? "詳細" : "件数";
-  toggle.title = view.mode === "detail" ? "件数だけの表示に切り替える" : "詳細の表示に切り替える";
+  for (const button of toggle.querySelectorAll<HTMLElement>("button[data-mode]")) {
+    const active = button.dataset.mode === view.mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
   toggle.hidden = children.length === 0;
 }
 

@@ -233,7 +233,8 @@ async function openMenu(): Promise<void> {
 function bindPanelToggle(): void {
   panelElements.toggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    setPanelMode(panelMode === "detail" ? "counts" : "detail");
+    const mode = (e.target as HTMLElement | null)?.closest<HTMLElement>("button[data-mode]")?.dataset.mode;
+    if ((mode === "detail" || mode === "counts") && mode !== panelMode) setPanelMode(mode);
   });
 }
 

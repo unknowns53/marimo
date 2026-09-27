@@ -12,7 +12,9 @@
         <div id="bubble" role="status" aria-live="polite"></div>
       </div>
       <section id="panel" hidden>
-        <button id="panel-toggle" type="button"></button>
+        <div id="panel-toggle" role="group" aria-label="表示の切り替え">
+          <button type="button" data-mode="detail">詳細</button><button type="button" data-mode="counts">件数</button>
+        </div>
         <div id="rows"></div>
         <div id="limits" hidden></div>
       </section>
