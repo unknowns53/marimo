@@ -1,16 +1,16 @@
 {
-  "base": "art/candidates/base/base_02.png",
+  "base": "art/default/base.png",
   "out_dir": "assets/character/default",
   "canvas": [800, 1200],
   "rembg_model": "isnet-anime",
   "face_ellipse": { "cx": 505, "cy": 500, "rx": 265, "ry": 215 },
   "states": {
     "idle": { "source": "base" },
-    "idle_blink": { "face": "art/candidates/diffs/idle_blink_2.png" },
-    "working": { "face": "art/candidates/diffs/working_1.png" },
-    "working_blink": { "face": "art/candidates/diffs/working_blink_1.png", "onto": "working" },
-    "waiting": { "whole": "art/candidates/diffs/waiting_1.png" },
-    "done": { "face": "art/candidates/diffs/done_1.png" },
-    "error": { "face": "art/candidates/diffs/error_1.png" }
+    "idle_blink": { "face": "art/default/idle_blink.png" },
+    "working": { "face": "art/default/working.png" },
+    "working_blink": { "face": "art/default/working_blink.png", "onto": "working" },
+    "waiting": { "whole": "art/default/waiting.png" },
+    "done": { "face": "art/default/done.png" },
+    "error": { "face": "art/default/error.png" }
   }
 }
