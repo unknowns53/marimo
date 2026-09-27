@@ -7,3 +7,6 @@ art/candidates/
 target/
 node_modules/
 app/dist/
+
+# Tauri が生成するスキーマ
+app/src-tauri/gen/
