@@ -7,46 +7,32 @@ import { session, snap } from "./testFixtures";
 const ids = (list: { session_id: string }[]) => list.map((s) => s.session_id);
 
 describe("planPanel", () => {
-  it("shows rows only for sessions that need attention and summarises working ones", () => {
+  it("lists every non-idle session as its own row in priority order", () => {
     const plan = planPanel(
       snap(
         session("w1", "working", 1),
         session("w2", "working", 2),
         session("idle", "idle", 3),
         session("ask", "waiting", 4),
+        session("d1", "done", 5),
+        session("e1", "error", 6),
       ),
       new Acknowledged(),
     );
-    expect(ids(plan.attention)).toEqual(["ask"]);
-    expect(ids(plan.working)).toEqual(["w2", "w1"]);
-    expect(plan.moreAttention).toBe(0);
+    expect(ids(plan.rows)).toEqual(["ask", "e1", "w2", "w1", "d1"]);
+    expect(plan.moreRows).toBe(0);
   });
 
-  it("keeps the attention order and caps it at three rows", () => {
-    const plan = planPanel(
-      snap(
-        session("d1", "done", 1),
-        session("e1", "error", 2),
-        session("a1", "waiting", 3),
-        session("d2", "done", 4),
-        session("a2", "waiting", 5),
-      ),
-      new Acknowledged(),
-    );
-    expect(ids(plan.attention)).toEqual(["a2", "a1", "e1"]);
-    expect(plan.moreAttention).toBe(2);
+  it("caps the rows at five and counts the rest", () => {
+    const working = Array.from({ length: 6 }, (_, i) => session(`w${i}`, "working", i));
+    const plan = planPanel(snap(session("a", "waiting", 10), ...working), new Acknowledged());
+    expect(ids(plan.rows)).toEqual(["a", "w5", "w4", "w3", "w2"]);
+    expect(plan.moreRows).toBe(2);
   });
 
   it("is empty when only idle sessions exist", () => {
     expect(isEmpty(planPanel(snap(session("i", "idle", 1)), new Acknowledged()))).toBe(true);
     expect(isEmpty(planPanel(null, new Acknowledged()))).toBe(true);
-  });
-
-  it("caps the working list", () => {
-    const working = Array.from({ length: 7 }, (_, i) => session(`w${i}`, "working", i));
-    const plan = planPanel(snap(...working), new Acknowledged());
-    expect(plan.working).toHaveLength(5);
-    expect(plan.moreWorking).toBe(2);
   });
 });
 
@@ -55,11 +41,11 @@ describe("acknowledged sessions", () => {
     const ack = new Acknowledged();
     const done = session("a", "done", 10);
     ack.add(triggerKey(done));
-    expect(ids(planPanel(snap(done), ack).attention)).toEqual([]);
+    expect(ids(planPanel(snap(done), ack).rows)).toEqual([]);
     // 次のプロンプトで作業中を経て、再び完了した。
     const again = session("a", "done", 20);
     ack.prune(snap(again));
-    expect(ids(planPanel(snap(again), ack).attention)).toEqual(["a"]);
+    expect(ids(planPanel(snap(again), ack).rows)).toEqual(["a"]);
   });
 
   it("keeps waiting and error rows even when seen", () => {
@@ -68,7 +54,7 @@ describe("acknowledged sessions", () => {
     const error = session("e", "error", 2);
     ack.add(triggerKey(waiting));
     ack.add(triggerKey(error));
-    expect(ids(planPanel(snap(waiting, error), ack).attention)).toEqual(["w", "e"]);
+    expect(ids(planPanel(snap(waiting, error), ack).rows)).toEqual(["w", "e"]);
   });
 
   it("forgets keys whose trigger has ended", () => {
@@ -96,8 +82,8 @@ describe("panelView", () => {
     const v = panelView(sessions(), new Acknowledged(), "counts");
     expect(v.counts).toEqual([
       { status: "waiting", count: 1 },
-      { status: "done", count: 2 },
       { status: "working", count: 3 },
+      { status: "done", count: 2 },
     ]);
     expect(v.target?.session_id).toBe("ask");
     expect(hasContent(v)).toBe(true);
@@ -116,6 +102,11 @@ describe("panelView", () => {
     expect(hasContent(panelView(idle, new Acknowledged(), "counts"))).toBe(false);
     expect(hasContent(panelView(idle, new Acknowledged(), "detail"))).toBe(false);
     expect(hasContent(panelView(sessions(), new Acknowledged(), "picture"))).toBe(false);
+  });
+
+  it("targets a done session when it is the only one needing attention", () => {
+    const v = panelView(snap(session("w", "working", 5), session("d", "done", 1)), new Acknowledged(), "counts");
+    expect(v.target?.session_id).toBe("d");
   });
 
   it("has no click target when nothing needs attention", () => {

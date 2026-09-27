@@ -1,40 +1,28 @@
 import type { Acknowledged } from "./acknowledged";
 import type { SessionState, Snapshot, Status } from "./types";
 
-export const MAX_ATTENTION_ROWS = 3;
-// 作業中の一覧は立ち絵の上へ重ねて広げるので、窓の高さに収まる数で止める。
-export const MAX_WORKING_ROWS = 5;
-
-const ATTENTION: ReadonlySet<Status> = new Set(["waiting", "error", "done"]);
+// 詳細の段階の行数の上限。行はリストの上へ伸びるだけで立ち絵は動かないが、窓の高さに収める。
+export const MAX_ROWS = 5;
 
 export interface PanelPlan {
-  attention: SessionState[];
-  moreAttention: number;
-  working: SessionState[];
-  moreWorking: number;
+  rows: SessionState[];
+  moreRows: number;
 }
 
 /**
- * パネルに何を出すかを決める。行を出すのは利用者の対応が要るセッション（承認待ち、エラー、完了）
- * だけで、作業中は件数の要約にまとめる。完了は見たと示されたら畳み、承認待ちとエラーは
- * 解決するまで残す。並びは snapshot の順（優先度、同じなら新しい順）を保つ。
+ * 詳細の段階で出す行を決める。待機以外のセッションを 1 セッション 1 行で並べ、作業中も畳まない。
+ * 完了は見たと示されたら畳み、承認待ちとエラーは解決するまで残す。並びは snapshot の順
+ * （優先度の高い順、同じなら更新の新しい順）を保つ。
  */
 export function planPanel(snapshot: Snapshot | null, ack: Acknowledged): PanelPlan {
-  const sessions = snapshot?.sessions ?? [];
-  const attention = sessions.filter(
-    (s) => ATTENTION.has(s.status) && !(s.status === "done" && ack.has(s)),
+  const rows = (snapshot?.sessions ?? []).filter(
+    (s) => s.status !== "idle" && !(s.status === "done" && ack.has(s)),
   );
-  const working = sessions.filter((s) => s.status === "working");
-  return {
-    attention: attention.slice(0, MAX_ATTENTION_ROWS),
-    moreAttention: Math.max(0, attention.length - MAX_ATTENTION_ROWS),
-    working: working.slice(0, MAX_WORKING_ROWS),
-    moreWorking: Math.max(0, working.length - MAX_WORKING_ROWS),
-  };
+  return { rows: rows.slice(0, MAX_ROWS), moreRows: Math.max(0, rows.length - MAX_ROWS) };
 }
 
 export function isEmpty(plan: PanelPlan): boolean {
-  return plan.attention.length === 0 && plan.working.length === 0;
+  return plan.rows.length === 0;
 }
 
 export type PanelMode = "detail" | "counts" | "picture";
@@ -54,7 +42,8 @@ export interface PanelView {
   target: SessionState | null;
 }
 
-const COUNT_ORDER: Status[] = ["waiting", "error", "done", "working"];
+const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
+const ATTENTION: ReadonlySet<Status> = new Set(["waiting", "error", "done"]);
 
 /**
  * 段階ごとに何を出すかを決める。件数だけの段階でも数え方は詳細と同じにし、見たと示された完了は
@@ -68,7 +57,8 @@ export function panelView(snapshot: Snapshot | null, ack: Acknowledged, mode: Pa
     status,
     count: counted.filter((s) => s.status === status).length,
   })).filter((c) => c.count > 0);
-  return { mode, plan, counts, target: plan.attention[0] ?? null };
+  const target = counted.find((s) => ATTENTION.has(s.status)) ?? null;
+  return { mode, plan, counts, target };
 }
 
 export function hasContent(view: PanelView): boolean {

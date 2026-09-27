@@ -18,6 +18,7 @@ export interface PanelElements {
   panel: HTMLElement;
   rows: HTMLElement;
   limits: HTMLElement;
+  toggle: HTMLElement;
 }
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -29,7 +30,7 @@ const STATUS_LABEL: Record<Status, string> = {
 };
 
 export function renderPanel(
-  { panel, rows, limits }: PanelElements,
+  { panel, rows, limits, toggle }: PanelElements,
   view: PanelView,
   rateLimits: RateLimits | null,
   now: number,
@@ -49,12 +50,15 @@ export function renderPanel(
   rows.hidden = children.length === 0;
   limits.hidden = !limitText;
   panel.hidden = children.length === 0 && !limitText;
+  // 今の段階を短い文字で示し、押すと詳細と件数だけを行き来する。
+  toggle.textContent = view.mode === "detail" ? "詳細" : "件数";
+  toggle.title = view.mode === "detail" ? "件数だけの表示に切り替える" : "詳細の表示に切り替える";
+  toggle.hidden = children.length === 0;
 }
 
 function detailChildren(plan: PanelPlan, onSelect: (session: SessionState) => void): HTMLElement[] {
-  const children: HTMLElement[] = plan.attention.map((s) => renderRow(s, onSelect));
-  if (plan.moreAttention > 0) children.push(el("div", "more", `ほか ${plan.moreAttention} 件`));
-  if (plan.working.length > 0) children.push(renderWorking(plan, onSelect));
+  const children: HTMLElement[] = plan.rows.map((s) => renderRow(s, onSelect));
+  if (plan.moreRows > 0) children.push(el("div", "more", `ほか ${plan.moreRows} 件`));
   return children;
 }
 
@@ -108,24 +112,6 @@ function renderHead(s: SessionState): HTMLElement {
   const head = el("div", "row-head");
   head.append(el("span", `dot ${s.status}`), el("span", "folder", folderName(s)), renderContext(s));
   return head;
-}
-
-// 作業中のセッションは件数だけを 1 行で出し、マウスを載せたときに行の一覧を上へ重ねて広げる。
-function renderWorking(plan: PanelPlan, onSelect: (session: SessionState) => void): HTMLElement {
-  const total = plan.working.length + plan.moreWorking;
-  const summaryLine = () => {
-    const line = el("div", "working-summary");
-    line.append(el("span", "dot working"), el("span", "", `作業中 ${total} 件`));
-    return line;
-  };
-  const list = el("div", "working-list hover-layer");
-  list.append(...plan.working.map((s) => renderRow(s, onSelect)));
-  if (plan.moreWorking > 0) list.append(el("div", "more", `ほか ${plan.moreWorking} 件`));
-  list.append(summaryLine());
-  const wrap = el("div", "working-group");
-  wrap.dataset.expandId = "working";
-  wrap.append(summaryLine(), list);
-  return wrap;
 }
 
 // % が分かるときはバー、上限が分からずトークン数だけのときは数値だけを出し、見分けられるようにする。

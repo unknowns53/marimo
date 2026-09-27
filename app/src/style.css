@@ -135,8 +135,30 @@ body {
 
 #panel[hidden],
 #rows[hidden],
-#limits[hidden] {
+#limits[hidden],
+#panel-toggle[hidden] {
   display: none;
+}
+
+/* パネルの右上の外に付ける小さなつまみ。行と重ならず、パネルが上へ伸びても一緒に動く。 */
+#panel-toggle {
+  position: absolute;
+  right: 8px;
+  bottom: 100%;
+  padding: 1px 8px;
+  border: none;
+  border-radius: 6px 6px 0 0;
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.6;
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+#panel-toggle:hover {
+  opacity: 1;
 }
 
 .row {
@@ -270,33 +292,6 @@ body {
 }
 
 .counts-detail .counts-line {
-  margin-top: 2px;
-}
-
-.working-group {
-  position: relative;
-  margin: 1px -6px 0;
-  padding: 3px 6px;
-  border-radius: 6px;
-}
-
-.working-summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  opacity: 0.85;
-}
-
-.working-list {
-  padding: 3px 6px;
-}
-
-.working-list .row {
-  margin: 0;
-  padding: 3px 0;
-}
-
-.working-list .working-summary {
   margin-top: 2px;
 }
 

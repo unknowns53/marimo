@@ -29,7 +29,12 @@ const DRAG_THRESHOLD_PX = 4;
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 const stage = $("stage");
-const panelElements = { panel: $("panel"), rows: $("rows"), limits: $("limits") };
+const panelElements = {
+  panel: $("panel"),
+  rows: $("rows"),
+  limits: $("limits"),
+  toggle: $("panel-toggle"),
+};
 const bubbleNode = $("bubble");
 const acknowledged = new Acknowledged();
 const bubbleModel = new BubbleModel(acknowledged);
@@ -124,7 +129,8 @@ async function reactToTouch(): Promise<void> {
 }
 
 function collectHitRegions(): HitRegions {
-  const rects = [rectOf(panelElements.panel)];
+  // 切り替えのボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
+  const rects = [rectOf(panelElements.panel), rectOf(panelElements.toggle)];
   // 広げた層はパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
@@ -224,6 +230,13 @@ async function openMenu(): Promise<void> {
   await menu.popup();
 }
 
+function bindPanelToggle(): void {
+  panelElements.toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setPanelMode(panelMode === "detail" ? "counts" : "detail");
+  });
+}
+
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
   // ドラッグはすぐには始めず、押したまま少し動いてから始める。動かずに離したら、立ち絵を押した
@@ -231,7 +244,7 @@ function bindWindowControls(): void {
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.button !== 0 || target?.closest(".row, .working-group, .counts-group, #bubble")) {
+    if (e.button !== 0 || target?.closest(".row, .counts-group, #panel-toggle, #bubble")) {
       press = null;
       return;
     }
@@ -255,6 +268,7 @@ function bindWindowControls(): void {
 
 async function start(): Promise<void> {
   bindWindowControls();
+  bindPanelToggle();
   panelMode = await loadPanelMode();
   try {
     scale = new ScaleControl(await invoke<number>("get_scale"));
