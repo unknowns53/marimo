@@ -18,6 +18,8 @@ serde.workspace = true
 serde_json.workspace = true
 # 透過した窓を macOS で出すには macos-private-api が要る。
 tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
 
 [dev-dependencies]
 tempfile.workspace = true

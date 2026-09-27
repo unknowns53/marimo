@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
 import { renderPanel } from "./panel";
@@ -81,6 +82,11 @@ async function openMenu(): Promise<void> {
       }),
     ),
   );
+  // ログイン項目の状態はアプリの外（システム設定など）でも変わるので、開くたびに読み直す。
+  const autostart = await isEnabled().catch((e) => {
+    console.error("autostart", e);
+    return undefined;
+  });
   const menu = await Menu.new({
     items: [
       await CheckMenuItem.new({
@@ -90,6 +96,13 @@ async function openMenu(): Promise<void> {
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       ...sizeItems,
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await CheckMenuItem.new({
+        text: "ログイン時に起動",
+        checked: autostart === true,
+        enabled: autostart !== undefined,
+        action: () => void (autostart ? disable() : enable()).catch((e) => console.error("autostart", e)),
+      }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({ text: "終了", action: () => void invoke("quit") }),
     ],

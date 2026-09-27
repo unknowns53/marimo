@@ -71,8 +71,22 @@ fn main() {
     let home =
         MarimoHome::resolve().expect("cannot resolve the marimo home directory; set MARIMO_HOME");
     let _ = fs::create_dir_all(home.sessions_dir());
+    let context = tauri::generate_context!();
+
+    // LaunchAgent は System Events への自動操作の許可を求めずに登録できる。
+    // plist の名前は既定だと製品名の marimo になり、同名の別アプリと重なりうるので
+    // bundle identifier を使う。
+    let autostart = tauri_plugin_autostart::Builder::new();
+    #[cfg(target_os = "macos")]
+    let autostart = autostart
+        .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
+        .app_name(context.config().identifier.clone());
 
     tauri::Builder::default()
+        // 二つ目の起動は、他のプラグインが動き出す前に止める必要があるので最初に登録する。
+        // 何もしないコールバックにしてあり、二つ目のプロセスはそのまま終わる。
+        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
+        .plugin(autostart.build())
         .manage(AppState { home: home.clone() })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -82,7 +96,8 @@ fn main() {
             quit
         ])
         .setup(move |app| {
-            // macOS では skipTaskbar が Dock に効かないので、アクセサリ扱いにして Dock から外す。
+            // .app では Info.plist の LSUIElement が起動の瞬間から Dock に出さない。これは
+            // Info.plist を持たない開発中の実行ファイルでも Dock と Cmd+Tab から外すためにある。
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
@@ -96,6 +111,6 @@ fn main() {
             watch::spawn(app.handle().clone(), home.clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running marimo");
 }
