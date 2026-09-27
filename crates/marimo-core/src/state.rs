@@ -122,6 +122,8 @@ pub struct HookInput {
     pub notification_type: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
+    #[serde(default)]
+    pub delta: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -180,6 +182,18 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
             }
             _ => return Transition::Nothing,
         },
+        // 応答の文章が流れるたびに届く。状態は変えず、いま表示された最後の行を一行表示に使う。
+        "MessageDisplay" => {
+            let last = input
+                .delta
+                .as_deref()
+                .and_then(|d| d.lines().rev().find(|l| !l.trim().is_empty()))
+                .map(one_line);
+            match last {
+                Some(text) => (cur_status.unwrap_or_default(), Line::Set(text)),
+                None => return Transition::Nothing,
+            }
+        }
         "Stop" => {
             let line = match input.last_assistant_message.as_deref().map(one_line) {
                 Some(text) if !text.is_empty() => Line::Set(text),
@@ -368,6 +382,16 @@ mod tests {
                 Some(Working),
                 Some(Working),
             ),
+            (
+                json!({"session_id":"s1","hook_event_name":"MessageDisplay","delta":"a\nb\n","final":false}),
+                Some(Working),
+                Some(Working),
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"MessageDisplay","delta":"","final":true}),
+                Some(Working),
+                None,
+            ),
             (ev("SubagentStop"), Some(Working), None),
             (ev("SomeFutureEvent"), Some(Working), None),
         ];
@@ -426,6 +450,32 @@ mod tests {
             panic!()
         };
         assert_eq!(s.line, None);
+    }
+
+    #[test]
+    fn message_display_shows_last_non_empty_line() {
+        let cur = SessionState {
+            status: Status::Waiting,
+            line: Some("old".into()),
+            ..SessionState::new("s1")
+        };
+        let md = input(json!({
+            "session_id": "s1", "hook_event_name": "MessageDisplay",
+            "turn_id": "t", "message_id": "m", "index": 0, "final": false,
+            "delta": "Here is the plan:\n\n1. 手順を   確認する\n\n"
+        }));
+        let Transition::Write(s) = transition(&md, Some(&cur), 2) else {
+            panic!()
+        };
+        assert_eq!(s.status, Status::Waiting);
+        assert_eq!(s.line.as_deref(), Some("1. 手順を 確認する"));
+        let long = input(json!({
+            "session_id": "s1", "hook_event_name": "MessageDisplay", "delta": "x".repeat(300)
+        }));
+        let Transition::Write(s) = transition(&long, Some(&cur), 3) else {
+            panic!()
+        };
+        assert_eq!(s.line.unwrap().chars().count(), LINE_MAX_CHARS);
     }
 
     #[test]

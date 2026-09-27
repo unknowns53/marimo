@@ -47,6 +47,27 @@ fn hook_updates_state_and_prints_nothing() {
     assert!(session(home, "s1").is_none());
 }
 
+// displayContent を返さなければ元の文章がそのまま表示される（hooks のドキュメントの
+// MessageDisplay output の節）ので、marimo は何も出力してはいけない。
+#[test]
+fn message_display_prints_nothing_and_updates_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let start = json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","cwd":"/w/p"});
+    run(home, &["hook"], start.to_string().as_bytes());
+    let md = json!({
+        "session_id": "s1", "hook_event_name": "MessageDisplay", "cwd": "/w/p",
+        "turn_id": "t", "message_id": "m", "index": 0, "final": false,
+        "delta": "Here is the plan:\n1. Read the docs\n"
+    });
+    let out = run(home, &["hook"], md.to_string().as_bytes());
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    let s = session(home, "s1").unwrap();
+    assert_eq!(s["status"], "working");
+    assert_eq!(s["line"], "1. Read the docs");
+}
+
 #[test]
 fn broken_input_exits_zero_with_empty_stdout() {
     let dir = tempfile::tempdir().unwrap();
