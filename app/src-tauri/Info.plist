@@ -4,5 +4,7 @@
 <dict>
   <key>LSUIElement</key>
   <true/>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>セッションの行を押したときに、そのセッションを開いている Terminal や iTerm2 のタブを前面に出すために使います。</string>
 </dict>
 </plist>

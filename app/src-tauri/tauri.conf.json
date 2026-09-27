@@ -15,8 +15,8 @@
       {
         "label": "main",
         "title": "marimo",
-        "width": 260,
-        "height": 440,
+        "width": 356,
+        "height": 600,
         "resizable": false,
         "maximizable": false,
         "minimizable": false,
@@ -48,7 +48,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "Entitlements.plist"
     },
     "windows": {
       "nsis": {

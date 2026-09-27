@@ -85,7 +85,7 @@ body {
   left: 50%;
   z-index: 2;
   width: max-content;
-  max-width: 220px;
+  max-width: 240px;
   padding: 8px 12px;
   border-radius: 14px;
   background: var(--bubble-bg);
@@ -111,13 +111,17 @@ body {
   border-top-color: var(--bubble-bg);
 }
 
+/* 出したままにするので、押して閉じられるようにする。 */
 #bubble.show {
   opacity: 1;
   transform: translate(-50%, 0);
+  pointer-events: auto;
+  cursor: pointer;
 }
 
+/* 要約を 2 行まで折り返して読めるよう、立ち絵の倍率とは別に幅を決める。 */
 #panel {
-  width: 244px;
+  width: 340px;
   margin-top: 4px;
   padding: 6px 8px;
   box-sizing: border-box;
@@ -125,7 +129,7 @@ body {
   background: var(--panel-bg);
   color: var(--panel-fg);
   font-size: 11px;
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 #panel[hidden],
@@ -135,11 +139,28 @@ body {
 }
 
 .row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.row + .row {
+  margin-top: 2px;
+}
+
+.row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.row-head {
   display: grid;
-  grid-template-columns: 8px minmax(0, 64px) minmax(0, 1fr) 32px;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
   gap: 6px;
   align-items: center;
-  height: 18px;
 }
 
 .dot {
@@ -162,46 +183,75 @@ body {
   background: var(--error);
 }
 
-.folder,
-.line {
+.folder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.folder {
   font-weight: 600;
 }
 
-.line {
-  opacity: 0.85;
+.row-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  padding-left: 14px;
+  overflow-wrap: anywhere;
+}
+
+.row-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 14px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  opacity: 0.6;
 }
 
 .ctx {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ctx-bar {
+  width: 48px;
   height: 4px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.18);
   overflow: hidden;
 }
 
-.ctx i {
+.ctx-bar i {
   display: block;
   height: 100%;
   background: #a5b4fc;
 }
 
-.ctx i.high {
+.ctx-bar i.high {
   background: var(--waiting);
 }
 
-.ctx-tokens {
+.ctx-label {
   font-size: 10px;
-  text-align: right;
   opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 上限が分からずトークン数だけのときは、バーと見分けがつくよう枠で囲んだ数値にする。 */
+.ctx-tokens {
+  padding: 0 4px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  font-size: 10px;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
 }
 
 .more {
-  padding-left: 14px;
+  padding: 2px 0 0 14px;
   opacity: 0.7;
 }
 

@@ -1,3 +1,4 @@
+import { folderName, formatTokens } from "./format";
 import type { RateLimits, RateWindow, SessionState, Snapshot, Status } from "./types";
 
 const MAX_ROWS = 3;
@@ -5,7 +6,7 @@ const MAX_ROWS = 3;
 // 止まっている間に実際の値から離れている可能性が高い。
 const RATE_STALE_MS = 30 * 60 * 1000;
 
-const FALLBACK_LINE: Record<Status, string> = {
+const FALLBACK_SUMMARY: Record<Status, string> = {
   idle: "",
   working: "考え中…",
   waiting: "確認待ち",
@@ -13,53 +14,63 @@ const FALLBACK_LINE: Record<Status, string> = {
   error: "エラー",
 };
 
+export interface PanelElements {
+  panel: HTMLElement;
+  rows: HTMLElement;
+  limits: HTMLElement;
+}
+
 export function renderPanel(
-  panel: HTMLElement,
-  rows: HTMLElement,
-  limits: HTMLElement,
+  { panel, rows, limits }: PanelElements,
   snapshot: Snapshot | null,
   showRows: boolean,
   now: number,
+  onSelect: (sessionId: string) => void,
 ): void {
   const active = snapshot?.sessions.filter((s) => s.status !== "idle") ?? [];
   const limitText = snapshot?.rate_limits ? renderLimits(limits, snapshot.rate_limits, now) : false;
 
-  rows.replaceChildren(...active.slice(0, MAX_ROWS).map(renderRow));
+  rows.replaceChildren(...active.slice(0, MAX_ROWS).map((s) => renderRow(s, onSelect)));
   if (active.length > MAX_ROWS) {
-    const more = el("div", "more", `ほか ${active.length - MAX_ROWS} 件`);
-    rows.append(more);
+    rows.append(el("div", "more", `ほか ${active.length - MAX_ROWS} 件`));
   }
   rows.hidden = active.length === 0;
   limits.hidden = !limitText;
   panel.hidden = !showRows || (active.length === 0 && !limitText);
 }
 
-function renderRow(s: SessionState): HTMLElement {
+function renderRow(s: SessionState, onSelect: (sessionId: string) => void): HTMLElement {
   const row = el("div", "row");
-  row.title = s.cwd ?? s.session_id;
-  row.append(
-    el("span", `dot ${s.status}`),
-    el("span", "folder", folderName(s.cwd) || s.session_id.slice(0, 8)),
-    el("span", "line", s.line ?? FALLBACK_LINE[s.status]),
-    renderContext(s),
-  );
+  const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
+  const detail = s.activity?.detail ?? "";
+  row.title = [s.cwd ?? s.session_id, summary, detail].filter(Boolean).join("\n\n");
+  row.addEventListener("click", () => onSelect(s.session_id));
+
+  const head = el("div", "row-head");
+  head.append(el("span", `dot ${s.status}`), el("span", "folder", folderName(s)), renderContext(s));
+  row.append(head, el("div", "row-summary", summary));
+  if (detail) row.append(el("div", "row-detail", detail));
   return row;
 }
 
-// 使用率が取れないときは、要件どおりトークン数で代用する。
-function renderContext(s: SessionState): HTMLElement {
+// % が分かるときはバー、上限が分からずトークン数だけのときは数値だけを出し、見分けられるようにする。
+export function renderContext(s: SessionState): HTMLElement {
   const ctx = s.context;
   if (ctx?.used_percentage != null) {
     const pct = Math.max(0, Math.min(100, ctx.used_percentage));
-    const bar = el("span", "ctx");
-    bar.title = `コンテキスト ${Math.round(pct)}%`;
+    const wrap = el("span", "ctx");
+    wrap.title = `コンテキスト ${Math.round(pct)}%`;
+    const bar = el("span", "ctx-bar");
     const fill = el("i", pct >= 80 ? "high" : "");
     fill.style.width = `${pct}%`;
     bar.append(fill);
-    return bar;
+    wrap.append(bar, el("span", "ctx-label", `${Math.round(pct)}%`));
+    return wrap;
   }
   if (ctx?.total_input_tokens != null) {
-    return el("span", "ctx-tokens", formatTokens(ctx.total_input_tokens));
+    const tokens = el("span", "ctx-tokens", formatTokens(ctx.total_input_tokens));
+    tokens.title = `コンテキスト ${ctx.total_input_tokens.toLocaleString()} トークン（上限が分からないため % は出していません）`;
+    return tokens;
   }
   return el("span", "ctx-none");
 }
@@ -80,16 +91,6 @@ function renderLimits(container: HTMLElement, rl: RateLimits, now: number): bool
   );
   container.classList.toggle("stale", now - rl.updated_at > RATE_STALE_MS);
   return true;
-}
-
-function folderName(cwd: string | null): string {
-  if (!cwd) return "";
-  const parts = cwd.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? cwd;
-}
-
-function formatTokens(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k` : String(n);
 }
 
 function formatClock(ms: number): string {

@@ -7,16 +7,35 @@ export interface ContextUsage {
   total_input_tokens: number | null;
   context_window_size: number | null;
   updated_at: number;
+  source?: string | null;
+}
+
+export type ActivityKind = "tool" | "message" | "error" | "text";
+
+export interface Activity {
+  kind: ActivityKind;
+  tool?: string;
+  summary: string;
+  detail?: string;
+}
+
+export interface Origin {
+  bundle_id?: string;
+  term_program?: string;
+  tty?: string;
+  entrypoint?: string;
 }
 
 export interface SessionState {
   session_id: string;
   cwd: string | null;
   status: Status;
-  line: string | null;
+  status_since: number;
+  activity: Activity | null;
   last_event: string | null;
   updated_at: number;
   context: ContextUsage | null;
+  origin?: Origin | null;
 }
 
 export interface RateWindow {

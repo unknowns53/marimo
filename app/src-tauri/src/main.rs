@@ -1,6 +1,7 @@
 // リリースビルドの Windows でコンソール窓を開かないようにする。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod focus;
 mod scale;
 mod watch;
 mod window_pos;
@@ -63,6 +64,13 @@ fn set_scale(window: WebviewWindow, state: State<'_, AppState>, scale: f64) -> f
 }
 
 #[tauri::command]
+fn focus_session(state: State<'_, AppState>, session_id: String) {
+    if let Some(session) = store::read_session(&state.home, &session_id) {
+        focus::run(focus::plan(&session));
+    }
+}
+
+#[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
 }
@@ -93,6 +101,7 @@ fn main() {
             get_dialogue,
             get_scale,
             set_scale,
+            focus_session,
             quit
         ])
         .setup(move |app| {

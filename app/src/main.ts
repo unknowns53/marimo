@@ -5,51 +5,58 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
+import { BubbleModel } from "./bubbleModel";
 import { renderPanel } from "./panel";
 import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
-import type { Dialogue, Snapshot, Status } from "./types";
+import type { Dialogue, Snapshot } from "./types";
 
 const CHARACTER_BASE = new URL("/character/default/", window.location.href).href;
-const SPEAKING: ReadonlySet<Status> = new Set(["waiting", "done", "error"]);
 const SHOW_ROWS_KEY = "marimo.showRows";
 // 利用制限の「古い」「リセット済み」は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 const stage = $("stage");
-const panel = $("panel");
-const rows = $("rows");
-const limits = $("limits");
-const bubble = new Bubble($("bubble"));
+const panelElements = { panel: $("panel"), rows: $("rows"), limits: $("limits") };
+const bubbleModel = new BubbleModel();
+const bubble = new Bubble($("bubble"), () => {
+  bubbleModel.dismiss();
+  bubble.hide();
+});
 
 let renderer: CharacterRenderer | undefined;
 let snapshot: Snapshot | null = null;
-let shown: Status = "idle";
+let dialogue: Dialogue = {};
 let showRows = readShowRows();
 let scale: ScaleControl | undefined;
+// スナップショットは続けて届くことがあり、セリフの読み込みを待つ間に順序が入れ替わらないよう直列にする。
+let applying: Promise<void> = Promise.resolve();
 
-function applySnapshot(next: Snapshot): void {
+function queueSnapshot(next: Snapshot): void {
+  applying = applying.then(() => applySnapshot(next)).catch((e) => console.error("snapshot", e));
+}
+
+async function applySnapshot(next: Snapshot): Promise<void> {
   snapshot = next;
   renderer?.setStatus(next.aggregate);
-  if (next.aggregate !== shown && SPEAKING.has(next.aggregate)) {
-    void speak(next.aggregate);
+  // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
+  if (bubbleModel.needsText(next)) {
+    dialogue = await invoke<Dialogue>("get_dialogue").catch((e) => {
+      console.error("dialogue", e);
+      return dialogue;
+    });
   }
-  shown = next.aggregate;
+  const view = bubbleModel.update(next, dialogue);
+  if (view) bubble.show(view.text);
+  else bubble.hide();
   redrawPanel();
 }
 
-// セリフの JSON はユーザーが編集するものなので、話すたびに読み直して再起動なしで反映する。
-async function speak(status: Status): Promise<void> {
-  try {
-    bubble.say(status, await invoke<Dialogue>("get_dialogue"));
-  } catch (e) {
-    console.error("dialogue", e);
-  }
-}
-
 function redrawPanel(): void {
-  renderPanel(panel, rows, limits, snapshot, showRows, Date.now());
+  renderPanel(panelElements, snapshot, showRows, Date.now(), (sessionId) => {
+    void invoke("focus_session", { sessionId }).catch((e) => console.error("focus", e));
+  });
 }
 
 function readShowRows(): boolean {
@@ -113,6 +120,9 @@ async function openMenu(): Promise<void> {
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
   document.addEventListener("mousedown", (e) => {
+    // 行と吹き出しは押して操作するので、そこからはドラッグを始めない。
+    const target = e.target as HTMLElement | null;
+    if (target?.closest(".row, #bubble")) return;
     if (e.button === 0) void getCurrentWindow().startDragging();
   });
   document.addEventListener("contextmenu", (e) => {
@@ -136,8 +146,8 @@ async function start(): Promise<void> {
   } catch (e) {
     console.error("character", e);
   }
-  await listen<Snapshot>("snapshot", (e) => applySnapshot(e.payload));
-  applySnapshot(await invoke<Snapshot>("get_snapshot"));
+  await listen<Snapshot>("snapshot", (e) => queueSnapshot(e.payload));
+  queueSnapshot(await invoke<Snapshot>("get_snapshot"));
   window.setInterval(redrawPanel, PANEL_REFRESH_MS);
 }
 
