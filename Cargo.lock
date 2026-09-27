@@ -2080,6 +2080,7 @@ dependencies = [
 name = "marimo-hook"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "marimo-core",
  "serde_json",
  "tempfile",

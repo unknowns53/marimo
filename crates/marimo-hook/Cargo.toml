@@ -9,6 +9,9 @@ marimo-core.workspace = true
 # 利用者の settings.json を書き戻すとき、既存のキーの順序を保つために必要になる。
 serde_json = { workspace = true, features = ["preserve_order"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 serde_json.workspace = true
 tempfile.workspace = true

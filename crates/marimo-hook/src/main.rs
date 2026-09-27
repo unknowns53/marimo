@@ -4,9 +4,10 @@ use std::panic::{self, AssertUnwindSafe};
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::thread;
 
-use marimo_core::{HookInput, MarimoHome, store};
+use marimo_core::{HookInput, MarimoHome, store, transcript};
 
 mod install;
+mod origin;
 mod settings_edit;
 
 // hook、statusline、record は、marimo の内部で何が失敗しても終了コード 0 で抜ける。
@@ -87,7 +88,21 @@ fn hook() -> Result<(), String> {
     let input = read_stdin();
     let parsed: HookInput =
         serde_json::from_slice(&input).map_err(|e| format!("invalid hook input: {e}"))?;
-    store::apply_hook(&home()?, &parsed).map_err(|e| format!("write failed: {e}"))
+    // 会話ログが読めなくても、状態の更新は続ける。
+    let transcript = parsed
+        .transcript_path
+        .as_deref()
+        .filter(|_| parsed.wants_transcript_usage())
+        .and_then(|p| {
+            transcript::last_usage(std::path::Path::new(p))
+                .ok()
+                .flatten()
+        });
+    let extras = store::HookExtras {
+        origin: Some(origin::detect()),
+        transcript,
+    };
+    store::apply_hook(&home()?, &parsed, &extras).map_err(|e| format!("write failed: {e}"))
 }
 
 fn record(label: &str) -> Result<(), String> {

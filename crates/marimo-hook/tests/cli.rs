@@ -5,9 +5,16 @@ use std::process::{Command, Output, Stdio};
 use serde_json::{Value, json};
 
 fn run(home: &Path, args: &[&str], stdin: &[u8]) -> Output {
+    run_with_env(home, args, stdin, &[])
+}
+
+fn run_with_env(home: &Path, args: &[&str], stdin: &[u8], envs: &[(&str, &str)]) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_marimo-hook"))
         .args(args)
         .env("MARIMO_HOME", home)
+        .env_remove("TERM_PROGRAM")
+        .env_remove("__CFBundleIdentifier")
+        .envs(envs.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -39,7 +46,8 @@ fn hook_updates_state_and_prints_nothing() {
     }
     let s = session(home, "s1").unwrap();
     assert_eq!(s["status"], "working");
-    assert_eq!(s["line"], "Bash: cargo build");
+    assert_eq!(s["activity"]["summary"], "cargo build");
+    assert_eq!(s["activity"]["detail"], "cargo build");
 
     let end = json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"other"});
     let out = run(home, &["hook"], end.to_string().as_bytes());
@@ -65,7 +73,64 @@ fn message_display_prints_nothing_and_updates_line() {
     assert!(out.stdout.is_empty());
     let s = session(home, "s1").unwrap();
     assert_eq!(s["status"], "working");
-    assert_eq!(s["line"], "1. Read the docs");
+    assert_eq!(s["activity"]["summary"], "1. Read the docs");
+}
+
+#[test]
+fn hook_records_origin_from_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let event =
+        json!({"session_id":"s1","hook_event_name":"SessionStart","source":"startup","cwd":"/w/p"});
+    let terminal = [
+        ("TERM_PROGRAM", "Apple_Terminal"),
+        ("__CFBundleIdentifier", "com.apple.Terminal"),
+    ];
+    run_with_env(home, &["hook"], event.to_string().as_bytes(), &terminal);
+    let s = session(home, "s1").unwrap();
+    assert_eq!(s["origin"]["term_program"], "Apple_Terminal");
+    assert_eq!(s["origin"]["bundle_id"], "com.apple.Terminal");
+
+    // --resume で別のアプリへ移ったら、起動元を取り直す。
+    let desktop = [("__CFBundleIdentifier", "com.anthropic.claudefordesktop")];
+    run_with_env(home, &["hook"], event.to_string().as_bytes(), &desktop);
+    let s = session(home, "s1").unwrap();
+    assert_eq!(s["origin"]["bundle_id"], "com.anthropic.claudefordesktop");
+    assert!(s["origin"].get("term_program").is_none());
+}
+
+#[test]
+fn post_tool_use_reads_context_tokens_from_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let transcript = dir.path().join("t.jsonl");
+    let line = json!({
+        "type": "assistant", "isSidechain": false, "entrypoint": "cli",
+        "message": {"role": "assistant", "content": [], "usage": {
+            "input_tokens": 2, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 27038, "output_tokens": 4
+        }}
+    });
+    std::fs::write(&transcript, format!("{line}\n")).unwrap();
+    let event = json!({
+        "session_id": "s1", "hook_event_name": "PostToolUse", "cwd": "/w/p",
+        "transcript_path": transcript, "tool_name": "Bash", "tool_input": {"command": "ls"}
+    });
+    let out = run(&home, &["hook"], event.to_string().as_bytes());
+    assert!(out.status.success() && out.stdout.is_empty());
+    let s = session(&home, "s1").unwrap();
+    assert_eq!(s["context"]["total_input_tokens"], 27140);
+    assert_eq!(s["context"]["source"], "transcript");
+    assert!(s["context"]["used_percentage"].is_null());
+    assert_eq!(s["origin"]["entrypoint"], "cli");
+
+    // 会話ログが読めなくても、状態の更新は続ける。
+    let missing = json!({
+        "session_id": "s2", "hook_event_name": "Stop", "transcript_path": "/nonexistent.jsonl",
+        "last_assistant_message": "done"
+    });
+    let out = run(&home, &["hook"], missing.to_string().as_bytes());
+    assert!(out.status.success() && out.stdout.is_empty());
+    assert_eq!(session(&home, "s2").unwrap()["status"], "done");
 }
 
 #[test]

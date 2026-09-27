@@ -10,10 +10,11 @@ use serde_json::{Value, json};
 
 use crate::paths::MarimoHome;
 use crate::state::{
-    ContextUsage, HookInput, RateLimits, RateWindow, SessionState, Snapshot, Transition, aggregate,
-    transition,
+    ContextUsage, HookInput, Origin, RateLimits, RateWindow, SessionState, Snapshot, Transition,
+    aggregate, context_from_transcript, transition,
 };
 use crate::time::{now_ms, rfc3339_utc};
+use crate::transcript::TranscriptUsage;
 
 // フックは Claude Code の処理を止めてしまうので、ロックを待つ時間に上限を設ける。
 // 上限を過ぎたらロックなしで書く。書き込み自体は rename で原子的なので、
@@ -107,14 +108,34 @@ pub fn read_session(home: &MarimoHome, session_id: &str) -> Option<SessionState>
     serde_json::from_slice(&bytes).ok()
 }
 
-pub fn apply_hook(home: &MarimoHome, input: &HookInput) -> io::Result<()> {
+/// フックの入力以外にフックの実行時だけ分かる情報。会話ログの読み取りはロックを取る前に済ませる。
+#[derive(Debug, Clone, Default)]
+pub struct HookExtras {
+    pub origin: Option<Origin>,
+    pub transcript: Option<TranscriptUsage>,
+}
+
+pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> io::Result<()> {
     let path = home
         .session_file(&input.session_id)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unusable session_id"))?;
     let _lock = lock_home(home);
     let current = read_session(home, &input.session_id);
     match transition(input, current.as_ref(), now_ms()) {
-        Transition::Write(next) => write_json_atomic(&path, &next),
+        Transition::Write(mut next) => {
+            let entrypoint = extras
+                .transcript
+                .as_ref()
+                .and_then(|t| t.entrypoint.as_deref());
+            next.origin = Origin::merge(next.origin.as_ref(), extras.origin.as_ref(), entrypoint);
+            if let Some(t) = &extras.transcript
+                && let Some(ctx) =
+                    context_from_transcript(next.context.as_ref(), t.context_tokens, now_ms())
+            {
+                next.context = Some(ctx);
+            }
+            write_json_atomic(&path, &next)
+        }
         Transition::Delete => match fs::remove_file(&path) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
@@ -158,6 +179,7 @@ fn context_from(input: &Value, now: u64) -> Option<ContextUsage> {
         total_input_tokens: cw.get("total_input_tokens").and_then(Value::as_u64),
         context_window_size: cw.get("context_window_size").and_then(Value::as_u64),
         updated_at: now,
+        source: Some("statusline".to_owned()),
     };
     (usage.used_percentage.is_some() || usage.total_input_tokens.is_some()).then_some(usage)
 }
@@ -252,7 +274,12 @@ mod tests {
     }
 
     fn hook(home: &MarimoHome, v: Value) {
-        apply_hook(home, &serde_json::from_value(v).unwrap()).unwrap();
+        apply_hook(
+            home,
+            &serde_json::from_value(v).unwrap(),
+            &HookExtras::default(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -326,7 +353,11 @@ mod tests {
         );
         let s = read_session(&home, "s1").unwrap();
         assert_eq!(s.status, Status::Working);
-        assert_eq!(s.line.as_deref(), Some("Bash: cargo test"));
+        let a = s.activity.unwrap();
+        assert_eq!(
+            (a.summary.as_str(), a.detail.as_deref()),
+            ("cargo test", Some("cargo test"))
+        );
         assert_eq!(s.cwd.as_deref(), Some("/w/a"));
         hook(
             &home,
