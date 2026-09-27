@@ -82,8 +82,8 @@ fn command_path(exe: &Path) -> String {
 fn install(opts: &Options, exe: &Path, marimo: &Marimo) -> Result<(), String> {
     let original = read_settings(&opts.settings, true)?;
     let mut settings = original
-        .clone()
-        .unwrap_or_else(|| Value::Object(Default::default()));
+        .as_ref()
+        .map_or_else(|| Value::Object(Default::default()), |s| s.value.clone());
     let report = settings_edit::install(&mut settings, marimo, !cfg!(windows))?;
     let mut out = String::new();
 
@@ -115,7 +115,11 @@ fn install(opts: &Options, exe: &Path, marimo: &Marimo) -> Result<(), String> {
     out += &describe_status_line(&report.status_line);
 
     if report.changed() {
-        out += &commit(opts, original.is_some(), &settings)?;
+        out += &commit(
+            opts,
+            original.as_ref().map(|s| s.bytes.as_slice()),
+            &settings,
+        )?;
     } else {
         out += "変更はありません（すでにインストール済みです）。\n";
     }
@@ -134,7 +138,7 @@ fn uninstall(opts: &Options, home: &MarimoHome, exe: &Path, marimo: &Marimo) -> 
         ));
         return Ok(());
     };
-    let mut settings = original.clone();
+    let mut settings = original.value.clone();
     let report = settings_edit::uninstall(&mut settings, marimo)?;
     let mut out = String::new();
     if opts.dry_run {
@@ -144,7 +148,7 @@ fn uninstall(opts: &Options, home: &MarimoHome, exe: &Path, marimo: &Marimo) -> 
     out += &format!("取り除くフック: {}\n", list_or_none(&report.removed));
     out += &describe_status_line(&report.status_line);
     if report.changed() {
-        out += &commit(opts, true, &settings)?;
+        out += &commit(opts, Some(&original.bytes), &settings)?;
     } else {
         out += "変更はありません（marimo は登録されていません）。\n";
     }
@@ -157,15 +161,17 @@ fn uninstall(opts: &Options, home: &MarimoHome, exe: &Path, marimo: &Marimo) -> 
     Ok(())
 }
 
-fn commit(opts: &Options, existed: bool, settings: &Value) -> Result<String, String> {
+// original は読み込んだときの settings.json の中身で、ファイルがなかったときは None になる。
+fn commit(opts: &Options, original: Option<&[u8]>, settings: &Value) -> Result<String, String> {
     let mut text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     text.push('\n');
     if opts.dry_run {
         return Ok(format!("変更後の settings.json:\n{text}"));
     }
     let target = resolve_symlink(&opts.settings);
+    ensure_unchanged(&target, original)?;
     let mut out = String::new();
-    if existed {
+    if original.is_some() {
         let backup = backup(&target)?;
         out += &format!("バックアップ: {}\n", backup.display());
     }
@@ -178,7 +184,12 @@ fn commit(opts: &Options, existed: bool, settings: &Value) -> Result<String, Str
     Ok(out)
 }
 
-fn read_settings(path: &Path, allow_missing: bool) -> Result<Option<Value>, String> {
+struct Loaded {
+    bytes: Vec<u8>,
+    value: Value,
+}
+
+fn read_settings(path: &Path, allow_missing: bool) -> Result<Option<Loaded>, String> {
     let bytes = match fs::read(path) {
         Ok(b) => b,
         Err(e) if e.kind() == io::ErrorKind::NotFound && allow_missing => {
@@ -203,7 +214,30 @@ fn read_settings(path: &Path, allow_missing: bool) -> Result<Option<Value>, Stri
             path.display()
         ));
     }
-    Ok(Some(value))
+    Ok(Some(Loaded { bytes, value }))
+}
+
+// 読み込んでから書き戻すまでの間に Claude Code やエディタが settings.json を書き換えていたら、
+// その変更を上書きで失わないよう、何も書かずに止めてやり直してもらう。
+fn ensure_unchanged(path: &Path, original: Option<&[u8]>) -> Result<(), String> {
+    let current = match fs::read(path) {
+        Ok(b) => Some(b),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => {
+            return Err(format!(
+                "{} を読み直せないので、何も変更していません: {e}",
+                path.display()
+            ));
+        }
+    };
+    if current.as_deref() == original {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} が処理の途中で書き換えられたので、何も変更していません。もう一度実行してください",
+            path.display()
+        ))
+    }
 }
 
 // dotfiles の管理で settings.json がシンボリックリンクになっている場合、rename で
@@ -357,6 +391,53 @@ mod tests {
     #[test]
     fn stamp_format() {
         assert_eq!(utc_stamp(1_790_509_325_123), "20260927-114205");
+    }
+
+    #[test]
+    fn detects_settings_changed_after_reading() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        assert!(ensure_unchanged(&path, None).is_ok());
+        assert!(ensure_unchanged(&path, Some(b"{}")).is_err());
+        fs::write(&path, "{}").unwrap();
+        assert!(ensure_unchanged(&path, Some(b"{}")).is_ok());
+        assert!(ensure_unchanged(&path, None).is_err());
+        let err = ensure_unchanged(&path, Some(b"{\"model\": \"opus\"}")).unwrap_err();
+        assert!(err.contains("もう一度実行してください"), "{err}");
+    }
+
+    #[test]
+    fn commit_writes_nothing_when_settings_changed_after_reading() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("settings.json");
+        let opts = Options {
+            settings: settings.clone(),
+            dry_run: false,
+        };
+        let edited = serde_json::json!({"hooks": {}});
+
+        fs::write(&settings, "{\"model\": \"sonnet\"}").unwrap();
+        assert!(commit(&opts, Some(b"{}"), &edited).is_err());
+        assert_eq!(
+            fs::read_to_string(&settings).unwrap(),
+            "{\"model\": \"sonnet\"}"
+        );
+
+        // 読んだときはなかったファイルが、書く前に作られていた場合も止める。
+        let fresh = dir.path().join("fresh.json");
+        fs::write(&fresh, "{}").unwrap();
+        let opts = Options {
+            settings: fresh.clone(),
+            dry_run: false,
+        };
+        assert!(commit(&opts, None, &edited).is_err());
+        assert_eq!(fs::read_to_string(&fresh).unwrap(), "{}");
+
+        let names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names.len(), 2, "no backup or temp file: {names:?}");
     }
 
     #[cfg(unix)]
