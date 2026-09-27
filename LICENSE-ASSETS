@@ -1,0 +1,20 @@
+The artwork and text assets in this repository are licensed under the
+Creative Commons Attribution 4.0 International License (CC BY 4.0).
+To view a copy of this license, visit https://creativecommons.org/licenses/by/4.0/
+
+This applies to the following paths:
+
+  assets/                          character images, manifest and default dialogue
+  art/                             source images for the character assets
+  docs/images/                     screenshots and the expression sheet
+  app/src-tauri/icons/             application icons
+  app/src-tauri/shipped-dialogue/  dialogue shipped by earlier versions
+
+Attribution: "marimo contributors", with a link to this repository if possible.
+
+The character images were created with OpenAI's image generation model and
+then edited and composited with tools/character/build.py. The source images in
+art/ keep the generator's embedded metadata.
+
+All other files in this repository are licensed under either of
+LICENSE-APACHE or LICENSE-MIT, at your option.
