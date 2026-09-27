@@ -2,3 +2,8 @@
 
 # 画像生成の候補。採用した素材だけを assets/ へ移してコミットする
 art/candidates/
+
+# ビルド出力と依存
+target/
+node_modules/
+app/dist/
