@@ -1,7 +1,7 @@
 import { folderName, formatTokens } from "./format";
-import type { RateLimits, RateWindow, SessionState, Snapshot, Status } from "./types";
+import type { PanelPlan } from "./panelModel";
+import type { RateLimits, RateWindow, SessionState, Status } from "./types";
 
-const MAX_ROWS = 3;
 // statusLine はアシスタントの応答ごとに走るので、これより古い値は手元の作業が
 // 止まっている間に実際の値から離れている可能性が高い。
 const RATE_STALE_MS = 30 * 60 * 1000;
@@ -22,35 +22,62 @@ export interface PanelElements {
 
 export function renderPanel(
   { panel, rows, limits }: PanelElements,
-  snapshot: Snapshot | null,
+  plan: PanelPlan,
+  rateLimits: RateLimits | null,
   showRows: boolean,
   now: number,
-  onSelect: (sessionId: string) => void,
+  onSelect: (session: SessionState) => void,
 ): void {
-  const active = snapshot?.sessions.filter((s) => s.status !== "idle") ?? [];
-  const limitText = snapshot?.rate_limits ? renderLimits(limits, snapshot.rate_limits, now) : false;
-
-  rows.replaceChildren(...active.slice(0, MAX_ROWS).map((s) => renderRow(s, onSelect)));
-  if (active.length > MAX_ROWS) {
-    rows.append(el("div", "more", `ほか ${active.length - MAX_ROWS} 件`));
-  }
-  rows.hidden = active.length === 0;
+  const limitText = rateLimits ? renderLimits(limits, rateLimits, now) : false;
+  const children: HTMLElement[] = plan.attention.map((s) => renderRow(s, onSelect));
+  if (plan.moreAttention > 0) children.push(el("div", "more", `ほか ${plan.moreAttention} 件`));
+  if (plan.working.length > 0) children.push(renderWorking(plan, onSelect));
+  rows.replaceChildren(...children);
+  rows.hidden = children.length === 0;
   limits.hidden = !limitText;
-  panel.hidden = !showRows || (active.length === 0 && !limitText);
+  panel.hidden = !showRows || (children.length === 0 && !limitText);
 }
 
-function renderRow(s: SessionState, onSelect: (sessionId: string) => void): HTMLElement {
+// 行はふだん 2 段に詰め、マウスを載せたときだけ、要約の全文とコマンドの段を持つ層を行の上へ重ねて
+// 広げる。層は行の下端に揃えて上へ伸ばし、パネルの高さを変えないので、立ち絵が上下に動かない。
+function renderRow(s: SessionState, onSelect: (session: SessionState) => void): HTMLElement {
   const row = el("div", "row");
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
   const detail = s.activity?.detail ?? "";
   row.title = [s.cwd ?? s.session_id, summary, detail].filter(Boolean).join("\n\n");
-  row.addEventListener("click", () => onSelect(s.session_id));
+  row.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onSelect(s);
+  });
 
+  const full = el("div", "row-full hover-layer");
+  full.append(renderHead(s), el("div", "row-summary full", summary));
+  if (detail) full.append(el("div", "row-detail", detail));
+  row.append(renderHead(s), el("div", "row-summary", summary), full);
+  return row;
+}
+
+function renderHead(s: SessionState): HTMLElement {
   const head = el("div", "row-head");
   head.append(el("span", `dot ${s.status}`), el("span", "folder", folderName(s)), renderContext(s));
-  row.append(head, el("div", "row-summary", summary));
-  if (detail) row.append(el("div", "row-detail", detail));
-  return row;
+  return head;
+}
+
+// 作業中のセッションは件数だけを 1 行で出し、マウスを載せたときに行の一覧を上へ重ねて広げる。
+function renderWorking(plan: PanelPlan, onSelect: (session: SessionState) => void): HTMLElement {
+  const total = plan.working.length + plan.moreWorking;
+  const summaryLine = () => {
+    const line = el("div", "working-summary");
+    line.append(el("span", "dot working"), el("span", "", `作業中 ${total} 件`));
+    return line;
+  };
+  const list = el("div", "working-list hover-layer");
+  list.append(...plan.working.map((s) => renderRow(s, onSelect)));
+  if (plan.moreWorking > 0) list.append(el("div", "more", `ほか ${plan.moreWorking} 件`));
+  list.append(summaryLine());
+  const wrap = el("div", "working-group");
+  wrap.append(summaryLine(), list);
+  return wrap;
 }
 
 // % が分かるときはバー、上限が分からずトークン数だけのときは数値だけを出し、見分けられるようにする。

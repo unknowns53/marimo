@@ -1,3 +1,4 @@
+import { triggerKey, type Acknowledged } from "./acknowledged";
 import { folderName } from "./format";
 import type { Dialogue, SessionState, Snapshot, Status } from "./types";
 
@@ -6,13 +7,8 @@ const SPEAKING: ReadonlySet<Status> = new Set(["waiting", "done", "error"]);
 export interface BubbleView {
   key: string;
   sessionId: string;
+  status: Status;
   text: string;
-}
-
-// 吹き出しのきっかけは「どのセッションが、いつから、どの状態か」で見分ける。status_since を
-// 含めるので、同じセッションが一度別の状態を経て同じ状態へ戻れば、新しいきっかけになる。
-export function triggerKey(s: SessionState): string {
-  return `${s.session_id}:${s.status}:${s.status_since}`;
 }
 
 export function fillFolder(template: string, folder: string): string {
@@ -30,9 +26,11 @@ const randomPick: Pick = (lines) => lines[Math.floor(Math.random() * lines.lengt
  */
 export class BubbleModel {
   private current: BubbleView | null = null;
-  private dismissed = new Set<string>();
 
-  constructor(private readonly pick: Pick = randomPick) {}
+  constructor(
+    private readonly ack: Acknowledged,
+    private readonly pick: Pick = randomPick,
+  ) {}
 
   get view(): BubbleView | null {
     return this.current;
@@ -45,7 +43,6 @@ export class BubbleModel {
   }
 
   update(snapshot: Snapshot | null, dialogue: Dialogue): BubbleView | null {
-    this.forgetStale(snapshot);
     const next = this.candidate(snapshot);
     if (!next) {
       this.current = null;
@@ -55,13 +52,13 @@ export class BubbleModel {
     if (this.current?.key === key) return this.current;
     const template = this.pick(dialogue[next.status] ?? []);
     this.current = template
-      ? { key, sessionId: next.session_id, text: fillFolder(template, folderName(next)) }
+      ? { key, sessionId: next.session_id, status: next.status, text: fillFolder(template, folderName(next)) }
       : null;
     return this.current;
   }
 
   dismiss(): void {
-    if (this.current) this.dismissed.add(this.current.key);
+    if (this.current) this.ack.add(this.current.key);
     this.current = null;
   }
 
@@ -71,16 +68,8 @@ export class BubbleModel {
   private candidate(snapshot: Snapshot | null): SessionState | null {
     if (!snapshot || !SPEAKING.has(snapshot.aggregate)) return null;
     const eligible = snapshot.sessions.filter(
-      (s) => s.status === snapshot.aggregate && !this.dismissed.has(triggerKey(s)),
+      (s) => s.status === snapshot.aggregate && !this.ack.has(s),
     );
     return eligible.find((s) => triggerKey(s) === this.current?.key) ?? eligible[0] ?? null;
-  }
-
-  // 閉じた記録は、そのきっかけが続いている間だけ要る。
-  private forgetStale(snapshot: Snapshot | null): void {
-    const live = new Set((snapshot?.sessions ?? []).map(triggerKey));
-    for (const key of this.dismissed) {
-      if (!live.has(key)) this.dismissed.delete(key);
-    }
   }
 }

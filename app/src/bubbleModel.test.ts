@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { Acknowledged } from "./acknowledged";
 import { BubbleModel, fillFolder } from "./bubbleModel";
-import type { Dialogue, SessionState, Snapshot, Status } from "./types";
+import { session, snap } from "./testFixtures";
+import type { Dialogue } from "./types";
 
 const DIALOGUE: Dialogue = {
   waiting: ["{folder} で確認をお願いしたいことがあるの", "もう一つの言い方"],
@@ -9,33 +11,9 @@ const DIALOGUE: Dialogue = {
   error: ["{folder} で困ったことになったわ"],
 };
 
-const PRIORITY: Record<Status, number> = { idle: 0, working: 1, done: 2, error: 3, waiting: 4 };
-
-function session(id: string, status: Status, since: number, updated = since): SessionState {
-  return {
-    session_id: id,
-    cwd: `/Users/me/MyApp/${id}`,
-    status,
-    status_since: since,
-    activity: null,
-    last_event: null,
-    updated_at: updated,
-    context: null,
-  };
-}
-
-// marimo-core の load_snapshot と同じ並び（優先度の高い順、同じなら更新の新しい順）にする。
-function snap(...sessions: SessionState[]): Snapshot {
-  const sorted = [...sessions].sort(
-    (a, b) => PRIORITY[b.status] - PRIORITY[a.status] || b.updated_at - a.updated_at,
-  );
-  const aggregate = sorted[0]?.status ?? "idle";
-  return { aggregate, sessions: sorted, rate_limits: null };
-}
-
 function model(): BubbleModel {
   // テストでは常に最初のセリフを選び、結果を決まったものにする。
-  return new BubbleModel((lines) => lines[0]);
+  return new BubbleModel(new Acknowledged(), (lines) => lines[0]);
 }
 
 describe("BubbleModel", () => {
@@ -99,7 +77,7 @@ describe("BubbleModel", () => {
 
   it("keeps the same line while the trigger lasts even with random picks", () => {
     let calls = 0;
-    const m = new BubbleModel((lines) => lines[calls++ % lines.length]);
+    const m = new BubbleModel(new Acknowledged(), (lines) => lines[calls++ % lines.length]);
     const a = m.update(snap(session("a", "waiting", 1)), DIALOGUE)?.text;
     for (let i = 2; i < 6; i++) {
       expect(m.update(snap(session("a", "waiting", 1, i)), DIALOGUE)?.text).toBe(a);

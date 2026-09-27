@@ -1,6 +1,7 @@
 :root {
   --panel-bg: rgba(28, 28, 34, 0.8);
   --panel-fg: #f4f4f5;
+  --layer-bg: #26262e;
   --bubble-bg: #ffffff;
   --bubble-fg: #3f3a45;
   --idle: #a1a1aa;
@@ -119,11 +120,12 @@ body {
   cursor: pointer;
 }
 
-/* 要約を 2 行まで折り返して読めるよう、立ち絵の倍率とは別に幅を決める。 */
+/* 画面の隅で場所を取りすぎないよう、立ち絵の倍率とは別に幅を決める。 */
 #panel {
-  width: 340px;
+  position: relative;
+  width: 260px;
   margin-top: 4px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   box-sizing: border-box;
   border-radius: 10px;
   background: var(--panel-bg);
@@ -139,21 +141,15 @@ body {
 }
 
 .row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 6px;
+  position: relative;
+  padding: 3px 6px;
   margin: 0 -6px;
   border-radius: 6px;
   cursor: pointer;
 }
 
 .row + .row {
-  margin-top: 2px;
-}
-
-.row:hover {
-  background: rgba(255, 255, 255, 0.08);
+  margin-top: 1px;
 }
 
 .row-head {
@@ -191,12 +187,19 @@ body {
 }
 
 .row-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 14px;
+  opacity: 0.9;
+}
+
+.row-summary.full {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
-  overflow: hidden;
-  padding-left: 14px;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 
@@ -210,6 +213,52 @@ body {
   opacity: 0.6;
 }
 
+/* マウスを載せたときだけ出す層。元の行の下端に揃えて上へ伸ばし、パネルの高さを変えない。 */
+.hover-layer {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--layer-bg);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.row:hover > .row-full,
+.working-group:hover > .working-list {
+  display: block;
+}
+
+.working-group {
+  position: relative;
+  margin: 1px -6px 0;
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+
+.working-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.85;
+}
+
+.working-list {
+  padding: 3px 6px;
+}
+
+.working-list .row {
+  margin: 0;
+  padding: 3px 0;
+}
+
+.working-list .working-summary {
+  margin-top: 2px;
+}
+
 .ctx {
   display: flex;
   align-items: center;
@@ -217,7 +266,7 @@ body {
 }
 
 .ctx-bar {
-  width: 48px;
+  width: 36px;
   height: 4px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.18);
@@ -251,7 +300,7 @@ body {
 }
 
 .more {
-  padding: 2px 0 0 14px;
+  padding: 1px 0 0 14px;
   opacity: 0.7;
 }
 

@@ -5,12 +5,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
+import { Acknowledged, triggerKey } from "./acknowledged";
 import { BubbleModel } from "./bubbleModel";
 import { HitReporter, rectOf, type HitRegions, type Rect } from "./hitArea";
 import { renderPanel } from "./panel";
+import { planPanel } from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
-import type { Dialogue, Snapshot } from "./types";
+import type { Dialogue, SessionState, Snapshot } from "./types";
 
 const CHARACTER_BASE = new URL("/character/default/", window.location.href).href;
 const SHOW_ROWS_KEY = "marimo.showRows";
@@ -21,11 +23,15 @@ const $ = (id: string) => document.getElementById(id) as HTMLElement;
 const stage = $("stage");
 const panelElements = { panel: $("panel"), rows: $("rows"), limits: $("limits") };
 const bubbleNode = $("bubble");
-const bubbleModel = new BubbleModel();
+const acknowledged = new Acknowledged();
+const bubbleModel = new BubbleModel(acknowledged);
+// 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も畳む。
+// 完了の吹き出しを閉じるのは知らせを受け取ったという意思表示で、行だけが残っても
+// 同じ知らせが二重に場所を取るだけだからである。
 const bubble = new Bubble(bubbleNode, () => {
   bubbleModel.dismiss();
   bubble.hide();
-  hits.schedule();
+  redrawPanel();
 });
 const hits = new HitReporter(collectHitRegions);
 
@@ -43,6 +49,7 @@ function queueSnapshot(next: Snapshot): void {
 
 async function applySnapshot(next: Snapshot): Promise<void> {
   snapshot = next;
+  acknowledged.prune(next);
   renderer?.setStatus(next.aggregate);
   // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
   if (bubbleModel.needsText(next)) {
@@ -59,6 +66,8 @@ async function applySnapshot(next: Snapshot): Promise<void> {
 
 function collectHitRegions(): HitRegions {
   const rects = [rectOf(panelElements.panel)];
+  // マウスを載せて広げた層はパネルの外へ伸びるので、表示中のものを加える。
+  for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
   const area = renderer?.hitArea();
   const box = rectOf(area?.element ?? stage);
@@ -69,10 +78,23 @@ function collectHitRegions(): HitRegions {
 }
 
 function redrawPanel(): void {
-  renderPanel(panelElements, snapshot, showRows, Date.now(), (sessionId) => {
-    void invoke("focus_session", { sessionId }).catch((e) => console.error("focus", e));
-  });
+  const plan = planPanel(snapshot, acknowledged);
+  renderPanel(panelElements, plan, snapshot?.rate_limits ?? null, showRows, Date.now(), selectSession);
   hits.schedule();
+}
+
+// 行を押してセッションへ移動したら、そのきっかけを見たものとして扱う。完了の行は畳み、
+// 同じきっかけの吹き出しも閉じる。承認待ちとエラーの行は、解決するまで残す。
+function selectSession(session: SessionState): void {
+  void invoke("focus_session", { sessionId: session.session_id }).catch((e) =>
+    console.error("focus", e),
+  );
+  acknowledged.add(triggerKey(session));
+  if (bubbleModel.view?.key === triggerKey(session)) {
+    bubbleModel.dismiss();
+    bubble.hide();
+  }
+  redrawPanel();
 }
 
 function readShowRows(): boolean {
@@ -168,6 +190,9 @@ async function start(): Promise<void> {
   // 倍率の変更や行の増減で形が変わったら、クリックを受け取る領域を送り直す。
   const observer = new ResizeObserver(() => hits.schedule());
   for (const el of [stage, panelElements.panel, bubbleNode]) observer.observe(el);
+  // 行や作業中の要約にマウスを載せると層が広がるが、ResizeObserver には現れないので別に拾う。
+  panelElements.panel.addEventListener("mouseover", () => hits.schedule());
+  panelElements.panel.addEventListener("mouseout", () => hits.schedule());
   window.addEventListener("resize", () => hits.schedule());
 }
 
