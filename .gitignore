@@ -1,0 +1,4 @@
+.DS_Store
+
+# 画像生成の候補。採用した素材だけを assets/ へ移してコミットする
+art/candidates/
