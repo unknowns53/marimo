@@ -10,3 +10,6 @@ app/dist/
 
 # Tauri が生成するスキーマ
 app/src-tauri/gen/
+
+# Python の仮想環境（素材の背景除去に使う rembg など）
+.venv/

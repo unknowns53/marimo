@@ -3,10 +3,10 @@
   "name": "default",
   "canvas": { "width": 800, "height": 1200 },
   "states": {
-    "idle": { "image": "idle.svg", "blink": "idle_blink.svg" },
-    "working": { "image": "working.svg", "blink": "working_blink.svg" },
-    "waiting": { "image": "waiting.svg" },
-    "done": { "image": "done.svg" },
-    "error": { "image": "error.svg" }
+    "idle": { "image": "idle.png", "blink": "idle_blink.png" },
+    "working": { "image": "working.png", "blink": "working_blink.png" },
+    "waiting": { "image": "waiting.png" },
+    "done": { "image": "done.png" },
+    "error": { "image": "error.png" }
   }
 }
