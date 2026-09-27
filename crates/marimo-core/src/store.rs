@@ -147,14 +147,15 @@ pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> 
 /// 項目名は https://code.claude.com/docs/en/statusline の Available data の節に従う。
 pub fn apply_statusline(home: &MarimoHome, input: &Value) -> io::Result<()> {
     let now = now_ms();
-    let _lock = lock_home(home);
     let mut first_err = None;
 
     if let Some(limits) = rate_limits_from(input, now)
-        && let Err(e) = write_json_atomic(&home.rate_limits_file(), &limits)
+        && let Err(e) = write_rate_limits(home, &limits)
     {
         first_err.get_or_insert(e);
     }
+
+    let _lock = lock_home(home);
 
     // セッションのファイルはフックだけが作る。SessionEnd で消した後に statusLine が
     // 遅れて届いても、終わったセッションを復活させないためである。
@@ -201,6 +202,13 @@ fn rate_limits_from(input: &Value, now: u64) -> Option<RateLimits> {
         updated_at: now,
     };
     (limits.five_hour.is_some() || limits.seven_day.is_some()).then_some(limits)
+}
+
+/// 利用制限は statusLine とアプリの API の取得の両方から届くので、どちらもここを通して書く。
+/// ロックは内側で取るので、呼び出し側は `lock_home` を持ったまま呼ばない。
+pub fn write_rate_limits(home: &MarimoHome, limits: &RateLimits) -> io::Result<()> {
+    let _lock = lock_home(home);
+    write_json_atomic(&home.rate_limits_file(), limits)
 }
 
 pub fn read_rate_limits(home: &MarimoHome) -> Option<RateLimits> {
@@ -417,6 +425,21 @@ mod tests {
                 .used_percentage,
             10.0
         );
+    }
+
+    #[test]
+    fn rate_limits_round_trip_through_the_shared_writer() {
+        let (_d, home) = home();
+        let limits = RateLimits {
+            five_hour: Some(RateWindow {
+                used_percentage: 23.0,
+                resets_at: Some(1_790_535_600),
+            }),
+            seven_day: None,
+            updated_at: 1_790_509_325_123,
+        };
+        write_rate_limits(&home, &limits).unwrap();
+        assert_eq!(read_rate_limits(&home), Some(limits));
     }
 
     #[test]
