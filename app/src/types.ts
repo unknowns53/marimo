@@ -31,6 +31,7 @@ export interface SessionState {
   cwd: string | null;
   status: Status;
   status_since: number;
+  started_at: number;
   status_reason?: string | null;
   turn_started_at?: number | null;
   activity: Activity | null;

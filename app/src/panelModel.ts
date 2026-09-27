@@ -13,11 +13,19 @@ export interface PanelPlan {
   read: ReadonlySet<string>;
 }
 
+// 承認待ち、エラー、作業中、完了の順に重要とみなす。marimo-core の Status::priority と同じ順である。
+const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
+
 /**
  * 詳細の段階で出す行を決める。待機以外のセッションを 1 セッション 1 行で並べ、作業中も畳まない。
  * 見たと示された完了は畳むが、押した直後に行が消えると何を押したのか見失うので、READ_LINGER_MS の
- * 間だけ薄くして未読の行の後ろに残す。完了のまま放っておかれるセッションは多く、いつまでも残すと
- * 古い既読で埋まる。それ以外の並びは snapshot の順（優先度の高い順、同じなら更新の新しい順）を保つ。
+ * 間だけその場で薄くして残す。完了のまま放っておかれるセッションは多く、いつまでも残すと古い既読で埋まる。
+ *
+ * 行が MAX_ROWS に収まらないときは、未読を既読より、状態の優先度の高いものを低いものより、同じなら
+ * 更新の新しいものを先に選び、承認待ちが「ほか n 件」に隠れないようにする。選んだ行は started_at の
+ * 新しい順に並べる。パネルは下端を固定して上へ伸びるので、新しいセッションが一番上に加わっても
+ * 既にある行は画面上の位置が変わらず、状態が変わっても行は動かない。started_at を持たない古い
+ * ファイルのセッションは最も古いものとして一番下に置き、更新のたびに動かないようにする。
  */
 export function planPanel(snapshot: Snapshot | null, ack: Acknowledged, now: number = Date.now()): PanelPlan {
   const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle");
@@ -26,12 +34,25 @@ export function planPanel(snapshot: Snapshot | null, ack: Acknowledged, now: num
     const at = isRead(s) ? ack.seenAt(s) : undefined;
     return at !== undefined && now - at < READ_LINGER_MS;
   });
-  const rows = [...active.filter((s) => !isRead(s)), ...lingering];
+  const read = new Set(lingering.map((s) => s.session_id));
+  const candidates = [...active.filter((s) => !isRead(s)), ...lingering];
+  const importance = (a: SessionState, b: SessionState) =>
+    Number(read.has(a.session_id)) - Number(read.has(b.session_id)) ||
+    COUNT_ORDER.indexOf(a.status) - COUNT_ORDER.indexOf(b.status) ||
+    b.updated_at - a.updated_at;
+  const rows = candidates
+    .sort(importance)
+    .slice(0, MAX_ROWS)
+    .sort((a, b) => b.started_at - a.started_at || compareIds(a.session_id, b.session_id));
   return {
-    rows: rows.slice(0, MAX_ROWS),
-    moreRows: Math.max(0, rows.length - MAX_ROWS),
-    read: new Set(lingering.map((s) => s.session_id)),
+    rows,
+    moreRows: candidates.length - rows.length,
+    read,
   };
+}
+
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 export function isEmpty(plan: PanelPlan): boolean {
@@ -55,7 +76,6 @@ export interface PanelView {
   target: SessionState | null;
 }
 
-const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
 const ATTENTION: ReadonlySet<Status> = new Set(["waiting", "error", "done"]);
 
 /**

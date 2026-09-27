@@ -7,7 +7,7 @@ import { session, snap } from "./testFixtures";
 const ids = (list: { session_id: string }[]) => list.map((s) => s.session_id);
 
 describe("planPanel", () => {
-  it("lists every non-idle session as its own row in priority order", () => {
+  it("lists every non-idle session as its own row, newest session on top", () => {
     const plan = planPanel(
       snap(
         session("w1", "working", 1),
@@ -19,14 +19,61 @@ describe("planPanel", () => {
       ),
       new Acknowledged(),
     );
-    expect(ids(plan.rows)).toEqual(["ask", "e1", "w2", "w1", "d1"]);
+    expect(ids(plan.rows)).toEqual(["e1", "d1", "ask", "w2", "w1"]);
     expect(plan.moreRows).toBe(0);
+  });
+
+  it("keeps each row in place when statuses change", () => {
+    const before = planPanel(
+      snap(
+        session("a", "working", 10, 10, 1),
+        session("b", "working", 10, 10, 2),
+        session("c", "working", 10, 10, 3),
+      ),
+      new Acknowledged(),
+    );
+    expect(ids(before.rows)).toEqual(["c", "b", "a"]);
+    const after = planPanel(
+      snap(
+        session("a", "waiting", 20, 50, 1),
+        session("b", "error", 30, 40, 2),
+        session("c", "done", 40, 30, 3),
+      ),
+      new Acknowledged(),
+    );
+    expect(ids(after.rows)).toEqual(["c", "b", "a"]);
+  });
+
+  it("adds a new session on top without moving the others", () => {
+    const old = [session("a", "waiting", 10, 10, 1), session("b", "working", 10, 10, 2)];
+    const plan = planPanel(snap(...old, session("new", "working", 30, 30, 3)), new Acknowledged());
+    expect(ids(plan.rows)).toEqual(["new", "b", "a"]);
+  });
+
+  it("puts sessions without started_at at the bottom regardless of updates", () => {
+    const plan = planPanel(
+      snap(
+        session("old2", "waiting", 90, 100, 0),
+        session("old1", "working", 80, 80, 0),
+        session("a", "working", 5, 5, 5),
+        session("b", "done", 6, 6, 6),
+      ),
+      new Acknowledged(),
+    );
+    expect(ids(plan.rows)).toEqual(["b", "a", "old1", "old2"]);
   });
 
   it("caps the rows at five and counts the rest", () => {
     const working = Array.from({ length: 6 }, (_, i) => session(`w${i}`, "working", i));
     const plan = planPanel(snap(session("a", "waiting", 10), ...working), new Acknowledged());
     expect(ids(plan.rows)).toEqual(["a", "w5", "w4", "w3", "w2"]);
+    expect(plan.moreRows).toBe(2);
+  });
+
+  it("keeps an old waiting session when capping, still in started_at order", () => {
+    const working = Array.from({ length: 6 }, (_, i) => session(`w${i}`, "working", 10 + i, 10 + i, 10 + i));
+    const plan = planPanel(snap(session("ask", "waiting", 50, 50, 1), ...working), new Acknowledged());
+    expect(ids(plan.rows)).toEqual(["w5", "w4", "w3", "w2", "ask"]);
     expect(plan.moreRows).toBe(2);
   });
 
@@ -65,12 +112,29 @@ describe("acknowledged sessions", () => {
     expect(ids(planPanel(snap(done), ack).rows)).toEqual([]);
   });
 
-  it("moves seen done rows behind unread ones so they give up room first", () => {
+  it("keeps a seen done row in its place and dims it", () => {
     const ack = new Acknowledged();
-    const seen = session("seen", "done", 50);
+    const sessions = () =>
+      snap(
+        session("w", "working", 1, 1, 1),
+        session("seen", "done", 50, 50, 2),
+        session("new", "done", 10, 10, 3),
+      );
+    expect(ids(planPanel(sessions(), ack, 2000).rows)).toEqual(["new", "seen", "w"]);
+    ack.add(triggerKey(session("seen", "done", 50)), 1000);
+    const plan = planPanel(sessions(), ack, 2000);
+    expect(ids(plan.rows)).toEqual(["new", "seen", "w"]);
+    expect([...plan.read]).toEqual(["seen"]);
+  });
+
+  it("gives up room for seen done rows first when capping", () => {
+    const ack = new Acknowledged();
+    const seen = session("seen", "done", 1, 1, 100);
     ack.add(triggerKey(seen), 1000);
-    const plan = planPanel(snap(seen, session("new", "done", 10), session("w", "working", 1)), ack, 2000);
-    expect(ids(plan.rows)).toEqual(["w", "new", "seen"]);
+    const working = Array.from({ length: 5 }, (_, i) => session(`w${i}`, "working", i));
+    const plan = planPanel(snap(seen, ...working), ack, 2000);
+    expect(ids(plan.rows)).toEqual(["w4", "w3", "w2", "w1", "w0"]);
+    expect(plan.moreRows).toBe(1);
   });
 
   it("keeps waiting and error rows even when seen", () => {
@@ -79,7 +143,7 @@ describe("acknowledged sessions", () => {
     const error = session("e", "error", 2);
     ack.add(triggerKey(waiting));
     ack.add(triggerKey(error));
-    expect(ids(planPanel(snap(waiting, error), ack).rows)).toEqual(["w", "e"]);
+    expect(ids(planPanel(snap(waiting, error), ack).rows)).toEqual(["e", "w"]);
   });
 
   it("forgets keys whose trigger has ended", () => {
@@ -132,6 +196,21 @@ describe("panelView", () => {
   it("targets a done session when it is the only one needing attention", () => {
     const v = panelView(snap(session("w", "working", 5), session("d", "done", 1)), new Acknowledged(), "counts");
     expect(v.target?.session_id).toBe("d");
+  });
+
+  it("targets the highest-priority session even when the panel rows are in started_at order", () => {
+    const v = panelView(
+      snap(
+        session("ask", "waiting", 50, 50, 1),
+        session("e", "error", 40, 40, 2),
+        session("d", "done", 30, 30, 3),
+        session("w", "working", 20, 20, 4),
+      ),
+      new Acknowledged(),
+      "detail",
+    );
+    expect(ids(v.plan.rows)).toEqual(["w", "d", "e", "ask"]);
+    expect(v.target?.session_id).toBe("ask");
   });
 
   it("has no click target when nothing needs attention", () => {

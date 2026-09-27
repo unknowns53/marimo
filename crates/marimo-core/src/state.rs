@@ -140,6 +140,10 @@ pub struct SessionState {
     /// 今の status になった時刻。吹き出しが「同じ状態が続いている間」を見分けるのに使う。
     #[serde(default)]
     pub status_since: u64,
+    /// marimo が最初にこのセッションのファイルを書いた時刻。状態が変わっても動かないので、パネルの行を
+    /// セッションごとに同じ位置へ並べ続けるのに使う。この項目を持たない古いファイルでは 0 で、次に書き直すときに埋める。
+    #[serde(default)]
+    pub started_at: u64,
     /// 状態になった理由の手がかり。承認待ちでは permission、question、plan のどれか、エラーでは
     /// StopFailure の error の値（hooks のドキュメントの StopFailure input に列挙がある）を入れる。
     /// 吹き出しのセリフを状況に合わせて選ぶのに使う。
@@ -171,6 +175,7 @@ impl SessionState {
             cwd: None,
             status: Status::Idle,
             status_since: 0,
+            started_at: 0,
             status_reason: None,
             turn_started_at: None,
             activity: None,
@@ -355,6 +360,9 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
     if status_changed {
         next.status_since = now_ms;
     }
+    if next.started_at == 0 {
+        next.started_at = now_ms;
+    }
     // 同じ状態のまま理由を持たないイベント（承認待ちの Notification など）が来ても、先に分かった理由を残す。
     if status_changed || reason.is_some() {
         next.status_reason = reason;
@@ -506,6 +514,35 @@ mod tests {
             transition(&input(ev("SessionEnd")), Some(&cur), 1),
             Transition::Delete
         );
+    }
+
+    #[test]
+    fn started_at_is_set_once_and_kept() {
+        let s = write(transition(&input(ev("SessionStart")), None, 10));
+        assert_eq!(s.started_at, 10);
+        let s = write(transition(&input(ev("UserPromptSubmit")), Some(&s), 20));
+        let perm = json!({"session_id":"s1","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm"}});
+        let s = write(transition(&input(perm), Some(&s), 30));
+        let stop =
+            json!({"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"ok"});
+        let s = write(transition(&input(stop), Some(&s), 40));
+        assert_eq!(
+            (s.status, s.started_at, s.updated_at),
+            (Status::Done, 10, 40)
+        );
+        assert_eq!(
+            transition(&input(ev("SessionEnd")), Some(&s), 50),
+            Transition::Delete
+        );
+
+        // started_at を持たない古いファイルは、次のイベントの時刻で埋める。
+        let legacy: SessionState = serde_json::from_value(
+            json!({"session_id": "s1", "status": "working", "updated_at": 5}),
+        )
+        .unwrap();
+        assert_eq!(legacy.started_at, 0);
+        let s = write(transition(&input(ev("PostToolUse")), Some(&legacy), 60));
+        assert_eq!(s.started_at, 60);
     }
 
     #[test]

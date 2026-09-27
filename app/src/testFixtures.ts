@@ -2,12 +2,19 @@ import type { SessionState, Snapshot, Status } from "./types";
 
 const PRIORITY: Record<Status, number> = { idle: 0, done: 1, working: 2, error: 3, waiting: 4 };
 
-export function session(id: string, status: Status, since: number, updated = since): SessionState {
+export function session(
+  id: string,
+  status: Status,
+  since: number,
+  updated = since,
+  started = since,
+): SessionState {
   return {
     session_id: id,
     cwd: `/Users/me/MyApp/${id}`,
     status,
     status_since: since,
+    started_at: started,
     activity: null,
     last_event: null,
     updated_at: updated,
