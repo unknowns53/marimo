@@ -7,6 +7,7 @@ use marimo_core::{MarimoHome, RateLimits, RateWindow, store};
 use serde_json::Value;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
 use crate::credentials::{self, Credentials, ReadError};
 
@@ -259,6 +260,14 @@ fn agent() -> ureq::Agent {
         // リダイレクト先へトークンを送らないよう、転送は追わない。
         .max_redirects(0)
         .user_agent(concat!("marimo/", env!("CARGO_PKG_VERSION")))
+        // 信頼するルート証明書は OS のものでなく同梱の Mozilla のものにする。通信を解読する中間者型の
+        // プロキシが OS に証明書を入れている環境で、トークンがそのプロキシに見えないようにするためである。
+        .tls_config(
+            TlsConfig::builder()
+                .provider(TlsProvider::NativeTls)
+                .root_certs(RootCerts::WebPki)
+                .build(),
+        )
         .build()
         .into()
 }

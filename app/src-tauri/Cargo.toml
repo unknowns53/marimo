@@ -23,7 +23,9 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 time = { version = "0.3", features = ["parsing"] }
 # 利用制限の API を 5 分おきに一度呼ぶだけなので、非同期ランタイムを持たない小さなクライアントにする。
-ureq = { version = "3", default-features = false, features = ["rustls"] }
+# TLS は OS のもの（Windows は SChannel、macOS は Security framework）を使う。rustls が使う ring は
+# C のコードを含み、Windows 向けのビルドに MSVC の SDK が要るためである。
+ureq = { version = "3", default-features = false, features = ["native-tls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Claude Code の資格情報は macOS ではキーチェーンにしかない。
