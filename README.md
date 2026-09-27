@@ -59,7 +59,7 @@ marimo は macOS で動作を確かめています。Claude Code のどの画面
 | macOS の端末で動かす CLI（コマンドラインインターフェース） | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます |
 | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限を出すには[利用制限を API から取得](#利用制限の表示)を有効にします |
 | VS Code の拡張機能の画面 | 未確認 | statusLine が動くかどうかを確かめていません |
-| Windows | 未確認 | ビルドとインストールのためのコードはありますが、動作を確かめていません。`install` は Windows では statusLine を書き換えず、フックだけを登録します。行を押してセッションへ移動する機能は macOS だけのものです |
+| Windows | 未確認 | ビルドとインストールのためのコードはありますが、動作を確かめていません。`install` は Windows では statusLine を書き換えず、フックだけを登録します。利用制限は「利用制限を API から取得」を使えば出せる作りですが、これも確かめていません。行を押してセッションへ移動する機能は macOS だけのものです |
 | Linux | 未確認 | 動作を確かめていません |
 | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | 手元の `~/.claude/settings.json` を読まないので、フックが届きません |
 | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
@@ -122,7 +122,7 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。`target/
 
 ### 1. フックと statusLine を登録する
 
-フックと statusLine の登録は、`marimo-hook install` を利用者が端末で実行して行います。Claude Code の auto mode は、Claude Code 自身が `~/.claude/settings.json` を書き換える操作を拒むので、この手順は Claude Code に任せずに手で実行します。
+フックと statusLine の登録は、`marimo-hook install` を利用者が端末で実行して行います。この手順は Claude Code 自身の設定ファイル `~/.claude/settings.json` を書き換えるので、Claude Code に頼まずに自分で実行してください。Claude Code は権限の設定によっては自分の設定ファイルの書き換えを拒みますし、何が変わるのかを自分の目で確かめておくと安心です。
 
 最初に `--dry-run` を付けて実行すると、ファイルを書き換えずに、変更後の settings.json と変更点だけを表示します。何が変わるのかを確かめてから進めると安心です。
 
