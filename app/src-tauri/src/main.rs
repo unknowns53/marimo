@@ -161,6 +161,7 @@ fn main() {
             window.show()?;
             window_pos::track(&window, home.clone());
             watch::spawn(app.handle().clone(), home.clone());
+            watch::spawn_pruner(home.clone());
             usage.spawn(home.clone());
             hit::spawn(app.handle().clone(), window, hits.clone());
             Ok(())

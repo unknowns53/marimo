@@ -3,6 +3,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use marimo_core::time::now_ms;
 use marimo_core::{MarimoHome, store};
 use notify::{Event, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter};
@@ -13,6 +14,8 @@ pub const SNAPSHOT_EVENT: &str = "snapshot";
 // 一度にまとめて送る。止まずに書かれ続けても、最大の遅れで打ち切って送る。
 const QUIET: Duration = Duration::from_millis(120);
 const MAX_DELAY: Duration = Duration::from_millis(500);
+
+const PRUNE_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 pub fn spawn(app: AppHandle, home: MarimoHome) {
     thread::spawn(move || {
@@ -49,6 +52,19 @@ pub fn spawn(app: AppHandle, home: MarimoHome) {
                 }
             }
             let _ = app.emit(SNAPSHOT_EVENT, store::load_snapshot(&home));
+        }
+    });
+}
+
+// 消したファイルは監視が削除のイベントとして受け取り、スナップショットを送り直すので、
+// ここから画面へ知らせる必要はない。
+pub fn spawn_pruner(home: MarimoHome) {
+    thread::spawn(move || {
+        loop {
+            if let Err(e) = store::prune_stale_sessions(&home, now_ms(), store::STALE_SESSION_AGE) {
+                eprintln!("marimo: cannot remove stale sessions: {e}");
+            }
+            thread::sleep(PRUNE_INTERVAL);
         }
     });
 }

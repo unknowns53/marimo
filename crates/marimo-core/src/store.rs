@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -20,6 +20,9 @@ use crate::transcript::TranscriptUsage;
 // 上限を過ぎたらロックなしで書く。書き込み自体は rename で原子的なので、
 // 起きうるのは同時に来た更新の片方が失われることだけである。
 const LOCK_WAIT: Duration = Duration::from_millis(300);
+
+/// SessionEnd が届かずに終わったセッションを、最後の更新からこれだけ経ったら消す。
+pub const STALE_SESSION_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 // セッションのファイルは実行中のコマンドの文字列を含むので、marimo が作るフォルダと
 // ファイルは本人だけが読めるようにする。すでにあるフォルダの権限は利用者が決めたものとして変えない。
@@ -98,6 +101,12 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()>
 
 pub struct HomeLock {
     _file: Option<File>,
+}
+
+impl HomeLock {
+    fn is_held(&self) -> bool {
+        self._file.is_some()
+    }
 }
 
 pub fn lock_home(home: &MarimoHome) -> HomeLock {
@@ -264,6 +273,80 @@ pub fn load_snapshot(home: &MarimoHome) -> Snapshot {
 
 pub fn is_session_file_name(name: &str) -> bool {
     !name.starts_with('.') && name.ends_with(".json")
+}
+
+fn is_temp_file_name(name: &str) -> bool {
+    name.starts_with('.') && name.ends_with(".tmp")
+}
+
+/// `max_age` のあいだ更新のないセッションのファイルと、残った一時ファイルを消し、消した数を返す。
+///
+/// 消したセッションがまだ動いていても、SessionEnd 以外のフックが次に届けば `transition` が
+/// ファイルを作り直すので、行は次の操作で戻る。`transition` がファイルのないセッションに
+/// `Transition::Nothing` を返すイベントを増やすときは、この前提を確かめ直す。
+pub fn prune_stale_sessions(
+    home: &MarimoHome,
+    now_ms: u64,
+    max_age: Duration,
+) -> io::Result<usize> {
+    // ロックなしで消すと、判定と削除のあいだにフックが書いた新しい状態まで消しうる。
+    // 急ぐ処理ではないので、ロックが取れなければ次の機会に回す。
+    let lock = lock_home(home);
+    if !lock.is_held() {
+        return Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "the marimo home is locked",
+        ));
+    }
+    let entries = match fs::read_dir(home.sessions_dir()) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    };
+    let now = UNIX_EPOCH + Duration::from_millis(now_ms);
+    let max_age_ms = u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX);
+    let mut removed = 0;
+    let mut first_err = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let path = entry.path();
+        let stale = if is_session_file_name(&name) {
+            // updated_at が 0 のファイルは、この項目を持たない古い形式で書かれたものなので、
+            // 更新時刻が分からないものとして読めないファイルと同じく mtime で判定する。
+            let updated_at = fs::read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<SessionState>(&bytes).ok())
+                .map(|s| s.updated_at)
+                .filter(|&t| t != 0);
+            match updated_at {
+                Some(t) => t.saturating_add(max_age_ms) < now_ms,
+                None => modified_before(&path, now, max_age),
+            }
+        } else {
+            is_temp_file_name(&name) && modified_before(&path, now, max_age)
+        };
+        if !stale {
+            continue;
+        }
+        match fs::remove_file(&path) {
+            Ok(()) => removed += 1,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => {
+                first_err.get_or_insert(e);
+            }
+        }
+    }
+    first_err.map_or(Ok(removed), Err)
+}
+
+// mtime が未来にあるファイルは、時計が戻ったものとみなして古くないと判定する。
+fn modified_before(path: &Path, now: SystemTime, max_age: Duration) -> bool {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|modified| now.duration_since(modified).ok())
+        .is_some_and(|age| age > max_age)
 }
 
 pub fn append_record(home: &MarimoHome, label: &str, stdin: &[u8]) -> io::Result<()> {
@@ -524,6 +607,98 @@ mod tests {
             json!({"session_id":"c","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf x"}}),
         );
         assert_eq!(load_snapshot(&home).aggregate, Status::Waiting);
+    }
+
+    const HOUR_MS: u64 = 60 * 60 * 1000;
+    const NOW_MS: u64 = 1_790_509_325_123;
+
+    fn set_mtime(path: &Path, ms: u64) {
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_millis(ms))
+            .unwrap();
+    }
+
+    fn put_session(home: &MarimoHome, id: &str, updated_at: u64, mtime_ms: u64) {
+        let session = SessionState {
+            updated_at,
+            ..SessionState::new(id)
+        };
+        let path = home.session_file(id).unwrap();
+        write_json_atomic(&path, &session).unwrap();
+        set_mtime(&path, mtime_ms);
+    }
+
+    fn put_file(path: &Path, bytes: &[u8], mtime_ms: u64) {
+        write_atomic(path, bytes).unwrap();
+        set_mtime(path, mtime_ms);
+    }
+
+    #[test]
+    fn prune_removes_sessions_by_updated_at() {
+        let (_d, home) = home();
+        // updated_at があれば mtime より優先する。
+        put_session(&home, "stale", NOW_MS - 25 * HOUR_MS, NOW_MS);
+        put_session(&home, "fresh", NOW_MS - 23 * HOUR_MS, NOW_MS - 48 * HOUR_MS);
+        let removed = prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
+        assert_eq!(removed, 1);
+        assert!(read_session(&home, "stale").is_none());
+        assert!(read_session(&home, "fresh").is_some());
+
+        // 消したセッションも、次のフックで作り直される。
+        hook(
+            &home,
+            json!({"session_id":"stale","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}),
+        );
+        assert_eq!(
+            read_session(&home, "stale").unwrap().status,
+            Status::Working
+        );
+    }
+
+    #[test]
+    fn prune_judges_unreadable_and_zero_updated_at_by_mtime() {
+        let (_d, home) = home();
+        let dir = home.sessions_dir();
+        put_file(
+            &dir.join("broken-old.json"),
+            b"not json",
+            NOW_MS - 25 * HOUR_MS,
+        );
+        put_file(&dir.join("broken-new.json"), b"not json", NOW_MS - HOUR_MS);
+        put_session(&home, "zero-old", 0, NOW_MS - 25 * HOUR_MS);
+        put_session(&home, "zero-new", 0, NOW_MS - HOUR_MS);
+        let removed = prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
+        assert_eq!(removed, 2);
+        assert!(!dir.join("broken-old.json").exists());
+        assert!(dir.join("broken-new.json").exists());
+        assert!(read_session(&home, "zero-old").is_none());
+        assert!(read_session(&home, "zero-new").is_some());
+    }
+
+    #[test]
+    fn prune_removes_only_old_temp_files() {
+        let (_d, home) = home();
+        let dir = home.sessions_dir();
+        put_file(&dir.join(".a.json.1.2.tmp"), b"{", NOW_MS - 25 * HOUR_MS);
+        put_file(&dir.join(".b.json.1.3.tmp"), b"{", NOW_MS - HOUR_MS);
+        put_file(&dir.join("notes.txt"), b"x", NOW_MS - 48 * HOUR_MS);
+        let removed = prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
+        assert_eq!(removed, 1);
+        assert!(!dir.join(".a.json.1.2.tmp").exists());
+        assert!(dir.join(".b.json.1.3.tmp").exists());
+        assert!(dir.join("notes.txt").exists());
+    }
+
+    #[test]
+    fn prune_without_sessions_folder_does_nothing() {
+        let (_d, home) = home();
+        assert_eq!(
+            prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap(),
+            0
+        );
     }
 
     #[test]
