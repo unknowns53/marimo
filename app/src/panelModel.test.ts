@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { Acknowledged, triggerKey } from "./acknowledged";
-import { hasContent, isEmpty, panelView, planPanel } from "./panelModel";
+import { hasContent, isEmpty, panelView, planPanel, READ_LINGER_MS } from "./panelModel";
 import { session, snap } from "./testFixtures";
 
 const ids = (list: { session_id: string }[]) => list.map((s) => s.session_id);
@@ -37,26 +37,39 @@ describe("planPanel", () => {
 });
 
 describe("acknowledged sessions", () => {
-  it("keeps a seen done row dimmed until the session moves on", () => {
+  it("keeps a seen done row dimmed for a while, then folds it", () => {
     const ack = new Acknowledged();
     const done = session("a", "done", 10);
-    ack.add(triggerKey(done));
-    const seen = planPanel(snap(done), ack);
+    ack.add(triggerKey(done), 1000);
+    const seen = planPanel(snap(done), ack, 1000 + READ_LINGER_MS - 1);
     expect(ids(seen.rows)).toEqual(["a"]);
     expect(seen.read.has("a")).toBe(true);
+    expect(ids(planPanel(snap(done), ack, 1000 + READ_LINGER_MS).rows)).toEqual([]);
+  });
+
+  it("shows the next completion of the same session as unread", () => {
+    const ack = new Acknowledged();
+    ack.add(triggerKey(session("a", "done", 10)), 1000);
     // 次のプロンプトで作業中を経て、再び完了した。
     const again = session("a", "done", 20);
     ack.prune(snap(again));
-    const next = planPanel(snap(again), ack);
+    const next = planPanel(snap(again), ack, 1001);
     expect(ids(next.rows)).toEqual(["a"]);
     expect(next.read.has("a")).toBe(false);
+  });
+
+  it("does not bring back completions restored from a previous run", () => {
+    const ack = new Acknowledged();
+    const done = session("a", "done", 10);
+    ack.restore([triggerKey(done)]);
+    expect(ids(planPanel(snap(done), ack).rows)).toEqual([]);
   });
 
   it("moves seen done rows behind unread ones so they give up room first", () => {
     const ack = new Acknowledged();
     const seen = session("seen", "done", 50);
-    ack.add(triggerKey(seen));
-    const plan = planPanel(snap(seen, session("new", "done", 10), session("w", "working", 1)), ack);
+    ack.add(triggerKey(seen), 1000);
+    const plan = planPanel(snap(seen, session("new", "done", 10), session("w", "working", 1)), ack, 2000);
     expect(ids(plan.rows)).toEqual(["w", "new", "seen"]);
   });
 

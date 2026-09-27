@@ -21,7 +21,7 @@ const CHARACTER_BASE = new URL("/character/default/", window.location.href).href
 // 以前は行を隠す設定だけをこの名前で localStorage に持っていた。段階の保存先を MARIMO_HOME へ
 // 移したので、初回だけ読み替えて引き継ぐ。
 const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";
-// 利用制限の「古い」「リセット済み」は時間だけで変わるので、変更通知とは別に描き直す。
+// 利用制限の「古い」「リセット済み」と既読の行を畳む時期は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
 const REACTION_SPEECH_MS = 2500;
 // 押してからこれ以上動いたらドラッグとみなし、立ち絵の反応は出さない。
@@ -40,7 +40,7 @@ const acknowledged = new Acknowledged((keys) =>
   void invoke("set_acknowledged", { keys }).catch((e) => console.error("acknowledged", e)),
 );
 const bubbleModel = new BubbleModel(acknowledged);
-// 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も既読として薄くする。
+// 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も既読として薄くしてから畳む。
 // 完了の吹き出しを閉じるのは知らせを受け取ったという意思表示だからである。
 const speech = new Speech();
 const bubble = new Bubble(bubbleNode, () => {
@@ -144,13 +144,13 @@ function collectHitRegions(): HitRegions {
 }
 
 function redrawPanel(): void {
-  const view = panelView(shown, acknowledged, panelMode);
+  const view = panelView(shown, acknowledged, panelMode, Date.now());
   renderPanel(panelElements, view, shown?.rate_limits ?? null, Date.now(), selectSession);
   expansion.evaluate();
   hits.schedule();
 }
 
-// 行を押してセッションへ移動したら、そのきっかけを見たものとして扱う。完了の行は既読として薄くし、
+// 行を押してセッションへ移動したら、そのきっかけを見たものとして扱う。完了の行は既読として薄くしてから畳み、
 // 同じきっかけの吹き出しも閉じる。承認待ちとエラーの行は、解決するまで残す。
 function selectSession(session: SessionState): void {
   void invoke("focus_session", { sessionId: session.session_id }).catch((e) =>

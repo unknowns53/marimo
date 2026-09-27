@@ -11,11 +11,13 @@ export function triggerKey(s: SessionState): string {
 
 /**
  * 利用者が「見た」と示したきっかけの集まり。吹き出しを押して閉じたときと、行を押してセッションへ
- * 移動したときに加える。吹き出しはこれに含まれるきっかけを再び出さず、パネルは完了の行を薄くする。
+ * 移動したときに加える。吹き出しはこれに含まれるきっかけを再び出さず、パネルは完了の行を畳む。
  * 再起動のたびに同じ完了をまた知らせないよう、変わるたびに onChange で保存してもらう。
+ * 見た時刻は、パネルが押した直後の行をしばらく残すためだけに使うので、保存しない。
  */
 export class Acknowledged {
   private keys = new Set<string>();
+  private seen = new Map<string, number>();
 
   constructor(private readonly onChange: (keys: string[]) => void = () => {}) {}
 
@@ -24,14 +26,20 @@ export class Acknowledged {
     this.keys = new Set(keys);
   }
 
-  add(key: string): void {
+  add(key: string, at: number = Date.now()): void {
     if (this.keys.has(key)) return;
     this.keys.add(key);
+    this.seen.set(key, at);
     this.onChange([...this.keys]);
   }
 
   has(session: SessionState): boolean {
     return this.keys.has(triggerKey(session));
+  }
+
+  // 保存から戻した記録には時刻が無く、undefined を返す。
+  seenAt(session: SessionState): number | undefined {
+    return this.seen.get(triggerKey(session));
   }
 
   // 記録は、そのきっかけが続いている間だけ要る。
@@ -41,6 +49,7 @@ export class Acknowledged {
     for (const key of this.keys) {
       if (!live.has(key)) {
         this.keys.delete(key);
+        this.seen.delete(key);
         changed = true;
       }
     }
