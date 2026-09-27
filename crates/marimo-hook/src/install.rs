@@ -26,7 +26,7 @@ pub fn run(mode: Mode, args: &[OsString]) -> Result<(), String> {
     let home =
         MarimoHome::resolve().ok_or("marimo のフォルダを決められません（HOME が未設定です）")?;
     let exe = home.hook_executable();
-    let marimo = Marimo::new(&command_path(&exe));
+    let marimo = marimo_for(&exe);
     match mode {
         Mode::Install => install(&opts, &exe, &marimo),
         Mode::Uninstall => uninstall(&opts, &home, &exe, &marimo),
@@ -67,15 +67,12 @@ fn default_settings_path() -> Result<PathBuf, String> {
         .ok_or_else(|| "ホームフォルダが分からないので、--settings で指定してください".to_owned())
 }
 
-// Windows のフックは Git Bash で動くことがあり、Git Bash は引用していない \ を
-// エスケープとして消してしまう。statusline のドキュメントの Windows configuration の
-// 節にあるとおり、区切りを / にしておく。
-fn command_path(exe: &Path) -> String {
-    let s = exe.to_string_lossy();
+fn marimo_for(exe: &Path) -> Marimo {
+    let exe = exe.to_string_lossy();
     if cfg!(windows) {
-        s.replace('\\', "/")
+        Marimo::windows(&exe)
     } else {
-        s.into_owned()
+        Marimo::new(&exe)
     }
 }
 
@@ -109,6 +106,12 @@ fn install(opts: &Options, exe: &Path, marimo: &Marimo) -> Result<(), String> {
     }
     out += &format!("設定ファイル: {}\n", opts.settings.display());
     out += &format!("追加するフック: {}\n", list_or_none(&report.added));
+    if !report.migrated.is_empty() {
+        out += &format!(
+            "シェルを通さない exec form へ書き換えるフック: {}\n",
+            report.migrated.join(", ")
+        );
+    }
     if !report.already.is_empty() {
         out += &format!("登録済みのフック: {}\n", report.already.join(", "));
     }

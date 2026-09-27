@@ -20,8 +20,14 @@ pub const EVENTS: [&str; 14] = [
 ];
 
 const HOOK_TIMEOUT_SECS: u64 = 5;
+const HOOK_ARGS: [&str; 1] = ["hook"];
 
+// フックは args を持つ exec form で登録する。hooks のドキュメントの Exec form and shell form の
+// 節にあるとおり、exec form はシェルを通さずに実行ファイルを直接起動するので、パスの引用や
+// シェルの設定ファイルが出力する文字列の混入を気にしなくてよい。
+// statusLine には exec form がないので、シェルを通すコマンドの文字列で登録する。
 pub struct Marimo {
+    exe: String,
     raw: String,
     quoted: String,
 }
@@ -29,13 +35,60 @@ pub struct Marimo {
 impl Marimo {
     pub fn new(exe_path: &str) -> Self {
         Self {
+            exe: exe_path.to_owned(),
             raw: exe_path.to_owned(),
             quoted: shell_quote(exe_path),
         }
     }
 
-    pub fn hook_command(&self) -> String {
-        format!("{} hook", self.quoted)
+    // exec form の command には、Windows でも本物の実行ファイルとして解決できる元の形のパスを書く。
+    // シェルを通す statusLine と、以前の shell form のフックでは、Git Bash が引用していない \ を
+    // エスケープとして消してしまうので、statusline のドキュメントの Windows configuration の節に
+    // あるとおり区切りを / にする。
+    pub fn windows(exe_path: &str) -> Self {
+        let raw = exe_path.replace('\\', "/");
+        Self {
+            exe: exe_path.to_owned(),
+            quoted: shell_quote(&raw),
+            raw,
+        }
+    }
+
+    fn hook_handler(&self) -> Value {
+        json!({
+            "type": "command",
+            "command": self.exe,
+            "args": HOOK_ARGS,
+            "timeout": HOOK_TIMEOUT_SECS,
+        })
+    }
+
+    fn is_exec_handler(&self, handler: &Value) -> bool {
+        handler.get("command").and_then(Value::as_str) == Some(self.exe.as_str())
+            && handler.get("args") == Some(&json!(HOOK_ARGS))
+    }
+
+    // args を持つハンドラは command をシェルに渡さないので、以前の形と同じ文字列でも marimo ではない。
+    fn is_legacy_handler(&self, handler: &Value) -> bool {
+        handler.get("args").is_none()
+            && handler
+                .get("command")
+                .and_then(Value::as_str)
+                .is_some_and(|c| self.is_legacy_hook_command(c))
+    }
+
+    // 利用者が足した項目とキーの順序を残したまま、command だけを exec form へ書き換える。
+    fn migrated(&self, legacy: &Map<String, Value>) -> Value {
+        let mut out = Map::new();
+        for (key, value) in legacy {
+            if key == "command" {
+                out.insert(key.clone(), Value::String(self.exe.clone()));
+                out.insert("args".to_owned(), json!(HOOK_ARGS));
+            } else {
+                out.insert(key.clone(), value.clone());
+            }
+        }
+        Value::Object(out)
     }
 
     fn statusline_command(&self) -> String {
@@ -44,30 +97,30 @@ impl Marimo {
 
     fn wrapped_statusline(&self, original: &str) -> String {
         format!(
-            "{} -- sh -c {}",
-            self.statusline_command(),
+            "{} statusline -- sh -c {}",
+            self.quoted,
             quote_always(original)
         )
     }
 
-    pub fn is_hook_command(&self, command: &str) -> bool {
-        self.args_after_exe(command) == Some(" hook")
+    fn is_legacy_hook_command(&self, command: &str) -> bool {
+        self.args_after(command, &[&self.quoted, &self.raw]) == Some(" hook")
     }
 
     // 実行ファイルのパスの直後が空白でなければ marimo ではない。前方一致だけで判定すると、
     // marimo-hook-backup のように名前の先頭が同じ別のコマンドまで marimo のものとして扱ってしまう。
-    fn args_after_exe<'a>(&self, command: &'a str) -> Option<&'a str> {
-        [self.quoted.as_str(), self.raw.as_str()]
-            .into_iter()
-            .find_map(|exe| {
-                command
-                    .strip_prefix(exe)
-                    .filter(|rest| rest.starts_with(' '))
-            })
+    fn args_after<'a>(&self, command: &'a str, spellings: &[&str]) -> Option<&'a str> {
+        spellings.iter().find_map(|exe| {
+            command
+                .strip_prefix(exe)
+                .filter(|rest| rest.starts_with(' '))
+        })
     }
 
     fn statusline_rest<'a>(&self, command: &'a str) -> Option<&'a str> {
-        let rest = self.args_after_exe(command)?.strip_prefix(" statusline")?;
+        let rest = self
+            .args_after(command, &[&self.quoted, &self.raw])?
+            .strip_prefix(" statusline")?;
         (rest.is_empty() || rest.starts_with(" -- ")).then_some(rest)
     }
 }
@@ -85,6 +138,7 @@ pub enum StatusLineChange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallReport {
     pub added: Vec<&'static str>,
+    pub migrated: Vec<&'static str>,
     pub already: Vec<&'static str>,
     pub status_line: StatusLineChange,
 }
@@ -92,6 +146,7 @@ pub struct InstallReport {
 impl InstallReport {
     pub fn changed(&self) -> bool {
         !self.added.is_empty()
+            || !self.migrated.is_empty()
             || matches!(
                 self.status_line,
                 StatusLineChange::Added { .. } | StatusLineChange::Wrapped { .. }
@@ -126,16 +181,36 @@ pub fn install(
     check_hooks_shape(root)?;
 
     let mut added = Vec::new();
+    let mut migrated = Vec::new();
     let mut already = Vec::new();
     for event in EVENTS {
-        let has_marimo = root
-            .get("hooks")
-            .and_then(|h| h.get(event))
-            .and_then(Value::as_array)
-            .is_some_and(|groups| groups.iter().any(|g| group_has_marimo(g, marimo)));
-        if has_marimo {
-            already.push(event);
-            continue;
+        if let Some(groups) = root
+            .get_mut("hooks")
+            .and_then(|h| h.get_mut(event))
+            .and_then(Value::as_array_mut)
+        {
+            // 以前の shell form で登録したハンドラは、同じグループの同じ位置で exec form に置き換える。
+            let mut replaced = false;
+            for handler in groups
+                .iter_mut()
+                .filter_map(|g| g.get_mut("hooks").and_then(Value::as_array_mut))
+                .flatten()
+            {
+                if marimo.is_legacy_handler(handler)
+                    && let Some(legacy) = handler.as_object()
+                {
+                    *handler = marimo.migrated(legacy);
+                    replaced = true;
+                }
+            }
+            if replaced {
+                migrated.push(event);
+                continue;
+            }
+            if groups.iter().any(|g| group_has_marimo(g, marimo)) {
+                already.push(event);
+                continue;
+            }
         }
         let hooks = root
             .entry("hooks")
@@ -147,13 +222,7 @@ pub fn install(
             .or_insert_with(|| Value::Array(Vec::new()))
             .as_array_mut()
             .ok_or_else(|| format!("hooks.{event} が配列ではありません"))?
-            .push(json!({
-                "hooks": [{
-                    "type": "command",
-                    "command": marimo.hook_command(),
-                    "timeout": HOOK_TIMEOUT_SECS,
-                }]
-            }));
+            .push(json!({ "hooks": [marimo.hook_handler()] }));
         added.push(event);
     }
 
@@ -167,6 +236,7 @@ pub fn install(
     };
     Ok(InstallReport {
         added,
+        migrated,
         already,
         status_line,
     })
@@ -321,10 +391,7 @@ fn group_has_marimo(group: &Value, marimo: &Marimo) -> bool {
 }
 
 fn handler_is_marimo(handler: &Value, marimo: &Marimo) -> bool {
-    handler
-        .get("command")
-        .and_then(Value::as_str)
-        .is_some_and(|c| marimo.is_hook_command(c))
+    marimo.is_exec_handler(handler) || marimo.is_legacy_handler(handler)
 }
 
 pub fn shell_quote(s: &str) -> String {
@@ -398,29 +465,29 @@ mod tests {
     }
 
     #[test]
-    fn detects_marimo_commands_quoted_or_not() {
+    fn detects_legacy_commands_quoted_or_not() {
         let m = Marimo::new("/Users/a b/.marimo/bin/marimo-hook");
-        assert!(m.is_hook_command("'/Users/a b/.marimo/bin/marimo-hook' hook"));
-        assert!(m.is_hook_command("/Users/a b/.marimo/bin/marimo-hook hook"));
-        assert!(!m.is_hook_command("'/Users/a b/.marimo/bin/marimo-hook' record Stop"));
-        assert!(!m.is_hook_command("/other/marimo-hook hook"));
+        assert!(m.is_legacy_hook_command("'/Users/a b/.marimo/bin/marimo-hook' hook"));
+        assert!(m.is_legacy_hook_command("/Users/a b/.marimo/bin/marimo-hook hook"));
+        assert!(!m.is_legacy_hook_command("'/Users/a b/.marimo/bin/marimo-hook' record Stop"));
+        assert!(!m.is_legacy_hook_command("/other/marimo-hook hook"));
     }
 
     #[test]
     fn commands_sharing_the_executable_prefix_are_not_marimo() {
         let m = Marimo::new("/x/marimo-hook");
-        assert!(m.is_hook_command("/x/marimo-hook hook"));
+        assert!(m.is_legacy_hook_command("/x/marimo-hook hook"));
         for c in [
             "/x/marimo-hook-backup hook",
             "/x/marimo-hooky hook",
             "/x/marimo-hook hook --extra",
             "/x/marimo-hook  hook",
         ] {
-            assert!(!m.is_hook_command(c), "{c}");
+            assert!(!m.is_legacy_hook_command(c), "{c}");
         }
         let quoted = Marimo::new("/x y/marimo-hook");
-        assert!(!quoted.is_hook_command("'/x y/marimo-hook'-backup hook"));
-        assert!(!quoted.is_hook_command("/x y/marimo-hook-backup hook"));
+        assert!(!quoted.is_legacy_hook_command("'/x y/marimo-hook'-backup hook"));
+        assert!(!quoted.is_legacy_hook_command("/x y/marimo-hook-backup hook"));
 
         assert_eq!(m.statusline_rest("/x/marimo-hook statusline"), Some(""));
         assert_eq!(
@@ -435,6 +502,129 @@ mod tests {
         ] {
             assert_eq!(m.statusline_rest(c), None, "{c}");
         }
+    }
+
+    fn exec(command: &str, args: Value) -> Value {
+        json!({"type": "command", "command": command, "args": args, "timeout": 5})
+    }
+
+    #[test]
+    fn install_writes_exec_form_handlers() {
+        let m = Marimo::new("/x y/marimo-hook");
+        let mut settings = json!({});
+        let report = install(&mut settings, &m, true).unwrap();
+        assert_eq!(report.added, EVENTS);
+        for event in EVENTS {
+            assert_eq!(
+                settings["hooks"][event],
+                json!([{"hooks": [exec("/x y/marimo-hook", json!(["hook"]))]}]),
+                "{event}"
+            );
+        }
+        let again = install(&mut settings.clone(), &m, true).unwrap();
+        assert!(!again.changed());
+        assert_eq!(again.already, EVENTS);
+    }
+
+    #[test]
+    fn exec_form_uses_the_native_windows_path() {
+        let m = Marimo::windows(r"C:\Users\a b\.marimo\bin\marimo-hook.exe");
+        let mut settings = json!({});
+        install(&mut settings, &m, false).unwrap();
+        assert_eq!(
+            settings["hooks"]["Stop"][0]["hooks"][0],
+            exec(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", json!(["hook"]))
+        );
+        // 以前の shell form は / 区切りで書いていたので、その形も marimo のものとして読む。
+        assert!(m.is_legacy_hook_command("'C:/Users/a b/.marimo/bin/marimo-hook.exe' hook"));
+        assert!(!m.is_legacy_hook_command(r"'C:\Users\a b\.marimo\bin\marimo-hook.exe' hook"));
+    }
+
+    #[test]
+    fn legacy_handlers_migrate_in_place() {
+        let m = Marimo::new("/x y/marimo-hook");
+        let legacy = json!({"type": "command", "command": "'/x y/marimo-hook' hook", "timeout": 5});
+        let mut settings = json!({"hooks": {
+            "Stop": [
+                {"hooks": [{"type": "command", "command": "say done"}]},
+                {"matcher": "", "hooks": [
+                    {"type": "command", "command": "echo before"},
+                    legacy,
+                    {"type": "command", "command": "echo after"}
+                ]}
+            ],
+            "SessionStart": [{"hooks": [
+                {"type": "command", "command": "/x y/marimo-hook hook", "async": true, "timeout": 5}
+            ]}]
+        }});
+        let report = install(&mut settings, &m, true).unwrap();
+        assert!(report.changed());
+        assert_eq!(report.migrated, ["SessionStart", "Stop"]);
+        assert!(!report.added.contains(&"Stop"));
+        assert_eq!(
+            settings["hooks"]["Stop"],
+            json!([
+                {"hooks": [{"type": "command", "command": "say done"}]},
+                {"matcher": "", "hooks": [
+                    {"type": "command", "command": "echo before"},
+                    exec("/x y/marimo-hook", json!(["hook"])),
+                    {"type": "command", "command": "echo after"}
+                ]}
+            ])
+        );
+        let migrated = &settings["hooks"]["SessionStart"][0]["hooks"][0];
+        let keys: Vec<_> = migrated.as_object().unwrap().keys().cloned().collect();
+        assert_eq!(keys, ["type", "command", "args", "async", "timeout"]);
+        assert_eq!(migrated["command"], "/x y/marimo-hook");
+
+        let before = settings.clone();
+        let again = install(&mut settings, &m, true).unwrap();
+        assert!(!again.changed());
+        assert!(again.migrated.is_empty());
+        assert_eq!(settings, before);
+    }
+
+    #[test]
+    fn uninstall_removes_exec_and_legacy_forms() {
+        let m = Marimo::new("/x/marimo-hook");
+        let mut settings = json!({"hooks": {
+            "Stop": [{"hooks": [
+                {"type": "command", "command": "say done"},
+                exec("/x/marimo-hook", json!(["hook"]))
+            ]}],
+            "SessionStart": [{"hooks": [{"type": "command", "command": "/x/marimo-hook hook"}]}],
+            "Notification": [{"hooks": [exec("/x/marimo-hook", json!(["hook"]))]}]
+        }});
+        let report = uninstall(&mut settings, &m).unwrap();
+        assert_eq!(report.removed, ["Stop", "SessionStart", "Notification"]);
+        assert_eq!(
+            settings,
+            json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}})
+        );
+    }
+
+    #[test]
+    fn handlers_that_only_look_like_marimo_are_left_alone() {
+        let m = Marimo::new("/x/marimo-hook");
+        let foreign = json!([{"hooks": [
+            exec("/x/marimo-hook", json!(["record", "Stop"])),
+            exec("/x/marimo-hook", json!(["hook", "--extra"])),
+            exec("/x/marimo-hook", json!("hook")),
+            exec("/x/marimo-hook-backup", json!(["hook"])),
+            exec("/x/marimo-hook hook", json!([])),
+            {"type": "command", "command": "/x/marimo-hook"}
+        ]}]);
+        let original = json!({"hooks": {"Stop": foreign}});
+        let mut settings = original.clone();
+        let report = install(&mut settings, &m, true).unwrap();
+        assert!(report.added.contains(&"Stop"));
+        assert!(report.migrated.is_empty());
+        assert_eq!(settings["hooks"]["Stop"][0], original["hooks"]["Stop"][0]);
+        assert_eq!(settings["hooks"]["Stop"].as_array().unwrap().len(), 2);
+
+        uninstall(&mut settings, &m).unwrap();
+        settings.as_object_mut().unwrap().remove("statusLine");
+        assert_eq!(settings, original);
     }
 
     #[test]

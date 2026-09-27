@@ -65,6 +65,30 @@ impl Env {
             .join(format!("marimo-hook{}", std::env::consts::EXE_SUFFIX))
     }
 
+    // 以前の install が書いていた shell form のコマンド。Windows では区切りを / にしていた。
+    fn legacy_hook_command(&self) -> String {
+        let path = self.installed_exe().display().to_string();
+        let path = if cfg!(windows) {
+            path.replace('\\', "/")
+        } else {
+            path
+        };
+        assert!(
+            path.contains(' '),
+            "the legacy form is quoted only with a space"
+        );
+        format!("'{path}' hook")
+    }
+
+    fn exec_handler(&self) -> Value {
+        json!({
+            "type": "command",
+            "command": self.installed_exe().display().to_string(),
+            "args": ["hook"],
+            "timeout": 5
+        })
+    }
+
     fn text(&self) -> String {
         fs::read_to_string(&self.settings).unwrap()
     }
@@ -180,16 +204,19 @@ fn install_then_uninstall_restores_realistic_settings() {
     let installed = env.json();
     let exe = env.installed_exe();
     assert!(exe.is_file());
-    let hook_cmd = format!("'{}' hook", exe.display());
     for event in EVENTS {
         let groups = installed["hooks"][event].as_array().unwrap();
         let marimo: Vec<_> = groups
             .iter()
-            .filter(|g| g["hooks"][0]["command"] == hook_cmd.as_str())
+            .filter(|g| g["hooks"][0]["command"] == exe.display().to_string().as_str())
             .collect();
         assert_eq!(marimo.len(), 1, "{event}");
-        assert_eq!(marimo[0]["hooks"][0]["timeout"], 5);
-        assert!(marimo[0].get("matcher").is_none());
+        // 実行ファイルのパスに空白があっても、exec form なので引用しない。
+        assert_eq!(
+            marimo[0],
+            &json!({"hooks": [env.exec_handler()]}),
+            "{event}"
+        );
     }
     // 既存のグループは前に残り、marimo のグループは後ろに足される。
     assert_eq!(
@@ -459,6 +486,148 @@ fn commands_sharing_the_executable_prefix_are_left_alone() {
     assert_eq!(env.text(), original);
     let out = env.run(&["uninstall"]);
     assert!(out.status.success());
+    assert_eq!(env.text(), original);
+}
+
+// 以前の shell form の登録は、同じグループの同じ位置で exec form に置き換わる。
+#[test]
+fn legacy_shell_form_migrates_in_place() {
+    let env = Env::with_settings("{}");
+    let legacy = env.legacy_hook_command();
+    let original = json!({
+        "hooks": {
+            "Stop": [
+                {"hooks": [{"type": "command", "command": "say done"}]},
+                {"hooks": [
+                    {"type": "command", "command": "echo before"},
+                    {"type": "command", "command": legacy, "timeout": 5},
+                    {"type": "command", "command": "echo after"}
+                ]}
+            ],
+            "Notification": [{"matcher": "", "hooks": [
+                {"type": "command", "command": legacy, "timeout": 5}
+            ]}]
+        }
+    });
+    fs::write(&env.settings, pretty(&original)).unwrap();
+
+    let out = env.run(&["install", "--dry-run"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.contains("exec form へ書き換えるフック: Notification, Stop"),
+        "{text}"
+    );
+    assert!(text.contains("\"args\""), "{text}");
+    assert_eq!(env.json(), original);
+
+    let out = env.run(&["install"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let installed = env.json();
+    assert_eq!(
+        installed["hooks"]["Stop"],
+        json!([
+            {"hooks": [{"type": "command", "command": "say done"}]},
+            {"hooks": [
+                {"type": "command", "command": "echo before"},
+                env.exec_handler(),
+                {"type": "command", "command": "echo after"}
+            ]}
+        ])
+    );
+    assert_eq!(
+        installed["hooks"]["Notification"],
+        json!([{"matcher": "", "hooks": [env.exec_handler()]}])
+    );
+    assert!(!env.text().contains(&legacy));
+
+    let once = env.text();
+    let out = env.run(&["install"]);
+    assert!(out.status.success());
+    assert_eq!(env.text(), once);
+    assert_eq!(env.backups().len(), 1);
+    assert!(stdout(&out).contains("変更はありません"));
+
+    assert!(env.run(&["uninstall"]).status.success());
+    let after = env.json();
+    assert_eq!(
+        after["hooks"],
+        json!({"Stop": [
+            {"hooks": [{"type": "command", "command": "say done"}]},
+            {"hooks": [
+                {"type": "command", "command": "echo before"},
+                {"type": "command", "command": "echo after"}
+            ]}
+        ]})
+    );
+}
+
+#[test]
+fn uninstall_removes_legacy_and_exec_forms() {
+    let env = Env::with_settings("{}");
+    let original = json!({
+        "hooks": {
+            "Stop": [{"hooks": [
+                {"type": "command", "command": env.legacy_hook_command(), "timeout": 5}
+            ]}],
+            "SessionStart": [{"hooks": [env.exec_handler()]}],
+            "PreToolUse": [{"matcher": "Bash", "hooks": [
+                {"type": "command", "command": "~/.claude/hooks/guard.sh"},
+                env.exec_handler()
+            ]}]
+        },
+        "model": "opus"
+    });
+    fs::write(&env.settings, pretty(&original)).unwrap();
+    let out = env.run(&["uninstall"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        env.json(),
+        json!({
+            "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+                {"type": "command", "command": "~/.claude/hooks/guard.sh"}
+            ]}]},
+            "model": "opus"
+        })
+    );
+}
+
+// command が同じでも args が違うハンドラや、名前の似た実行ファイルに args: ["hook"] を渡す
+// ハンドラは、marimo のものではない。
+#[test]
+fn exec_handlers_that_only_look_like_marimo_are_left_alone() {
+    let env = Env::with_settings("{}");
+    let exe = env.installed_exe().display().to_string();
+    let look_alike = env
+        .installed_exe()
+        .with_file_name("marimo-hook-backup")
+        .display()
+        .to_string();
+    let foreign = json!([
+        {"type": "command", "command": exe, "args": ["record", "Stop"]},
+        {"type": "command", "command": exe, "args": ["hook", "--extra"]},
+        {"type": "command", "command": look_alike, "args": ["hook"]},
+        {"type": "command", "command": env.legacy_hook_command(), "args": []}
+    ]);
+    let original = pretty(&json!({"hooks": {"Stop": [{"hooks": foreign}]}}));
+    fs::write(&env.settings, &original).unwrap();
+
+    assert!(env.run(&["install"]).status.success());
+    let installed = env.json();
+    let stop = installed["hooks"]["Stop"].as_array().unwrap();
+    assert_eq!(stop.len(), 2);
+    assert_eq!(stop[0]["hooks"], foreign);
+    assert_eq!(stop[1], json!({"hooks": [env.exec_handler()]}));
+
+    assert!(env.run(&["uninstall"]).status.success());
     assert_eq!(env.text(), original);
 }
 
