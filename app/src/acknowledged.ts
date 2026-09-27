@@ -1,4 +1,7 @@
-import type { SessionState, Snapshot } from "./types";
+import type { SessionState, Snapshot, Status } from "./types";
+
+// marimo-core の集約と同じ順序。
+const PRIORITY: Status[] = ["waiting", "error", "done", "working", "idle"];
 
 // きっかけは「どのセッションが、いつから、どの状態か」で見分ける。status_since を含めるので、
 // 同じセッションが一度別の状態を経て同じ状態へ戻れば、新しいきっかけになる。
@@ -28,4 +31,17 @@ export class Acknowledged {
       if (!live.has(key)) this.keys.delete(key);
     }
   }
+}
+
+/**
+ * 見たと示された完了を待機とみなして集約し直したスナップショットを返す。フックは利用者が
+ * 結果を読んだかどうかを知らないので、Rust 側の集約のままだと、読み終えた後も表情が完了の
+ * まま残り、他のセッションが作業中でもその顔に戻らない。
+ */
+export function withAcknowledged(snapshot: Snapshot, ack: Acknowledged): Snapshot {
+  const effective = snapshot.sessions.map((s) =>
+    s.status === "done" && ack.has(s) ? "idle" : s.status,
+  );
+  const aggregate = PRIORITY.find((p) => effective.includes(p)) ?? "idle";
+  return aggregate === snapshot.aggregate ? snapshot : { ...snapshot, aggregate };
 }

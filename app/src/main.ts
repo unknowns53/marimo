@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
-import { Acknowledged, triggerKey } from "./acknowledged";
+import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
 import { BubbleModel } from "./bubbleModel";
 import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, rectOf, type HitRegions, type Rect } from "./hitArea";
@@ -39,13 +39,14 @@ const speech = new Speech();
 const bubble = new Bubble(bubbleNode, () => {
   if (bubbleModel.view) bubbleModel.dismiss();
   speech.clearReaction();
-  showSpeech();
-  redrawPanel();
+  refreshAcknowledged();
 });
 const hits = new HitReporter(collectHitRegions);
 
 let renderer: CharacterRenderer | undefined;
 let snapshot: Snapshot | null = null;
+// snapshot を、見たと示された完了を除いて集約し直したもの。表情、吹き出し、パネルはこちらを使う。
+let shown: Snapshot | null = null;
 let dialogue: Dialogue = {};
 // 組み込みの既定のセリフ。利用者の dialogue.json は上書きしたい分類だけを持ち、分類ごとに重ねる。
 let defaultDialogue: Dialogue = {};
@@ -62,10 +63,22 @@ function queueSnapshot(next: Snapshot): void {
 async function applySnapshot(next: Snapshot): Promise<void> {
   snapshot = next;
   acknowledged.prune(next);
-  renderer?.update({ status: next.aggregate, tool: focusedTool(next) });
+  shown = withAcknowledged(next, acknowledged);
+  renderer?.update({ status: shown.aggregate, tool: focusedTool(shown) });
   // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
-  if (bubbleModel.needsText(next)) await reloadDialogue();
-  bubbleModel.update(next, dialogue);
+  if (bubbleModel.needsText(shown)) await reloadDialogue();
+  bubbleModel.update(shown, dialogue);
+  showSpeech();
+  redrawPanel();
+}
+
+// 見たと示したきっかけが増えたら、集約をやり直して表情、吹き出し、パネルへ反映する。
+function refreshAcknowledged(): void {
+  if (snapshot) {
+    shown = withAcknowledged(snapshot, acknowledged);
+    renderer?.update({ status: shown.aggregate, tool: focusedTool(shown) });
+    bubbleModel.update(shown, dialogue);
+  }
   showSpeech();
   redrawPanel();
 }
@@ -93,8 +106,8 @@ async function reactToTouch(): Promise<void> {
   renderer?.react();
   if (bubbleModel.view) return;
   await reloadDialogue();
-  const aggregate = snapshot?.aggregate ?? "idle";
-  const focus = snapshot?.sessions.find((s) => s.status === aggregate) ?? null;
+  const aggregate = shown?.aggregate ?? "idle";
+  const focus = shown?.sessions.find((s) => s.status === aggregate) ?? null;
   const lines = linesFor(dialogue, reactionCategory(aggregate));
   const template = lines[Math.floor(Math.random() * lines.length)];
   const text = template === undefined ? undefined : fillTemplate(template, focus);
@@ -118,8 +131,8 @@ function collectHitRegions(): HitRegions {
 }
 
 function redrawPanel(): void {
-  const view = panelView(snapshot, acknowledged, panelMode);
-  renderPanel(panelElements, view, snapshot?.rate_limits ?? null, Date.now(), selectSession);
+  const view = panelView(shown, acknowledged, panelMode);
+  renderPanel(panelElements, view, shown?.rate_limits ?? null, Date.now(), selectSession);
   hits.schedule();
 }
 
@@ -130,11 +143,8 @@ function selectSession(session: SessionState): void {
     console.error("focus", e),
   );
   acknowledged.add(triggerKey(session));
-  if (bubbleModel.view?.key === triggerKey(session)) {
-    bubbleModel.dismiss();
-    bubble.hide();
-  }
-  redrawPanel();
+  if (bubbleModel.view?.key === triggerKey(session)) bubbleModel.dismiss();
+  refreshAcknowledged();
 }
 
 async function loadPanelMode(): Promise<PanelMode> {
