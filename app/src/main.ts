@@ -36,7 +36,9 @@ const panelElements = {
   toggle: $("panel-toggle"),
 };
 const bubbleNode = $("bubble");
-const acknowledged = new Acknowledged();
+const acknowledged = new Acknowledged((keys) =>
+  void invoke("set_acknowledged", { keys }).catch((e) => console.error("acknowledged", e)),
+);
 const bubbleModel = new BubbleModel(acknowledged);
 // 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も畳む。
 // 完了の吹き出しを閉じるのは知らせを受け取ったという意思表示で、行だけが残っても
@@ -293,6 +295,13 @@ async function start(): Promise<void> {
   // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
   await listen<boolean>("portrait-hover", (e) => renderer?.setHover(e.payload));
   await listen<{ x: number; y: number } | null>("window-cursor", (e) => expansion.setCursor(e.payload));
+  // 最初のスナップショットより先に戻さないと、既読の完了の吹き出しが一度出てしまう。
+  acknowledged.restore(
+    await invoke<string[]>("get_acknowledged").catch((e) => {
+      console.error("acknowledged", e);
+      return [];
+    }),
+  );
   await listen<Snapshot>("snapshot", (e) => queueSnapshot(e.payload));
   queueSnapshot(await invoke<Snapshot>("get_snapshot"));
   window.setInterval(redrawPanel, PANEL_REFRESH_MS);

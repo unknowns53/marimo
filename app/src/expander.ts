@@ -7,7 +7,7 @@ export interface Point {
 
 export interface ExpandTarget {
   id: string;
-  /** 畳んだ状態の行（件数の行、作業中の要約、各行）。ここにとどまると開く。 */
+  /** 畳んだ状態の行（件数の行）。ここにとどまると開く。 */
   anchor: Rect;
   /** 開いたときの層。開いている間、anchor と合わせた範囲にカーソルがあれば開いたままにする。 */
   layer: Rect | null;

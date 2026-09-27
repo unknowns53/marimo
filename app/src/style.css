@@ -231,26 +231,7 @@ body {
   opacity: 0.9;
 }
 
-.row-summary.full {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.row-detail {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding-left: 14px;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 10px;
-  opacity: 0.6;
-}
-
-/* マウスを載せたときだけ出す層。元の行の下端に揃えて上へ伸ばし、パネルの高さを変えない。 */
+/* 件数の行にマウスを載せたときだけ出す層。元の行の下端に揃えて上へ伸ばし、パネルの高さを変えない。 */
 .hover-layer {
   display: none;
   position: absolute;

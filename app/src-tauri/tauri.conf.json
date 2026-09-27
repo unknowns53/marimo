@@ -27,6 +27,7 @@
         "skipTaskbar": true,
         "visibleOnAllWorkspaces": true,
         "focus": false,
+        "acceptFirstMouse": true,
         "visible": false
       }
     ],

@@ -58,6 +58,10 @@ impl MarimoHome {
         self.root.join("display.json")
     }
 
+    pub fn acknowledged_file(&self) -> PathBuf {
+        self.root.join("acknowledged.json")
+    }
+
     pub fn bin_dir(&self) -> PathBuf {
         self.root.join("bin")
     }

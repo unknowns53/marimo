@@ -4,14 +4,14 @@ import { rectOf, type Rect } from "./hitArea";
 const EXPAND_ATTR = "data-expand-id";
 
 /**
- * パネルの畳んだ行（件数の行、作業中の要約、各行）を、Rust から届くカーソル位置で開閉する。
+ * 件数だけの段階の畳んだ行を、Rust から届くカーソル位置で開閉する。
  * 開く順序は、層を見えない状態で置いて大きさを測り、その領域をクリックを受け取る領域として
  * Rust へ登録し終えてから見せる。見せた瞬間に層の上のカーソルが下のウィンドウへ抜けないためである。
- * 親の層（件数の行や作業中の一覧）の中の行も、同じ仕組みで開ける。
+ * 層の中にさらに開ける行を置けば、同じ仕組みで入れ子に開ける。
  */
 export class PanelExpansion {
-  // 件数の行の中の作業中の一覧、その中の各行、と三段まで入れ子になる。
-  private readonly levels = [new Expander(), new Expander(), new Expander()];
+  // 開ける行は件数の行だけで、その層の中の行は開かないので一段で足りる。
+  private readonly levels = [new Expander()];
   private cursor: Point | null = null;
   private timer: number | undefined;
   private opening = new Set<HTMLElement>();

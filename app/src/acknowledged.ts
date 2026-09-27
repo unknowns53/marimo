@@ -12,12 +12,22 @@ export function triggerKey(s: SessionState): string {
 /**
  * 利用者が「見た」と示したきっかけの集まり。吹き出しを押して閉じたときと、行を押してセッションへ
  * 移動したときに加える。吹き出しはこれに含まれるきっかけを再び出さず、パネルは完了の行を畳む。
+ * 再起動のたびに同じ完了をまた知らせないよう、変わるたびに onChange で保存してもらう。
  */
 export class Acknowledged {
   private keys = new Set<string>();
 
+  constructor(private readonly onChange: (keys: string[]) => void = () => {}) {}
+
+  // 保存してあった記録を戻す。戻すだけなので保存し直さない。
+  restore(keys: readonly string[]): void {
+    this.keys = new Set(keys);
+  }
+
   add(key: string): void {
+    if (this.keys.has(key)) return;
     this.keys.add(key);
+    this.onChange([...this.keys]);
   }
 
   has(session: SessionState): boolean {
@@ -27,9 +37,14 @@ export class Acknowledged {
   // 記録は、そのきっかけが続いている間だけ要る。
   prune(snapshot: Snapshot | null): void {
     const live = new Set((snapshot?.sessions ?? []).map(triggerKey));
+    let changed = false;
     for (const key of this.keys) {
-      if (!live.has(key)) this.keys.delete(key);
+      if (!live.has(key)) {
+        this.keys.delete(key);
+        changed = true;
+      }
     }
+    if (changed) this.onChange([...this.keys]);
   }
 }
 

@@ -91,11 +91,10 @@ function renderCounts(view: PanelView, onSelect: (session: SessionState) => void
   return wrap;
 }
 
-// 行はふだん 2 段に詰め、マウスを載せたときだけ、要約の全文とコマンドの段を持つ層を行の上へ重ねて
-// 広げる。層は行の下端に揃えて上へ伸ばし、パネルの高さを変えないので、立ち絵が上下に動かない。
+// 行は 2 段に詰めたまま広げない。広げる層を重ねると、押したときに層の開閉とクリックが競り、
+// 1 回で移動できないことがある。要約の全文とコマンドは title のツールチップで読める。
 function renderRow(s: SessionState, onSelect: (session: SessionState) => void): HTMLElement {
   const row = el("div", "row");
-  row.dataset.expandId = `row:${s.session_id}`;
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
   const detail = s.activity?.detail ?? "";
   row.title = [s.cwd ?? s.session_id, summary, detail].filter(Boolean).join("\n\n");
@@ -104,10 +103,7 @@ function renderRow(s: SessionState, onSelect: (session: SessionState) => void): 
     onSelect(s);
   });
 
-  const full = el("div", "row-full hover-layer");
-  full.append(renderHead(s), el("div", "row-summary full", summary));
-  if (detail) full.append(el("div", "row-detail", detail));
-  row.append(renderHead(s), el("div", "row-summary", summary), full);
+  row.append(renderHead(s), el("div", "row-summary", summary));
   return row;
 }
 

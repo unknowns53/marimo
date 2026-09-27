@@ -1,6 +1,7 @@
 // リリースビルドの Windows でコンソール窓を開かないようにする。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod acknowledged;
 mod dialogue;
 mod focus;
 mod hit;
@@ -61,6 +62,16 @@ fn set_panel_mode(state: State<'_, AppState>, mode: String) -> Result<(), String
 }
 
 #[tauri::command]
+fn get_acknowledged(state: State<'_, AppState>) -> Vec<String> {
+    acknowledged::load(&state.home)
+}
+
+#[tauri::command]
+fn set_acknowledged(state: State<'_, AppState>, keys: Vec<String>) -> Result<(), String> {
+    acknowledged::save(&state.home, &keys).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn focus_session(state: State<'_, AppState>, session_id: String) {
     if let Some(session) = store::read_session(&state.home, &session_id) {
         focus::run(focus::plan(&session));
@@ -112,6 +123,8 @@ fn main() {
             set_scale,
             get_panel_mode,
             set_panel_mode,
+            get_acknowledged,
+            set_acknowledged,
             focus_session,
             set_hit_regions,
             quit

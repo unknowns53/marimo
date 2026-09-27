@@ -49,3 +49,27 @@ describe("withAcknowledged", () => {
     expect(withAcknowledged(snap(session("a", "done", 99)), ack).aggregate).toBe("done");
   });
 });
+
+describe("Acknowledged persistence", () => {
+  it("reports additions and pruning but not restores or repeats", () => {
+    const saved: string[][] = [];
+    const ack = new Acknowledged((keys) => saved.push(keys));
+    const a = session("a", "done", 10);
+    const b = session("b", "done", 20);
+    ack.restore([triggerKey(a), triggerKey(b)]);
+    expect(saved).toEqual([]);
+    ack.add(triggerKey(a));
+    expect(saved).toEqual([]);
+    ack.prune(snap(a));
+    expect(saved).toEqual([[triggerKey(a)]]);
+    ack.prune(snap(a));
+    expect(saved).toHaveLength(1);
+  });
+
+  it("keeps a restored completion acknowledged after a restart", () => {
+    const done = session("a", "done", 10);
+    const ack = new Acknowledged();
+    ack.restore([triggerKey(done)]);
+    expect(withAcknowledged(snap(done), ack).aggregate).toBe("idle");
+  });
+});
