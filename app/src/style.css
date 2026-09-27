@@ -1,7 +1,7 @@
 :root {
   --panel-bg: rgba(28, 28, 34, 0.8);
   --panel-fg: #f4f4f5;
-  --bubble-bg: rgba(255, 255, 255, 0.96);
+  --bubble-bg: #ffffff;
   --bubble-fg: #3f3a45;
   --idle: #a1a1aa;
   --working: #60a5fa;
@@ -81,7 +81,7 @@ body {
 
 #bubble {
   position: absolute;
-  bottom: calc(100% - 28px * var(--scale));
+  bottom: calc(100% + 2px);
   left: 50%;
   z-index: 2;
   width: max-content;
