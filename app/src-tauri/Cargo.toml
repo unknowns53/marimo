@@ -20,6 +20,13 @@ serde_json.workspace = true
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+time = { version = "0.3", features = ["parsing"] }
+# 利用制限の API を 5 分おきに一度呼ぶだけなので、非同期ランタイムを持たない小さなクライアントにする。
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Claude Code の資格情報は macOS ではキーチェーンにしかない。
+security-framework = "3"
 
 [features]
 # 試験用のビルドで、カーソル位置の列を流し込んで開閉の動きを確かめるときだけ有効にする。

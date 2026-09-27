@@ -2,10 +2,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod acknowledged;
+mod credentials;
 mod dialogue;
 mod focus;
 mod hit;
 mod scale;
+mod usage;
 mod watch;
 mod window_pos;
 
@@ -19,6 +21,7 @@ use tauri::{AppHandle, LogicalSize, Manager, State, WebviewWindow};
 struct AppState {
     home: MarimoHome,
     hits: Arc<hit::HitState>,
+    usage: usage::Poller,
 }
 
 #[tauri::command]
@@ -62,6 +65,18 @@ fn set_panel_mode(state: State<'_, AppState>, mode: String) -> Result<(), String
 }
 
 #[tauri::command]
+fn get_usage_api(state: State<'_, AppState>) -> bool {
+    scale::load_usage_api(&state.home)
+}
+
+#[tauri::command]
+fn set_usage_api(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    scale::save_usage_api(&state.home, enabled).map_err(|e| e.to_string())?;
+    state.usage.set_enabled(enabled);
+    Ok(())
+}
+
+#[tauri::command]
 fn get_acknowledged(state: State<'_, AppState>) -> Vec<String> {
     acknowledged::load(&state.home)
 }
@@ -97,6 +112,7 @@ fn main() {
     }
     let context = tauri::generate_context!();
     let hits = Arc::new(hit::HitState::default());
+    let usage = usage::Poller::new(scale::load_usage_api(&home));
 
     // LaunchAgent は System Events への自動操作の許可を求めずに登録できる。
     // plist の名前は既定だと製品名の marimo になり、同名の別アプリと重なりうるので
@@ -115,6 +131,7 @@ fn main() {
         .manage(AppState {
             home: home.clone(),
             hits: hits.clone(),
+            usage: usage.clone(),
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -123,6 +140,8 @@ fn main() {
             set_scale,
             get_panel_mode,
             set_panel_mode,
+            get_usage_api,
+            set_usage_api,
             get_acknowledged,
             set_acknowledged,
             focus_session,
@@ -143,6 +162,7 @@ fn main() {
             window.show()?;
             window_pos::track(&window, home.clone());
             watch::spawn(app.handle().clone(), home.clone());
+            usage.spawn(home.clone());
             hit::spawn(app.handle().clone(), window, hits.clone());
             Ok(())
         })

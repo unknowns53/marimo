@@ -22,14 +22,16 @@ const PANEL_COLUMN_H: f64 = 380.0;
 /// パネルの表示の段階。詳細、件数だけ、絵だけ、の三つ。
 pub const PANEL_MODES: [&str; 3] = ["detail", "counts", "picture"];
 
-// display.json には倍率とパネルの段階を一緒に置く。片方を保存するときにもう片方を消さないよう、
-// 読んでから書き戻す。
+// display.json には倍率とパネルの段階と利用制限の取得元を一緒に置く。一つを保存するときに
+// ほかを消さないよう、読んでから書き戻す。
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Display {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scale: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     panel_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    usage_api: Option<bool>,
 }
 
 fn read_display(home: &MarimoHome) -> Display {
@@ -69,6 +71,17 @@ pub fn save_panel_mode(home: &MarimoHome, mode: &str) -> io::Result<()> {
     }
     let mut d = read_display(home);
     d.panel_mode = Some(mode.to_owned());
+    store::write_json_atomic(&home.display_file(), &d)
+}
+
+// 利用者の資格情報を読むので、明示して有効にしたときだけ API から取る。
+pub fn load_usage_api(home: &MarimoHome) -> bool {
+    read_display(home).usage_api.unwrap_or(false)
+}
+
+pub fn save_usage_api(home: &MarimoHome, enabled: bool) -> io::Result<()> {
+    let mut d = read_display(home);
+    d.usage_api = Some(enabled);
     store::write_json_atomic(&home.display_file(), &d)
 }
 
@@ -148,6 +161,30 @@ mod tests {
         // 倍率だけを持つ古い形式もそのまま読める。
         fs::write(home.display_file(), r#"{"scale": 1.7}"#).unwrap();
         assert_eq!((load(&home), load_panel_mode(&home)), (1.7, None));
+    }
+
+    #[test]
+    fn usage_api_shares_the_file_and_defaults_to_off() {
+        let (_d, home) = home();
+        assert!(!load_usage_api(&home));
+        save(&home, 1.5).unwrap();
+        save_panel_mode(&home, "counts").unwrap();
+        save_usage_api(&home, true).unwrap();
+        assert!(load_usage_api(&home));
+        assert_eq!(
+            (load(&home), load_panel_mode(&home).as_deref()),
+            (1.5, Some("counts"))
+        );
+        save(&home, 2.0).unwrap();
+        save_panel_mode(&home, "picture").unwrap();
+        assert!(load_usage_api(&home));
+        save_usage_api(&home, false).unwrap();
+        assert!(!load_usage_api(&home));
+        assert_eq!(load(&home), 2.0);
+        for content in [r#"{"usage_api": "yes"}"#, "{broken", r#"{"scale": 1.2}"#] {
+            fs::write(home.display_file(), content).unwrap();
+            assert!(!load_usage_api(&home), "content {content:?}");
+        }
     }
 
     #[test]

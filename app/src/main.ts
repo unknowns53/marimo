@@ -204,6 +204,10 @@ async function openMenu(): Promise<void> {
     console.error("autostart", e);
     return undefined;
   });
+  const usageApi = await invoke<boolean>("get_usage_api").catch((e) => {
+    console.error("usage api", e);
+    return undefined;
+  });
   const menu = await Menu.new({
     items: [
       ...(await Promise.all(
@@ -217,6 +221,13 @@ async function openMenu(): Promise<void> {
       )),
       await PredefinedMenuItem.new({ item: "Separator" }),
       ...sizeItems,
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await CheckMenuItem.new({
+        text: "利用制限を API から取得",
+        checked: usageApi === true,
+        enabled: usageApi !== undefined,
+        action: () => void invoke("set_usage_api", { enabled: !usageApi }).catch((e) => console.error("usage api", e)),
+      }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await CheckMenuItem.new({
         text: "ログイン時に起動",
