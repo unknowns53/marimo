@@ -21,5 +21,9 @@ tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 
+[features]
+# 試験用のビルドで、カーソル位置の列を流し込んで開閉の動きを確かめるときだけ有効にする。
+cursor-replay = []
+
 [dev-dependencies]
 tempfile.workspace = true

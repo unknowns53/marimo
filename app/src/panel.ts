@@ -72,6 +72,7 @@ function renderCounts(view: PanelView, onSelect: (session: SessionState) => void
     return node;
   };
   const wrap = el("div", "counts-group");
+  wrap.dataset.expandId = "counts";
   const layer = el("div", "counts-detail hover-layer");
   layer.append(...detailChildren(view.plan, onSelect), line());
   wrap.append(line(), layer);
@@ -87,6 +88,7 @@ function renderCounts(view: PanelView, onSelect: (session: SessionState) => void
 // 広げる。層は行の下端に揃えて上へ伸ばし、パネルの高さを変えないので、立ち絵が上下に動かない。
 function renderRow(s: SessionState, onSelect: (session: SessionState) => void): HTMLElement {
   const row = el("div", "row");
+  row.dataset.expandId = `row:${s.session_id}`;
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
   const detail = s.activity?.detail ?? "";
   row.title = [s.cwd ?? s.session_id, summary, detail].filter(Boolean).join("\n\n");
@@ -121,6 +123,7 @@ function renderWorking(plan: PanelPlan, onSelect: (session: SessionState) => voi
   if (plan.moreWorking > 0) list.append(el("div", "more", `ほか ${plan.moreWorking} 件`));
   list.append(summaryLine());
   const wrap = el("div", "working-group");
+  wrap.dataset.expandId = "working";
   wrap.append(summaryLine(), list);
   return wrap;
 }

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
 
 // カーソルが窓の上にあるときは、切り替えの遅れが体感に出ないよう短い周期で判定する。
@@ -11,6 +11,14 @@ const INSIDE_INTERVAL: Duration = Duration::from_millis(40);
 const OUTSIDE_INTERVAL: Duration = Duration::from_millis(150);
 
 pub const PORTRAIT_HOVER_EVENT: &str = "portrait-hover";
+pub const WINDOW_CURSOR_EVENT: &str = "window-cursor";
+
+/// 窓の左上からの CSS px で表したカーソルの位置。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct CursorPoint {
+    pub x: f64,
+    pub y: f64,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 pub struct Rect {
@@ -75,6 +83,8 @@ pub struct HitState {
 
 impl HitState {
     pub fn set(&self, regions: HitRegions) {
+        #[cfg(feature = "cursor-replay")]
+        replay::log_regions(&regions);
         if let Ok(mut r) = self.regions.lock() {
             *r = Some(regions);
         }
@@ -133,14 +143,24 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
     thread::spawn(move || {
         let mut ignoring = false;
         let mut hovering = false;
+        let mut last_cursor: Option<CursorPoint> = None;
+        #[cfg(feature = "cursor-replay")]
+        let replay = replay::Script::from_env();
         loop {
-            let Ok(cursor) = app.cursor_position() else {
-                thread::sleep(OUTSIDE_INTERVAL);
-                continue;
-            };
             let g = match geometry.lock() {
                 Ok(g) => *g,
                 Err(_) => return,
+            };
+            #[cfg(feature = "cursor-replay")]
+            let cursor = match &replay {
+                Some(script) => Ok(script.position(g.position, g.scale)),
+                None => app.cursor_position(),
+            };
+            #[cfg(not(feature = "cursor-replay"))]
+            let cursor = app.cursor_position();
+            let Ok(cursor) = cursor else {
+                thread::sleep(OUTSIDE_INTERVAL);
+                continue;
             };
             let x = (cursor.x - f64::from(g.position.x)) / g.scale;
             let y = (cursor.y - f64::from(g.position.y)) / g.scale;
@@ -160,6 +180,16 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
             if over != hovering && app.emit(PORTRAIT_HOVER_EVENT, over).is_ok() {
                 hovering = over;
             }
+            // 畳んだ行を広げるかどうかも、同じ理由で DOM のホバーには頼れない。カーソルの位置を
+            // そのまま知らせ、開閉の判断はフロントエンドの状態機械に任せる。
+            let point = inside.then_some(CursorPoint { x, y });
+            let moved = match (point, last_cursor) {
+                (Some(a), Some(b)) => (a.x - b.x).abs() >= 0.5 || (a.y - b.y).abs() >= 0.5,
+                (a, b) => a.is_some() != b.is_some(),
+            };
+            if moved && app.emit(WINDOW_CURSOR_EVENT, point).is_ok() {
+                last_cursor = point;
+            }
             thread::sleep(if inside {
                 INSIDE_INTERVAL
             } else {
@@ -167,6 +197,73 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
             });
         }
     });
+}
+
+#[cfg(feature = "cursor-replay")]
+mod replay {
+    //! 試験用のビルドだけで使う。実際のマウスを動かさずに開閉の動きを確かめるため、
+    //! MARIMO_CURSOR_REPLAY が指すファイルの「経過ミリ秒 x y」（窓の左上からの CSS px）の列を、
+    //! 本物のカーソル位置の代わりに流し込み、クリックを受け取る領域の変化を stderr へ記録する。
+    use std::time::Instant;
+
+    use tauri::PhysicalPosition;
+
+    use super::HitRegions;
+
+    // 流し込みの時刻と記録の時刻を同じ起点で数え、記録から開閉の時刻を読めるようにする。
+    fn clock() -> u64 {
+        static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+        START.get_or_init(Instant::now).elapsed().as_millis() as u64
+    }
+
+    pub struct Script {
+        steps: Vec<(u64, f64, f64)>,
+    }
+
+    impl Script {
+        pub fn from_env() -> Option<Self> {
+            let path = std::env::var_os("MARIMO_CURSOR_REPLAY")?;
+            let text = std::fs::read_to_string(path).ok()?;
+            let steps = text
+                .lines()
+                .filter_map(|l| {
+                    let mut it = l.split_whitespace();
+                    Some((
+                        it.next()?.parse().ok()?,
+                        it.next()?.parse().ok()?,
+                        it.next()?.parse().ok()?,
+                    ))
+                })
+                .collect();
+            clock();
+            Some(Self { steps })
+        }
+
+        pub fn position(&self, window: PhysicalPosition<i32>, scale: f64) -> PhysicalPosition<f64> {
+            let t = clock();
+            let (x, y) = self
+                .steps
+                .iter()
+                .rev()
+                .find(|(at, _, _)| *at <= t)
+                .map(|(_, x, y)| (*x, *y))
+                .unwrap_or((-1000.0, -1000.0));
+            PhysicalPosition::new(
+                f64::from(window.x) + x * scale,
+                f64::from(window.y) + y * scale,
+            )
+        }
+    }
+
+    pub fn log_regions(regions: &HitRegions) {
+        let rects: Vec<String> = regions
+            .rects
+            .iter()
+            .map(|r| format!("({:.0},{:.0} {:.0}x{:.0})", r.x, r.y, r.w, r.h))
+            .collect();
+        let t = clock();
+        eprintln!("REPLAY t={t} regions {}", rects.join(" "));
+    }
 }
 
 #[cfg(test)]

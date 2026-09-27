@@ -10,6 +10,7 @@ import { BubbleModel } from "./bubbleModel";
 import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, rectOf, type HitRegions, type Rect } from "./hitArea";
 import { renderPanel } from "./panel";
+import { PanelExpansion } from "./panelExpansion";
 import { PANEL_MODES, panelView, type PanelMode } from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
@@ -42,6 +43,11 @@ const bubble = new Bubble(bubbleNode, () => {
   refreshAcknowledged();
 });
 const hits = new HitReporter(collectHitRegions);
+const expansion = new PanelExpansion(
+  panelElements.panel,
+  () => hits.flush(),
+  () => hits.schedule(),
+);
 
 let renderer: CharacterRenderer | undefined;
 let snapshot: Snapshot | null = null;
@@ -119,7 +125,7 @@ async function reactToTouch(): Promise<void> {
 
 function collectHitRegions(): HitRegions {
   const rects = [rectOf(panelElements.panel)];
-  // マウスを載せて広げた層はパネルの外へ伸びるので、表示中のものを加える。
+  // 広げた層はパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
   const area = renderer?.hitArea();
@@ -133,6 +139,7 @@ function collectHitRegions(): HitRegions {
 function redrawPanel(): void {
   const view = panelView(shown, acknowledged, panelMode);
   renderPanel(panelElements, view, shown?.rate_limits ?? null, Date.now(), selectSession);
+  expansion.evaluate();
   hits.schedule();
 }
 
@@ -270,15 +277,13 @@ async function start(): Promise<void> {
   // マウスが立ち絵の上にあるかは Rust 側がクリックを通す判定のついでに調べて知らせる。透明な部分では
   // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
   await listen<boolean>("portrait-hover", (e) => renderer?.setHover(e.payload));
+  await listen<{ x: number; y: number } | null>("window-cursor", (e) => expansion.setCursor(e.payload));
   await listen<Snapshot>("snapshot", (e) => queueSnapshot(e.payload));
   queueSnapshot(await invoke<Snapshot>("get_snapshot"));
   window.setInterval(redrawPanel, PANEL_REFRESH_MS);
   // 倍率の変更や行の増減で形が変わったら、クリックを受け取る領域を送り直す。
   const observer = new ResizeObserver(() => hits.schedule());
   for (const el of [stage, panelElements.panel, bubbleNode]) observer.observe(el);
-  // 行や作業中の要約にマウスを載せると層が広がるが、ResizeObserver には現れないので別に拾う。
-  panelElements.panel.addEventListener("mouseover", () => hits.schedule());
-  panelElements.panel.addEventListener("mouseout", () => hits.schedule());
   window.addEventListener("resize", () => hits.schedule());
 }
 

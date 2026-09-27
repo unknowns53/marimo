@@ -77,6 +77,13 @@ export class HitReporter {
 
   constructor(private readonly collect: () => HitRegions) {}
 
+  /** 次の描画を待たずにすぐ送る。層を見せる前に、その領域を登録し終えておくために使う。 */
+  async flush(): Promise<void> {
+    const regions = this.collect();
+    this.last = JSON.stringify(regions);
+    await invoke("set_hit_regions", { regions }).catch((e) => console.error("hit regions", e));
+  }
+
   schedule(): void {
     if (this.pending) return;
     this.pending = true;

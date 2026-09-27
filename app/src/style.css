@@ -226,10 +226,15 @@ body {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
-.row:hover > .row-full,
-.working-group:hover > .working-list,
-.counts-group:hover > .counts-detail {
+/* 開閉は Rust から届くカーソル位置で panelExpansion.ts が決め、DOM のホバーは使わない。
+   measuring は、見せる前に大きさを測ってクリックを受け取る領域へ登録する間の状態。 */
+.open > .hover-layer,
+.measuring > .hover-layer {
   display: block;
+}
+
+.measuring > .hover-layer {
+  visibility: hidden;
 }
 
 .counts-group {
