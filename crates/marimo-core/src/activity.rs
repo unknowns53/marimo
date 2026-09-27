@@ -1,7 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-/// パネルは要約を 2 行まで折り返し、ツールチップで全文を出す。そのための元の文章を
+/// パネルは要約を 1 行で出し、ツールチップで全文を出す。そのための元の文章を
 /// 保存時に切りすぎないよう、上限は表示の都合でなく状態ファイルの大きさで決める。
 pub const TEXT_MAX_CHARS: usize = 500;
 

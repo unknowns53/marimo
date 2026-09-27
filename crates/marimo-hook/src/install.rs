@@ -120,7 +120,7 @@ fn install(opts: &Options, exe: &Path, marimo: &Marimo) -> Result<(), String> {
         out += "変更はありません（すでにインストール済みです）。\n";
     }
     if cfg!(windows) {
-        out += "Windows では statusLine を書き換えていないため、利用制限は表示されません。\n";
+        out += "Windows では statusLine を書き換えていないため、利用制限は statusLine からは届きません。表示するには、アプリの右クリックメニューで「利用制限を API から取得」を有効にしてください。\n";
     }
     print(&out);
     Ok(())
