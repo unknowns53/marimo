@@ -6,6 +6,7 @@ import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
 import { BubbleModel } from "./bubbleModel";
+import { HitReporter, rectOf, type HitRegions, type Rect } from "./hitArea";
 import { renderPanel } from "./panel";
 import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
@@ -19,11 +20,14 @@ const PANEL_REFRESH_MS = 30_000;
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 const stage = $("stage");
 const panelElements = { panel: $("panel"), rows: $("rows"), limits: $("limits") };
+const bubbleNode = $("bubble");
 const bubbleModel = new BubbleModel();
-const bubble = new Bubble($("bubble"), () => {
+const bubble = new Bubble(bubbleNode, () => {
   bubbleModel.dismiss();
   bubble.hide();
+  hits.schedule();
 });
+const hits = new HitReporter(collectHitRegions);
 
 let renderer: CharacterRenderer | undefined;
 let snapshot: Snapshot | null = null;
@@ -53,10 +57,22 @@ async function applySnapshot(next: Snapshot): Promise<void> {
   redrawPanel();
 }
 
+function collectHitRegions(): HitRegions {
+  const rects = [rectOf(panelElements.panel)];
+  if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
+  const area = renderer?.hitArea();
+  const box = rectOf(area?.element ?? stage);
+  let mask: HitRegions["mask"] = null;
+  if (area?.mask && box) mask = { ...box, ...area.mask };
+  else rects.push(box);
+  return { rects: rects.filter((r): r is Rect => r !== null), mask };
+}
+
 function redrawPanel(): void {
   renderPanel(panelElements, snapshot, showRows, Date.now(), (sessionId) => {
     void invoke("focus_session", { sessionId }).catch((e) => console.error("focus", e));
   });
+  hits.schedule();
 }
 
 function readShowRows(): boolean {
@@ -149,6 +165,10 @@ async function start(): Promise<void> {
   await listen<Snapshot>("snapshot", (e) => queueSnapshot(e.payload));
   queueSnapshot(await invoke<Snapshot>("get_snapshot"));
   window.setInterval(redrawPanel, PANEL_REFRESH_MS);
+  // 倍率の変更や行の増減で形が変わったら、クリックを受け取る領域を送り直す。
+  const observer = new ResizeObserver(() => hits.schedule());
+  for (const el of [stage, panelElements.panel, bubbleNode]) observer.observe(el);
+  window.addEventListener("resize", () => hits.schedule());
 }
 
 void start();

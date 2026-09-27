@@ -2,12 +2,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod focus;
+mod hit;
 mod scale;
 mod watch;
 mod window_pos;
 
 use std::fs;
 use std::io;
+use std::sync::Arc;
 
 use marimo_core::{MarimoHome, Snapshot, store};
 use serde_json::Value;
@@ -17,6 +19,7 @@ const DEFAULT_DIALOGUE: &str = include_str!("../../../assets/character/default/d
 
 struct AppState {
     home: MarimoHome,
+    hits: Arc<hit::HitState>,
 }
 
 #[tauri::command]
@@ -71,6 +74,11 @@ fn focus_session(state: State<'_, AppState>, session_id: String) {
 }
 
 #[tauri::command]
+fn set_hit_regions(state: State<'_, AppState>, regions: hit::HitRegions) {
+    state.hits.set(regions);
+}
+
+#[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
 }
@@ -80,6 +88,7 @@ fn main() {
         MarimoHome::resolve().expect("cannot resolve the marimo home directory; set MARIMO_HOME");
     let _ = fs::create_dir_all(home.sessions_dir());
     let context = tauri::generate_context!();
+    let hits = Arc::new(hit::HitState::default());
 
     // LaunchAgent は System Events への自動操作の許可を求めずに登録できる。
     // plist の名前は既定だと製品名の marimo になり、同名の別アプリと重なりうるので
@@ -95,13 +104,17 @@ fn main() {
         // 何もしないコールバックにしてあり、二つ目のプロセスはそのまま終わる。
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(autostart.build())
-        .manage(AppState { home: home.clone() })
+        .manage(AppState {
+            home: home.clone(),
+            hits: hits.clone(),
+        })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             get_dialogue,
             get_scale,
             set_scale,
             focus_session,
+            set_hit_regions,
             quit
         ])
         .setup(move |app| {
@@ -118,6 +131,7 @@ fn main() {
             window.show()?;
             window_pos::track(&window, home.clone());
             watch::spawn(app.handle().clone(), home.clone());
+            hit::spawn(app.handle().clone(), window, hits.clone());
             Ok(())
         })
         .run(context)

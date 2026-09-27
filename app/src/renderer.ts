@@ -1,3 +1,4 @@
+import type { HitMask } from "./hitArea";
 import type { Status } from "./types";
 import { StandingRenderer } from "./standing";
 
@@ -7,6 +8,9 @@ export interface CharacterRenderer {
   mount(container: HTMLElement): Promise<void>;
   setStatus(status: Status): void;
   destroy(): void;
+  // 窓の透明な部分のクリックを下へ通すために、今の絵のどこが不透明かを返す。
+  // mask が null なら element の矩形全体を不透明とみなす。
+  hitArea(): { element: HTMLElement; mask: HitMask | null } | null;
 }
 
 export interface StandingStateAssets {

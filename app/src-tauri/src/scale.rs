@@ -13,7 +13,7 @@ pub const DEFAULT: f64 = 1.0;
 const STAGE_W: f64 = 180.0;
 const STAGE_H: f64 = 270.0;
 const WINDOW_W: f64 = 356.0;
-const WINDOW_H: f64 = 600.0;
+const WINDOW_H: f64 = 640.0;
 const SIDE_MARGIN: f64 = 16.0;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn window_grows_with_portrait_only() {
         assert_eq!(window_size(1.0), (WINDOW_W, WINDOW_H));
-        assert_eq!(window_size(2.5), (482.0, 1005.0));
-        assert_eq!(window_size(0.6), (WINDOW_W, 492.0));
+        assert_eq!(window_size(2.5), (482.0, 1045.0));
+        assert_eq!(window_size(0.6), (WINDOW_W, 532.0));
     }
 }

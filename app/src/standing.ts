@@ -1,3 +1,4 @@
+import { maskFromImage, type HitMask } from "./hitArea";
 import type { CharacterRenderer, StandingManifest, StandingStateAssets } from "./renderer";
 import type { Status } from "./types";
 
@@ -14,6 +15,7 @@ export class StandingRenderer implements CharacterRenderer {
   private readonly fading = document.createElement("img");
   private status: Status = "idle";
   private blinkTimer: number | undefined;
+  private readonly masks = new Map<string, HitMask | null>();
 
   constructor(
     private readonly manifest: StandingManifest,
@@ -33,7 +35,8 @@ export class StandingRenderer implements CharacterRenderer {
     this.fading.hidden = true;
     this.fading.className = "fading";
     // 切り替えの瞬間に読み込みで一瞬消えないよう、全差分を先にデコードしておく。
-    await Promise.all(this.allFiles().map((file) => preload(this.url(file))));
+    const images = await Promise.all(this.allFiles().map((file) => preload(this.url(file))));
+    this.allFiles().forEach((file, i) => this.masks.set(file, images[i] ? maskFromImage(images[i]) : null));
     container.prepend(this.root);
     this.apply();
   }
@@ -43,6 +46,11 @@ export class StandingRenderer implements CharacterRenderer {
     this.crossfadeFrom(this.blink.hidden ? this.base.src : this.blink.src);
     this.status = status;
     this.apply();
+  }
+
+  // 瞬きの差分は顔だけが違い、輪郭は基本の画像と同じなので、基本の画像の形で判定する。
+  hitArea(): { element: HTMLElement; mask: HitMask | null } {
+    return { element: this.root, mask: this.masks.get(this.assets().image) ?? null };
   }
 
   destroy(): void {
@@ -106,12 +114,14 @@ export class StandingRenderer implements CharacterRenderer {
   }
 }
 
-async function preload(src: string): Promise<void> {
+async function preload(src: string): Promise<HTMLImageElement | null> {
   const img = new Image();
   img.src = src;
   try {
     await img.decode();
+    return img;
   } catch {
     // 読めない差分があっても、他の状態の表示は続ける。
+    return null;
   }
 }

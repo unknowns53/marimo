@@ -1,0 +1,211 @@
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+use serde::Deserialize;
+use tauri::{AppHandle, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
+
+// カーソルが窓の上にあるときは、切り替えの遅れが体感に出ないよう短い周期で判定する。
+// 窓の外では判定を急ぐ必要がないので、周期を延ばして常駐の負担を減らす。
+const INSIDE_INTERVAL: Duration = Duration::from_millis(40);
+const OUTSIDE_INTERVAL: Duration = Duration::from_millis(150);
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+impl Rect {
+    fn contains(&self, x: f64, y: f64) -> bool {
+        x >= self.x && y >= self.y && x < self.x + self.w && y < self.y + self.h
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Mask {
+    #[serde(flatten)]
+    pub rect: Rect,
+    pub cols: usize,
+    pub rows: usize,
+    pub bits: String,
+}
+
+/// フロントエンドが送る、クリックを受け取る領域。座標は窓の左上からの CSS px。
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct HitRegions {
+    pub rects: Vec<Rect>,
+    pub mask: Option<Mask>,
+}
+
+impl HitRegions {
+    pub fn hit(&self, x: f64, y: f64) -> bool {
+        self.rects.iter().any(|r| r.contains(x, y))
+            || self.mask.as_ref().is_some_and(|m| m.hit(x, y))
+    }
+}
+
+impl Mask {
+    fn hit(&self, x: f64, y: f64) -> bool {
+        if !self.rect.contains(x, y) || self.cols == 0 || self.rows == 0 {
+            return false;
+        }
+        let col = (((x - self.rect.x) / self.rect.w) * self.cols as f64) as usize;
+        let row = (((y - self.rect.y) / self.rect.h) * self.rows as f64) as usize;
+        let i = row.min(self.rows - 1) * self.cols + col.min(self.cols - 1);
+        self.bits.as_bytes().get(i) == Some(&b'1')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Geometry {
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    scale: f64,
+}
+
+#[derive(Default)]
+pub struct HitState {
+    regions: Mutex<Option<HitRegions>>,
+}
+
+impl HitState {
+    pub fn set(&self, regions: HitRegions) {
+        if let Ok(mut r) = self.regions.lock() {
+            *r = Some(regions);
+        }
+    }
+
+    // 領域がまだ届いていないうちは、窓全体でクリックを受け取る。操作できない状態を作らないためである。
+    fn wants_cursor(&self, x: f64, y: f64) -> bool {
+        match self.regions.lock() {
+            Ok(r) => r.as_ref().is_none_or(|r| r.hit(x, y)),
+            Err(_) => true,
+        }
+    }
+}
+
+// 窓がクリックを通す状態になると、カーソルの移動イベントも届かなくなる。そこで、カーソルの
+// 画面上の位置を AppHandle::cursor_position で定期的に読み、窓の位置と大きさはイベントで覚えておき、
+// set_ignore_cursor_events を切り替える。
+pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
+    let geometry = Arc::new(Mutex::new(Geometry {
+        position: window.outer_position().unwrap_or_default(),
+        size: window.outer_size().unwrap_or_default(),
+        scale: window.scale_factor().unwrap_or(1.0),
+    }));
+    {
+        let geometry = geometry.clone();
+        window.on_window_event(move |event| {
+            let Ok(mut g) = geometry.lock() else {
+                return;
+            };
+            match event {
+                WindowEvent::Moved(p) => g.position = *p,
+                WindowEvent::Resized(s) => g.size = *s,
+                WindowEvent::ScaleFactorChanged {
+                    scale_factor,
+                    new_inner_size,
+                    ..
+                } => {
+                    g.scale = *scale_factor;
+                    g.size = *new_inner_size;
+                }
+                _ => {}
+            }
+        });
+    }
+
+    thread::spawn(move || {
+        let mut ignoring = false;
+        loop {
+            let Ok(cursor) = app.cursor_position() else {
+                thread::sleep(OUTSIDE_INTERVAL);
+                continue;
+            };
+            let g = match geometry.lock() {
+                Ok(g) => *g,
+                Err(_) => return,
+            };
+            let x = (cursor.x - f64::from(g.position.x)) / g.scale;
+            let y = (cursor.y - f64::from(g.position.y)) / g.scale;
+            let inside = cursor.x >= f64::from(g.position.x)
+                && cursor.y >= f64::from(g.position.y)
+                && cursor.x < f64::from(g.position.x) + f64::from(g.size.width)
+                && cursor.y < f64::from(g.position.y) + f64::from(g.size.height);
+            if inside {
+                let want_ignore = !state.wants_cursor(x, y);
+                if want_ignore != ignoring && window.set_ignore_cursor_events(want_ignore).is_ok() {
+                    ignoring = want_ignore;
+                }
+            }
+            thread::sleep(if inside {
+                INSIDE_INTERVAL
+            } else {
+                OUTSIDE_INTERVAL
+            });
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn regions() -> HitRegions {
+        // 4×4 の格子で、中央の 2×2 だけが不透明な絵を 100×100 の位置に置く。
+        HitRegions {
+            rects: vec![Rect {
+                x: 0.0,
+                y: 300.0,
+                w: 340.0,
+                h: 100.0,
+            }],
+            mask: Some(Mask {
+                rect: Rect {
+                    x: 100.0,
+                    y: 100.0,
+                    w: 80.0,
+                    h: 120.0,
+                },
+                cols: 4,
+                rows: 4,
+                bits: "0000011001100000".into(),
+            }),
+        }
+    }
+
+    #[test]
+    fn hits_panel_rects_and_opaque_mask_cells_only() {
+        let r = regions();
+        assert!(r.hit(10.0, 350.0), "panel");
+        assert!(!r.hit(10.0, 250.0), "transparent gap above the panel");
+        assert!(r.hit(140.0, 160.0), "opaque centre of the portrait");
+        assert!(
+            !r.hit(105.0, 105.0),
+            "transparent corner inside the portrait box"
+        );
+        assert!(!r.hit(179.9, 219.9), "transparent bottom-right cell");
+        assert!(!r.hit(50.0, 50.0), "outside everything");
+    }
+
+    #[test]
+    fn missing_regions_accept_everything() {
+        let state = HitState::default();
+        assert!(state.wants_cursor(1.0, 1.0));
+        state.set(regions());
+        assert!(!state.wants_cursor(1.0, 1.0));
+        assert!(state.wants_cursor(140.0, 160.0));
+    }
+
+    #[test]
+    fn parses_frontend_payload() {
+        let json = r#"{"rects":[{"x":8,"y":430,"w":340,"h":120}],
+                       "mask":{"x":88,"y":160,"w":180,"h":270,"cols":2,"rows":1,"bits":"01"}}"#;
+        let r: HitRegions = serde_json::from_str(json).unwrap();
+        assert!(r.hit(200.0, 200.0));
+        assert!(!r.hit(100.0, 200.0));
+    }
+}
