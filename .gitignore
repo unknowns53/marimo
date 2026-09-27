@@ -16,3 +16,6 @@ app/src-tauri/gen/
 
 # ツールを import したときに Python が作るキャッシュ
 __pycache__/
+
+# 要件定義は手元だけに置き、リポジトリでは追跡しない
+/Claude Code デスクトップペット 要件定義.md
