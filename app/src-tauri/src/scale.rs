@@ -15,7 +15,7 @@ const STAGE_H: f64 = 270.0;
 const PANEL_W: f64 = 312.0;
 const MARGIN: f64 = 8.0;
 // 吹き出しは立ち絵の頭の上に出すので、その分を立ち絵の上に空けておく。
-const BUBBLE_ROOM: f64 = 100.0;
+const BUBBLE_ROOM: f64 = 120.0;
 // パネルは行の増減や、件数の行に詳細を重ねたときに上へ伸びる。その最大の高さ。
 const PANEL_COLUMN_H: f64 = 380.0;
 
@@ -197,8 +197,8 @@ mod tests {
 
     #[test]
     fn window_grows_with_portrait_only() {
-        assert_eq!(window_size(1.0), (516.0, 380.0));
-        assert_eq!(window_size(2.5), (786.0, 783.0));
+        assert_eq!(window_size(1.0), (516.0, 398.0));
+        assert_eq!(window_size(2.5), (786.0, 803.0));
         assert_eq!(window_size(0.6), (444.0, 380.0));
     }
 }
