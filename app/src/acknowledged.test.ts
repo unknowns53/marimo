@@ -3,13 +3,18 @@ import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
 import { session, snap } from "./testFixtures";
 
 describe("withAcknowledged", () => {
-  it("falls back to working once the only done session has been acknowledged", () => {
+  it("keeps working above an unread done session", () => {
+    const s = snap(session("a", "done", 10), session("b", "working", 20));
+    expect(withAcknowledged(s, new Acknowledged()).aggregate).toBe("working");
+  });
+
+  it("falls back to idle once the only done session has been acknowledged", () => {
     const done = session("a", "done", 10);
-    const s = snap(done, session("b", "working", 20));
+    const s = snap(done, session("b", "idle", 20));
     const ack = new Acknowledged();
     expect(withAcknowledged(s, ack).aggregate).toBe("done");
     ack.add(triggerKey(done));
-    expect(withAcknowledged(s, ack).aggregate).toBe("working");
+    expect(withAcknowledged(s, ack).aggregate).toBe("idle");
   });
 
   it("stays done while another done session is still unread", () => {

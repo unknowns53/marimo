@@ -1,7 +1,7 @@
 import type { SessionState, Snapshot, Status } from "./types";
 
 // marimo-core の集約と同じ順序。
-const PRIORITY: Status[] = ["waiting", "error", "done", "working", "idle"];
+const PRIORITY: Status[] = ["waiting", "error", "working", "done", "idle"];
 
 // きっかけは「どのセッションが、いつから、どの状態か」で見分ける。status_since を含めるので、
 // 同じセッションが一度別の状態を経て同じ状態へ戻れば、新しいきっかけになる。

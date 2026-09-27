@@ -437,13 +437,13 @@ mod tests {
         write_atomic(&home.sessions_dir().join(".c.json.1.2.tmp"), b"{broken").unwrap();
         write_atomic(&home.sessions_dir().join("junk.json"), b"not json").unwrap();
         let snap = load_snapshot(&home);
-        assert_eq!(snap.aggregate, Status::Done);
+        assert_eq!(snap.aggregate, Status::Working);
         let ids: Vec<_> = snap
             .sessions
             .iter()
             .map(|s| s.session_id.as_str())
             .collect();
-        assert_eq!(ids, vec!["b", "a", "c"]);
+        assert_eq!(ids, vec!["a", "b", "c"]);
 
         hook(
             &home,

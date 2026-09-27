@@ -15,12 +15,12 @@ pub enum Status {
 }
 
 impl Status {
-    /// 並び順は要件定義が決めている（承認待ち、エラー、完了、作業中、待機の順に高い）。
+    /// 並び順は要件定義が決めている（承認待ち、エラー、作業中、完了、待機の順に高い）。
     pub fn priority(self) -> u8 {
         match self {
             Status::Idle => 0,
-            Status::Working => 1,
-            Status::Done => 2,
+            Status::Done => 1,
+            Status::Working => 2,
             Status::Error => 3,
             Status::Waiting => 4,
         }
@@ -743,7 +743,8 @@ mod tests {
         use Status::*;
         assert_eq!(aggregate([]), Idle);
         assert_eq!(aggregate([Idle, Working]), Working);
-        assert_eq!(aggregate([Working, Done]), Done);
+        assert_eq!(aggregate([Working, Done]), Working);
+        assert_eq!(aggregate([Idle, Done]), Done);
         assert_eq!(aggregate([Done, Error, Working]), Error);
         assert_eq!(aggregate([Error, Waiting, Done]), Waiting);
         assert_eq!(aggregate([Idle, Idle]), Idle);

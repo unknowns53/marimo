@@ -1,6 +1,6 @@
 import type { SessionState, Snapshot, Status } from "./types";
 
-const PRIORITY: Record<Status, number> = { idle: 0, working: 1, done: 2, error: 3, waiting: 4 };
+const PRIORITY: Record<Status, number> = { idle: 0, done: 1, working: 2, error: 3, waiting: 4 };
 
 export function session(id: string, status: Status, since: number, updated = since): SessionState {
   return {

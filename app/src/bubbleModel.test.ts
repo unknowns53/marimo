@@ -72,7 +72,8 @@ describe("BubbleModel", () => {
   it("follows the aggregate across different states", () => {
     const m = model();
     expect(m.update(snap(session("a", "done", 1), session("b", "error", 2)), DIALOGUE)?.sessionId).toBe("b");
-    expect(m.update(snap(session("a", "done", 1), session("b", "working", 3)), DIALOGUE)?.sessionId).toBe("a");
+    expect(m.update(snap(session("a", "done", 1), session("b", "working", 3)), DIALOGUE)).toBeNull();
+    expect(m.update(snap(session("a", "done", 1), session("b", "idle", 4)), DIALOGUE)?.sessionId).toBe("a");
   });
 
   it("keeps the same line while the trigger lasts even with random picks", () => {
