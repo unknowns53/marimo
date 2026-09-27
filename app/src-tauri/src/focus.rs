@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use marimo_core::SessionState;
@@ -34,11 +35,14 @@ pub fn plan(session: &SessionState) -> Target {
     }
     // VS Code の派生（Cursor など）も TERM_PROGRAM=vscode を名乗るので、
     // 開くアプリは記録した bundle id を優先する。
-    if term == Some("vscode")
-        && let Some(folder) = session.cwd.clone()
-    {
+    if term == Some("vscode") {
         let bundle_id = bundle.unwrap_or(VSCODE).to_owned();
-        return Target::EditorFolder { bundle_id, folder };
+        // cwd はフックの入力をそのまま記録したものなので、- で始まる値を open が
+        // オプションとして読まないよう、絶対パスのときだけフォルダとして渡す。
+        return match session.cwd.clone().filter(|c| c.starts_with('/')) {
+            Some(folder) => Target::EditorFolder { bundle_id, folder },
+            None => Target::App { bundle_id },
+        };
     }
     match bundle {
         Some(b) => Target::App {
@@ -63,7 +67,9 @@ pub fn run(target: Target) {
             }
         }
         // フォルダを開いているウィンドウがあれば、open はそのウィンドウを前面に出す。
-        Target::EditorFolder { bundle_id, folder } => open(&["-b", &bundle_id, &folder]),
+        Target::EditorFolder { bundle_id, folder } => {
+            open(&editor_args(&bundle_id, &folder, |p| p.is_dir()));
+        }
         Target::App { bundle_id } => open(&["-b", &bundle_id]),
         Target::Nothing => {}
     });
@@ -143,6 +149,19 @@ fn osascript(script: &str, arg: &str) -> bool {
     }
 }
 
+// フォルダが消えていれば、アプリを前面に出すだけにする。
+fn editor_args<'a>(
+    bundle_id: &'a str,
+    folder: &'a str,
+    is_dir: impl Fn(&Path) -> bool,
+) -> Vec<&'a str> {
+    if is_dir(Path::new(folder)) {
+        vec!["-b", bundle_id, folder]
+    } else {
+        vec!["-b", bundle_id]
+    }
+}
+
 fn open(args: &[&str]) {
     if let Err(e) = Command::new("/usr/bin/open").args(args).status() {
         eprintln!("marimo: open failed: {e}");
@@ -155,8 +174,17 @@ mod tests {
     use marimo_core::Origin;
 
     fn session(bundle: Option<&str>, term: Option<&str>, tty: Option<&str>) -> SessionState {
+        session_in("/w/proj", bundle, term, tty)
+    }
+
+    fn session_in(
+        cwd: &str,
+        bundle: Option<&str>,
+        term: Option<&str>,
+        tty: Option<&str>,
+    ) -> SessionState {
         SessionState {
-            cwd: Some("/w/proj".into()),
+            cwd: Some(cwd.into()),
             origin: Some(Origin {
                 bundle_id: bundle.map(Into::into),
                 term_program: term.map(Into::into),
@@ -215,5 +243,35 @@ mod tests {
         );
         assert_eq!(plan(&session(None, None, None)), Target::Nothing);
         assert_eq!(plan(&SessionState::new("s1")), Target::Nothing);
+    }
+
+    #[test]
+    fn editor_folder_needs_an_absolute_cwd() {
+        for cwd in ["-a", "--args", "w/proj", "."] {
+            assert_eq!(
+                plan(&session_in(cwd, None, Some("vscode"), None)),
+                Target::App {
+                    bundle_id: VSCODE.into()
+                },
+                "{cwd}"
+            );
+        }
+        let mut no_cwd = session(None, Some("vscode"), None);
+        no_cwd.cwd = None;
+        assert_eq!(
+            plan(&no_cwd),
+            Target::App {
+                bundle_id: VSCODE.into()
+            }
+        );
+    }
+
+    #[test]
+    fn missing_editor_folder_only_brings_the_app_forward() {
+        assert_eq!(
+            editor_args(VSCODE, "/w/proj", |_| true),
+            ["-b", VSCODE, "/w/proj"]
+        );
+        assert_eq!(editor_args(VSCODE, "/w/gone", |_| false), ["-b", VSCODE]);
     }
 }
