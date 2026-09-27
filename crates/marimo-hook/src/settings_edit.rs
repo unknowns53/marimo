@@ -51,17 +51,24 @@ impl Marimo {
     }
 
     pub fn is_hook_command(&self, command: &str) -> bool {
-        command.ends_with(" hook") && self.strip_exe(command).is_some()
+        self.args_after_exe(command) == Some(" hook")
     }
 
-    fn strip_exe<'a>(&self, command: &'a str) -> Option<&'a str> {
-        command
-            .strip_prefix(self.quoted.as_str())
-            .or_else(|| command.strip_prefix(self.raw.as_str()))
+    // 実行ファイルのパスの直後が空白でなければ marimo ではない。前方一致だけで判定すると、
+    // marimo-hook-backup のように名前の先頭が同じ別のコマンドまで marimo のものとして扱ってしまう。
+    fn args_after_exe<'a>(&self, command: &'a str) -> Option<&'a str> {
+        [self.quoted.as_str(), self.raw.as_str()]
+            .into_iter()
+            .find_map(|exe| {
+                command
+                    .strip_prefix(exe)
+                    .filter(|rest| rest.starts_with(' '))
+            })
     }
 
     fn statusline_rest<'a>(&self, command: &'a str) -> Option<&'a str> {
-        self.strip_exe(command)?.strip_prefix(" statusline")
+        let rest = self.args_after_exe(command)?.strip_prefix(" statusline")?;
+        (rest.is_empty() || rest.starts_with(" -- ")).then_some(rest)
     }
 }
 
@@ -397,5 +404,76 @@ mod tests {
         assert!(m.is_hook_command("/Users/a b/.marimo/bin/marimo-hook hook"));
         assert!(!m.is_hook_command("'/Users/a b/.marimo/bin/marimo-hook' record Stop"));
         assert!(!m.is_hook_command("/other/marimo-hook hook"));
+    }
+
+    #[test]
+    fn commands_sharing_the_executable_prefix_are_not_marimo() {
+        let m = Marimo::new("/x/marimo-hook");
+        assert!(m.is_hook_command("/x/marimo-hook hook"));
+        for c in [
+            "/x/marimo-hook-backup hook",
+            "/x/marimo-hooky hook",
+            "/x/marimo-hook hook --extra",
+            "/x/marimo-hook  hook",
+        ] {
+            assert!(!m.is_hook_command(c), "{c}");
+        }
+        let quoted = Marimo::new("/x y/marimo-hook");
+        assert!(!quoted.is_hook_command("'/x y/marimo-hook'-backup hook"));
+        assert!(!quoted.is_hook_command("/x y/marimo-hook-backup hook"));
+
+        assert_eq!(m.statusline_rest("/x/marimo-hook statusline"), Some(""));
+        assert_eq!(
+            m.statusline_rest("/x/marimo-hook statusline -- sh -c 'echo'"),
+            Some(" -- sh -c 'echo'")
+        );
+        for c in [
+            "/x/marimo-hook-backup statusline",
+            "/x/marimo-hooky statusline -- sh -c 'echo'",
+            "/x/marimo-hook statusline-other",
+            "/x/marimo-hook statusline --verbose",
+        ] {
+            assert_eq!(m.statusline_rest(c), None, "{c}");
+        }
+    }
+
+    #[test]
+    fn install_and_uninstall_leave_foreign_prefix_commands_alone() {
+        let m = Marimo::new("/x/marimo-hook");
+        let foreign_hook = "/x/marimo-hook-backup hook";
+        let foreign_status = "/x/marimo-hooky statusline";
+        let mut settings = json!({
+            "hooks": {"Stop": [{"hooks": [{"type": "command", "command": foreign_hook}]}]},
+            "statusLine": {"type": "command", "command": foreign_status}
+        });
+        let report = install(&mut settings, &m, true).unwrap();
+        assert!(report.added.contains(&"Stop"));
+        assert_eq!(
+            report.status_line,
+            StatusLineChange::Wrapped {
+                before: foreign_status.to_owned(),
+                after: format!("/x/marimo-hook statusline -- sh -c '{foreign_status}'"),
+            }
+        );
+        let stop = settings["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop.len(), 2);
+
+        let report = uninstall(&mut settings, &m).unwrap();
+        assert!(report.removed.contains(&"Stop".to_owned()));
+        assert_eq!(
+            settings,
+            json!({
+                "hooks": {"Stop": [{"hooks": [{"type": "command", "command": foreign_hook}]}]},
+                "statusLine": {"type": "command", "command": foreign_status}
+            })
+        );
+
+        // marimo が入っていない状態の uninstall は、名前の似た他人のフックに触れない。
+        let report = uninstall(&mut settings, &m).unwrap();
+        assert!(!report.changed());
+        assert_eq!(
+            settings["hooks"]["Stop"][0]["hooks"][0]["command"],
+            foreign_hook
+        );
     }
 }

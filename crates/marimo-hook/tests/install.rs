@@ -120,7 +120,7 @@ fn realistic() -> String {
         "hooks": [
           {
             "type": "command",
-            "command": "mashu hook session-start"
+            "command": "other-tool hook session-start"
           }
         ]
       }
@@ -153,12 +153,12 @@ fn realistic() -> String {
     "padding": 0
   },
   "skillOverrides": {
-    "obsidian-vault": {
+    "example-marketplace": {
       "enabled": true
     }
   },
   "enabledPlugins": {
-    "codex@openai-codex": true
+    "example-plugin@example-marketplace": true
   },
   "alwaysThinkingEnabled": true
 }
@@ -413,6 +413,52 @@ fn uninstall_keeps_user_hooks_sharing_an_event() {
     assert!(env.run(&["install"]).status.success());
     assert_eq!(env.json()["hooks"]["Stop"].as_array().unwrap().len(), 2);
     assert!(env.run(&["uninstall"]).status.success());
+    assert_eq!(env.text(), original);
+}
+
+// 実行ファイルと名前の先頭だけが同じ他人のコマンドを、marimo のものと取り違えない。
+#[test]
+fn commands_sharing_the_executable_prefix_are_left_alone() {
+    let env = Env::new("m");
+    let bin = env.home.join("bin");
+    let foreign_hook = format!("{}/marimo-hook-backup hook", bin.display());
+    let foreign_status = format!("{}/marimo-hooky statusline", bin.display());
+    let original = pretty(&json!({
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": foreign_hook}]}]},
+        "statusLine": {"type": "command", "command": foreign_status}
+    }));
+    fs::write(&env.settings, &original).unwrap();
+
+    let out = env.run(&["install"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let installed = env.json();
+    assert_eq!(installed["hooks"]["Stop"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        installed["hooks"]["Stop"][0]["hooks"][0]["command"],
+        foreign_hook
+    );
+    assert_eq!(
+        installed["statusLine"]["command"],
+        format!(
+            "{} statusline -- sh -c '{foreign_status}'",
+            env.installed_exe().display()
+        )
+    );
+
+    let once = env.text();
+    let out = env.run(&["install"]);
+    assert!(out.status.success());
+    assert_eq!(env.text(), once);
+    assert!(stdout(&out).contains("変更はありません"));
+
+    assert!(env.run(&["uninstall"]).status.success());
+    assert_eq!(env.text(), original);
+    let out = env.run(&["uninstall"]);
+    assert!(out.status.success());
     assert_eq!(env.text(), original);
 }
 
