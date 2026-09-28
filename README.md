@@ -69,14 +69,14 @@ marimo の窓は、立ち絵、吹き出し、パネルの三つでできてい�
 
 ## 動作環境
 
-marimo は macOS で動作を確かめています。Claude Code のどの画面から使うかによって、使える機能が変わります。
+marimo は macOS で動作を確かめており、Windows 11 でも大半の機能を確かめています。Claude Code のどの画面から使うかによって、使える機能が変わります。
 
 | Claude Code の使い方 | 確認の状況 | 使える機能 |
 | --- | --- | --- |
 | macOS の端末で動かす CLI（コマンドラインインターフェース） | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます |
 | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限を出すには[利用制限を API から取得](#利用制限の表示)を有効にします |
 | VS Code の拡張機能の画面 | 未確認 | statusLine が動くかどうかを確かめていません |
-| Windows | 未確認 | ビルドとインストールのためのコードはありますが、動作を確かめていません。`install` は Windows では既存の statusLine を書き換えません。statusLine が無い場合だけ、Git Bash と PowerShell のどちらでも同じように読める `~/.marimo/bin/marimo-hook.exe statusline` のような形で登録しますが、これが動くかどうかは確かめていません。既存の statusLine を使っている場合も、利用制限は「利用制限を API から取得」で出せます。Windows 11 で、`~/.claude/.credentials.json` のトークンを使って取得できることを確かめています。行を押してセッションへ移動する機能も Windows 向けのコードはありますが、実機では確かめていません（[セッションへ移動する](#セッションへ移動する)を参照） |
+| Windows | 一部確認済み | Windows 11 で、ビルド、`install`、フックの発火、自動起動、クリック透過を確かめています。`install` は Windows では既存の statusLine を書き換えません。statusLine が無い場合だけ `~/.marimo/bin/marimo-hook.exe statusline` のような形で登録し、これが Git Bash と PowerShell のどちらでも動くことを確かめています。既存の statusLine を使っている場合も、利用制限は「利用制限を API から取得」で出せ、`~/.claude/.credentials.json` のトークンで取得できることを確かめています。行を押してセッションへ移動する機能は、実機ではまだ動いていません（[セッションへ移動する](#セッションへ移動する)を参照） |
 | Linux | 未確認 | 動作を確かめていません |
 | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | 手元の `~/.claude/settings.json` を読まないので、フックが届きません |
 | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
@@ -177,7 +177,7 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。`target/
    以前の marimo は、`~/.marimo/bin/marimo-hook hook` という文字列をシェルに渡す形でフックを登録していました。この形の登録が残っている状態で `install` を実行し直すと、同じグループの同じ位置のまま exec form へ書き換えます。
 3. statusLine を登録します。statusLine がまだ無ければ `marimo-hook statusline` だけを登録します。すでに自分の statusLine を使っている場合は、元のコマンドを `marimo-hook statusline -- sh -c '<元のコマンド>'` の形で包みます。marimo は受け取った入力をそのまま元のコマンドへ渡し、元のコマンドの出力と終了コードもそのまま返すので、statusLine の見た目は変わりません。statusLine が command 形式でない場合は書き換えません。statusLine には exec form がないので、こちらはシェルを通すコマンドの文字列で登録します。
 
-   Windows の Claude Code は、Git Bash が入っていれば Git Bash で、なければ PowerShell で statusLine を実行します。どちらで動くかが環境によって変わり、両者で引用の規則も違うので、既存の statusLine は包まずにそのまま残します。statusLine が無い場合だけ、引用符を使わずにどちらのシェルでも同じように読める形で登録します。実行ファイルがホームフォルダの下にあれば `~/.marimo/bin/marimo-hook.exe statusline` のように `~/` で始め、そうでなければ `/` 区切りの絶対パスを書きます。パスに空白などが含まれていてどちらの形でも書けない場合は、statusLine を登録しません。Windows でのこの動作は確かめていません。
+   Windows の Claude Code は、Git Bash が入っていれば Git Bash で、なければ PowerShell で statusLine を実行します。どちらで動くかが環境によって変わり、両者で引用の規則も違うので、既存の statusLine は包まずにそのまま残します。statusLine が無い場合だけ、引用符を使わずにどちらのシェルでも同じように読める形で登録します。実行ファイルがホームフォルダの下にあれば `~/.marimo/bin/marimo-hook.exe statusline` のように `~/` で始め、そうでなければ `/` 区切りの絶対パスを書きます。パスに空白などが含まれていてどちらの形でも書けない場合は、statusLine を登録しません。
 
 既存の設定は次のように守られます。
 
@@ -287,7 +287,7 @@ macOS では、`~/Library/LaunchAgents/com.marimo.desktop.plist` に LaunchAgent
 
 Terminal.app での見分け方は実機で確かめてあり、iTerm2 と VS Code の見分け方はそれぞれのアプリの文書に基づいています。Terminal.app と iTerm2 のタブを選ぶとき、初回に macOS が marimo へのオートメーションの許可を求めます。許可しなかった場合は、アプリを前面に出すところまでで止まります。
 
-Windows では次のように動きます。Windows での動きは実機で確かめていません。
+Windows では次のように動く作りですが、実機ではまだ動いていません。
 
 | セッションを動かしている場所 | 移動のしかた |
 | --- | --- |
