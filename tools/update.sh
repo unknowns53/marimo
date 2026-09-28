@@ -113,19 +113,28 @@ download_build() {
 
   echo "$tag のビルドを取ってきています"
   started=$SECONDS
-  deadline=$((SECONDS + 1800))
+  # リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、--wait が無くても 1 分は確かめ直す。
+  if [[ $wait -eq 1 ]]; then
+    deadline=$((SECONDS + 1800)) interval=30
+  else
+    deadline=$((SECONDS + 60)) interval=10
+  fi
   while :; do
     if fetch "$base/SHA256SUMS" "$work/SHA256SUMS" && fetch "$base/$archive" "$work/$archive"; then
       break
     fi
-    if [[ $wait -eq 0 ]]; then
+    if [[ $SECONDS -ge $deadline ]]; then
+      if [[ $wait -eq 1 ]]; then
+        fail "30 分待ってもできあがりませんでした。$not_ready"
+      fi
       fail "${not_ready}--wait を付けると、できあがるまで最大 30 分待ちます。"
     fi
-    if [[ $SECONDS -ge $deadline ]]; then
-      fail "30 分待ってもできあがりませんでした。$not_ready"
+    if [[ $wait -eq 1 ]]; then
+      echo "CI のビルドを待っています（$(((SECONDS - started) / 60)) 分経過、最大 30 分）"
+    else
+      echo "ビルドがまだ取れないので、$interval 秒後に確かめ直します（最大 1 分）"
     fi
-    echo "CI のビルドを待っています（$(((SECONDS - started) / 60)) 分経過、最大 30 分）"
-    sleep 30
+    sleep "$interval"
   done
 
   expected="$(awk -v f="$archive" '$2 == f || $2 == "*" f { print $1 }' "$work/SHA256SUMS")"
