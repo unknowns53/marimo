@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use marimo_core::SessionState;
+use marimo_core::{Origin, ProcessRef, SessionState, WindowRef};
 
 const TERMINAL: &str = "com.apple.Terminal";
 const ITERM: &str = "com.googlecode.iterm2";
@@ -10,12 +10,49 @@ const VSCODE: &str = "com.microsoft.VSCode";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
-    TerminalTab { tty: String },
-    ItermSession { tty: String },
-    EditorFolder { bundle_id: String, folder: String },
-    App { bundle_id: String },
+    TerminalTab {
+        tty: String,
+    },
+    ItermSession {
+        tty: String,
+    },
+    EditorFolder {
+        bundle_id: String,
+        folder: String,
+    },
+    App {
+        bundle_id: String,
+    },
+    /// Windows で記録した手がかり。editor はエディタの実行ファイルと作業フォルダの組で、
+    /// 試す順は editor、window、ancestors の近い順である。
+    Windows {
+        window: Option<WindowRef>,
+        editor: Option<(String, String)>,
+        ancestors: Vec<ProcessRef>,
+    },
     Nothing,
 }
+
+// VS Code とその派生のうち、Windows で統合ターミナルが TERM_PROGRAM=vscode を名乗るもの。
+const WINDOWS_EDITORS: [&str; 5] = [
+    "Code.exe",
+    "Code - Insiders.exe",
+    "VSCodium.exe",
+    "Cursor.exe",
+    "Windsurf.exe",
+];
+
+// 祖先をたどってここまで来たら、それより上は利用者が Claude Code を動かしているアプリではない。
+// 前面に出すとデスクトップやエクスプローラーのウィンドウが出てしまうので、ここで打ち切る。
+const WINDOWS_SHELL: [&str; 7] = [
+    "explorer.exe",
+    "svchost.exe",
+    "sihost.exe",
+    "userinit.exe",
+    "winlogon.exe",
+    "services.exe",
+    "wininit.exe",
+];
 
 // 端末の見分け方の根拠は次のとおり。Terminal.app の TERM_PROGRAM=Apple_Terminal と
 // __CFBundleIdentifier は実機で確かめた。iTerm2 の TERM_PROGRAM=iTerm.app は iTerm2 自身の
@@ -23,6 +60,9 @@ pub enum Target {
 // https://code.visualstudio.com/docs/terminal/shell-integration に記載がある。
 pub fn plan(session: &SessionState) -> Target {
     let origin = session.origin.clone().unwrap_or_default();
+    if origin.window.is_some() || !origin.ancestors.is_empty() {
+        return windows_target(origin, session.cwd.as_deref());
+    }
     let term = origin.term_program.as_deref();
     let bundle = origin.bundle_id.as_deref();
     if let Some(tty) = origin.tty.clone() {
@@ -52,6 +92,49 @@ pub fn plan(session: &SessionState) -> Target {
     }
 }
 
+// VS Code の統合ターミナルは持ち主のない ConPTY で動くので、コンソールからたどったウィンドウは
+// 見えないものになり、記録されないと見込んで、エディタにフォルダを渡す経路を先に試す。この見込みは
+// 実機で確かめる必要がある。祖先にエディタの実行ファイルがあれば、それが同じ派生のエディタである。
+fn windows_target(origin: Origin, cwd: Option<&str>) -> Target {
+    let ancestors: Vec<ProcessRef> = origin
+        .ancestors
+        .into_iter()
+        .take_while(|p| !WINDOWS_SHELL.iter().any(|s| exe_name_is(&p.exe, s)))
+        .collect();
+    let editor = if origin.term_program.as_deref() == Some("vscode") {
+        let folder = cwd.filter(|c| is_windows_absolute(c));
+        let exe = ancestors
+            .iter()
+            .find(|p| WINDOWS_EDITORS.iter().any(|e| exe_name_is(&p.exe, e)));
+        folder.zip(exe).map(|(f, p)| (p.exe.clone(), f.to_owned()))
+    } else {
+        None
+    };
+    Target::Windows {
+        window: origin.window,
+        editor,
+        ancestors,
+    }
+}
+
+fn exe_name_is(path: &str, name: &str) -> bool {
+    path.rsplit(['\\', '/'])
+        .next()
+        .is_some_and(|n| n.eq_ignore_ascii_case(name))
+}
+
+// cwd は Windows の形のパスで、macOS でも試験できるよう std::path には頼らずに見分ける。
+// `C:\` で始まるドライブの絶対パスと、`\\server\share` の UNC パスや `\\?\C:\` で始まる形だけを受け付け、
+// `C:foo` や `\foo` のようにドライブか作業フォルダに依存するものは受け付けない。
+fn is_windows_absolute(path: &str) -> bool {
+    let sep = |b: u8| b == b'\\' || b == b'/';
+    match path.as_bytes() {
+        [drive, b':', s, ..] => drive.is_ascii_alphabetic() && sep(*s),
+        [a, b, c, ..] => sep(*a) && sep(*b) && !sep(*c),
+        _ => false,
+    }
+}
+
 // Apple Events が拒否されたり、タブがすでに閉じられていたりしても、落ちずにアプリを
 // 前面に出すところまでで止める。どの経路も待たずに戻れるよう、別スレッドで動かす。
 pub fn run(target: Target) {
@@ -71,9 +154,36 @@ pub fn run(target: Target) {
             open(&editor_args(&bundle_id, &folder, |p| p.is_dir()));
         }
         Target::App { bundle_id } => open(&["-b", &bundle_id]),
+        Target::Windows {
+            window,
+            editor,
+            ancestors,
+        } => focus_on_windows(window, editor, ancestors),
         Target::Nothing => {}
     });
 }
+
+#[cfg(windows)]
+fn focus_on_windows(
+    window: Option<WindowRef>,
+    editor: Option<(String, String)>,
+    ancestors: Vec<ProcessRef>,
+) {
+    use marimo_core::winfocus;
+    if let Some((exe, folder)) = editor
+        && winfocus::open_folder_with(&exe, &folder)
+    {
+        return;
+    }
+    if window.as_ref().is_some_and(winfocus::focus_window) {
+        return;
+    }
+    let _ = ancestors.iter().any(winfocus::focus_process);
+}
+
+// Windows の手がかりは Windows のフックしか記録しないので、ほかの OS ではここに来ない。
+#[cfg(not(windows))]
+fn focus_on_windows(_: Option<WindowRef>, _: Option<(String, String)>, _: Vec<ProcessRef>) {}
 
 // tty はスクリプトに埋め込まず引数で渡し、文字列の引用の崩れを起こさないようにする。
 const TERMINAL_SCRIPT: &str = r#"
@@ -171,7 +281,6 @@ fn open(args: &[&str]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use marimo_core::Origin;
 
     fn session(bundle: Option<&str>, term: Option<&str>, tty: Option<&str>) -> SessionState {
         session_in("/w/proj", bundle, term, tty)
@@ -189,7 +298,7 @@ mod tests {
                 bundle_id: bundle.map(Into::into),
                 term_program: term.map(Into::into),
                 tty: tty.map(Into::into),
-                entrypoint: None,
+                ..Origin::default()
             }),
             ..SessionState::new("s1")
         }
@@ -264,6 +373,184 @@ mod tests {
                 bundle_id: VSCODE.into()
             }
         );
+    }
+
+    fn process(pid: u32, exe: &str) -> ProcessRef {
+        ProcessRef {
+            pid,
+            created: 133_700_000_000_000_000 + u64::from(pid),
+            exe: exe.into(),
+        }
+    }
+
+    fn windows_session(cwd: &str, term: Option<&str>, origin: Origin) -> SessionState {
+        SessionState {
+            cwd: Some(cwd.into()),
+            origin: Some(Origin {
+                term_program: term.map(Into::into),
+                ..origin
+            }),
+            ..SessionState::new("s1")
+        }
+    }
+
+    const CLAUDE: &str = r"C:\Users\user\.local\bin\claude.exe";
+
+    #[test]
+    fn windows_clues_pick_the_windows_route() {
+        let window = WindowRef {
+            hwnd: 0x1_0a2c,
+            pid: 4120,
+            created: 133_700_000_000_000_000,
+        };
+        let terminal = windows_session(
+            r"C:\Users\user\proj",
+            None,
+            Origin {
+                window: Some(window.clone()),
+                ancestors: vec![
+                    process(5008, CLAUDE),
+                    process(4400, r"C:\Program Files\PowerShell\7\pwsh.exe"),
+                    process(4120, r"C:\Program Files\WindowsApps\WindowsTerminal.exe"),
+                    process(3000, r"C:\Windows\explorer.exe"),
+                    process(900, r"C:\Windows\System32\winlogon.exe"),
+                ],
+                ..Origin::default()
+            },
+        );
+        // エクスプローラーから上は前面に出す候補にしない。
+        assert_eq!(
+            plan(&terminal),
+            Target::Windows {
+                window: Some(window),
+                editor: None,
+                ancestors: vec![
+                    process(5008, CLAUDE),
+                    process(4400, r"C:\Program Files\PowerShell\7\pwsh.exe"),
+                    process(4120, r"C:\Program Files\WindowsApps\WindowsTerminal.exe"),
+                ],
+            }
+        );
+
+        let only_ancestors = windows_session(
+            r"C:\Users\user\proj",
+            None,
+            Origin {
+                ancestors: vec![process(5008, CLAUDE)],
+                ..Origin::default()
+            },
+        );
+        assert_eq!(
+            plan(&only_ancestors),
+            Target::Windows {
+                window: None,
+                editor: None,
+                ancestors: vec![process(5008, CLAUDE)],
+            }
+        );
+    }
+
+    #[test]
+    fn windows_vscode_opens_the_folder_with_the_ancestor_editor() {
+        let cursor = r"C:\Users\user\AppData\Local\Programs\cursor\CURSOR.EXE";
+        let origin = Origin {
+            ancestors: vec![
+                process(5008, CLAUDE),
+                process(
+                    4400,
+                    r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+                ),
+                process(4300, cursor),
+                process(
+                    4100,
+                    r"C:\Users\user\AppData\Local\Programs\Microsoft VS Code\Code.exe",
+                ),
+            ],
+            ..Origin::default()
+        };
+        let Target::Windows { editor, .. } = plan(&windows_session(
+            r"C:\Users\user\proj",
+            Some("vscode"),
+            origin.clone(),
+        )) else {
+            panic!("expected the Windows route");
+        };
+        assert_eq!(
+            editor,
+            Some((cursor.to_owned(), r"C:\Users\user\proj".to_owned()))
+        );
+
+        // TERM_PROGRAM が vscode でなければ、祖先にエディタがあってもフォルダは開かない。
+        let Target::Windows { editor, .. } = plan(&windows_session(
+            r"C:\Users\user\proj",
+            None,
+            origin.clone(),
+        )) else {
+            panic!("expected the Windows route");
+        };
+        assert_eq!(editor, None);
+
+        for cwd in [r"proj", r"C:proj", r"\proj", "-a", "/w/proj"] {
+            let Target::Windows {
+                editor, ancestors, ..
+            } = plan(&windows_session(cwd, Some("vscode"), origin.clone()))
+            else {
+                panic!("expected the Windows route");
+            };
+            assert_eq!((editor, ancestors.len()), (None, 4), "{cwd}");
+        }
+    }
+
+    #[test]
+    fn recognises_editor_executables_by_file_name() {
+        for exe in [
+            r"C:\Users\user\AppData\Local\Programs\Microsoft VS Code\Code.exe",
+            r"C:\Program Files\Microsoft VS Code Insiders\code - insiders.exe",
+            r"D:\tools\VSCodium\VSCODIUM.exe",
+            r"C:\Users\user\AppData\Local\Programs\Windsurf\Windsurf.exe",
+            "Cursor.exe",
+        ] {
+            assert!(WINDOWS_EDITORS.iter().any(|e| exe_name_is(exe, e)), "{exe}");
+        }
+        for exe in [
+            r"C:\Program Files\Microsoft VS Code\bin\code.cmd",
+            r"C:\tools\Code.exe.bak",
+            r"C:\Code.exe\node.exe",
+            "",
+        ] {
+            assert!(
+                !WINDOWS_EDITORS.iter().any(|e| exe_name_is(exe, e)),
+                "{exe}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_absolute_paths() {
+        for path in [
+            r"C:\Users\user\proj",
+            r"c:\",
+            "C:/Users/user/proj",
+            r"\\server\share\proj",
+            r"\\?\C:\Users\user\proj",
+            "//server/share",
+        ] {
+            assert!(is_windows_absolute(path), "{path}");
+        }
+        for path in [
+            "",
+            "C:",
+            "C:proj",
+            r"\proj",
+            "/w/proj",
+            r"\\",
+            r"\\\server",
+            "proj",
+            "-a",
+            "1:\\x",
+        ] {
+            assert!(!is_windows_absolute(path), "{path}");
+        }
     }
 
     #[test]

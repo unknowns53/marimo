@@ -9,5 +9,15 @@ license.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# セッションのウィンドウを見つけて前面に出すのに使う。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [dev-dependencies]
 tempfile.workspace = true

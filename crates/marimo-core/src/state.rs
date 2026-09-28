@@ -66,34 +66,70 @@ pub struct Origin {
     /// 会話ログの各行にある `entrypoint`。値の意味が確かめられるまでは、移動の判断には使わず記録だけする。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entrypoint: Option<String>,
+    /// Windows で、フックの親のコンソールからたどった最上位のウィンドウ。Windows でだけ記録する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowRef>,
+    /// Windows で、フックの祖先のプロセスを近い順に最大 8 個。フック自身は含めない。Windows でだけ記録する。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ancestors: Vec<ProcessRef>,
+}
+
+/// Windows のウィンドウと、それを持つプロセス。ウィンドウのハンドルとプロセス ID はどちらも使い回されるので、
+/// プロセスの作成時刻と組にして、移動するときに同じものかを確かめる。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowRef {
+    pub hwnd: u64,
+    pub pid: u32,
+    /// GetProcessTimes の作成時刻（FILETIME）を 64 ビットの整数にしたもの。
+    pub created: u64,
+}
+
+/// Windows のプロセス。プロセス ID は使い回されるので、作成時刻と組にして同じものかを確かめる。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessRef {
+    pub pid: u32,
+    /// GetProcessTimes の作成時刻（FILETIME）を 64 ビットの整数にしたもの。
+    pub created: u64,
+    /// 実行ファイルの完全なパス。
+    pub exe: String,
 }
 
 impl Origin {
     pub fn is_empty(&self) -> bool {
-        self.bundle_id.is_none()
-            && self.term_program.is_none()
-            && self.tty.is_none()
-            && self.entrypoint.is_none()
+        !self.has_env_clues() && !self.has_window_clues() && self.entrypoint.is_none()
     }
 
-    fn has_process_clues(&self) -> bool {
+    fn has_env_clues(&self) -> bool {
         self.bundle_id.is_some() || self.term_program.is_some() || self.tty.is_some()
+    }
+
+    fn has_window_clues(&self) -> bool {
+        self.window.is_some() || !self.ancestors.is_empty()
     }
 
     // CLI で --resume すると、デスクトップアプリの会話と同じ session_id のまま別のアプリへ移る。
     // 環境変数と端末の手がかりは毎回の実行から取り直し、得られたときだけ置き換える。
+    // Windows のウィンドウと祖先のプロセスは、調べるのに時間がかかるので一部のイベントでしか取らない。
+    // それを含む実行からは全体を置き換え、環境変数だけの実行ではウィンドウと祖先を前の値のまま残す。
     // 会話ログの entrypoint は読める契機が限られるので、新しい値がなければ前の値を残す。
     pub fn merge(
         existing: Option<&Origin>,
         process: Option<&Origin>,
         entrypoint: Option<&str>,
     ) -> Option<Origin> {
-        let mut next = match process.filter(|p| p.has_process_clues()) {
-            Some(p) => Origin {
-                entrypoint: existing.and_then(|e| e.entrypoint.clone()),
+        let previous = existing.cloned().unwrap_or_default();
+        let mut next = match process {
+            Some(p) if p.has_window_clues() => Origin {
+                entrypoint: previous.entrypoint,
                 ..p.clone()
             },
-            None => existing.cloned().unwrap_or_default(),
+            Some(p) if p.has_env_clues() => Origin {
+                bundle_id: p.bundle_id.clone(),
+                term_program: p.term_program.clone(),
+                tty: p.tty.clone(),
+                ..previous
+            },
+            _ => previous,
         };
         if let Some(e) = entrypoint {
             next.entrypoint = Some(e.to_owned());
@@ -928,7 +964,7 @@ mod tests {
             bundle_id: Some("com.apple.Terminal".into()),
             term_program: Some("Apple_Terminal".into()),
             tty: Some("/dev/ttys002".into()),
-            entrypoint: None,
+            ..Origin::default()
         });
         let text = serde_json::to_string(&s).unwrap();
         assert!(text.contains("\"activity\""));
@@ -942,7 +978,7 @@ mod tests {
             bundle_id: Some("com.apple.Terminal".into()),
             term_program: Some("Apple_Terminal".into()),
             tty: Some("/dev/ttys002".into()),
-            entrypoint: None,
+            ..Origin::default()
         };
         let merged = Origin::merge(None, Some(&terminal), Some("cli")).unwrap();
         assert_eq!(merged.entrypoint.as_deref(), Some("cli"));
@@ -962,6 +998,81 @@ mod tests {
         assert_eq!(Origin::merge(None, Some(&Origin::default()), None), None);
         let kept = Origin::merge(Some(&terminal), Some(&Origin::default()), None).unwrap();
         assert_eq!(kept, terminal);
+    }
+
+    fn windows_terminal() -> Origin {
+        Origin {
+            window: Some(WindowRef {
+                hwnd: 0x1_0a2c,
+                pid: 4120,
+                created: 133_700_000_000_000_000,
+            }),
+            ancestors: vec![ProcessRef {
+                pid: 5008,
+                created: 133_700_000_100_000_000,
+                exe: r"C:\Users\user\.local\bin\claude.exe".into(),
+            }],
+            ..Origin::default()
+        }
+    }
+
+    #[test]
+    fn origin_merge_keeps_windows_clues_until_a_new_windows_detection() {
+        let first = windows_terminal();
+        let merged = Origin::merge(None, Some(&first), Some("cli")).unwrap();
+        // SessionStart と UserPromptSubmit 以外のイベントでは環境変数しか取らないので、
+        // それで Windows の手がかりが消えてはいけない。
+        let env_only = Origin {
+            term_program: Some("vscode".into()),
+            ..Origin::default()
+        };
+        let kept = Origin::merge(Some(&merged), Some(&env_only), None).unwrap();
+        assert_eq!(kept.term_program.as_deref(), Some("vscode"));
+        assert_eq!(
+            (&kept.window, &kept.ancestors, kept.entrypoint.as_deref()),
+            (&first.window, &first.ancestors, Some("cli"))
+        );
+        assert_eq!(
+            Origin::merge(Some(&kept), Some(&Origin::default()), None).unwrap(),
+            kept
+        );
+
+        // 新しい Windows の検出は、環境変数も含めて全体を置き換える。
+        let conhost = Origin {
+            window: Some(WindowRef {
+                hwnd: 0x2_0b3d,
+                pid: 7300,
+                created: 133_800_000_000_000_000,
+            }),
+            ..Origin::default()
+        };
+        let replaced = Origin::merge(Some(&kept), Some(&conhost), None).unwrap();
+        assert_eq!(replaced.window, conhost.window);
+        assert_eq!(replaced.ancestors, Vec::new());
+        assert_eq!(
+            (replaced.term_program, replaced.entrypoint.as_deref()),
+            (None, Some("cli"))
+        );
+    }
+
+    #[test]
+    fn windows_clues_round_trip_and_older_files_read_without_them() {
+        let origin = windows_terminal();
+        let text = serde_json::to_string(&origin).unwrap();
+        assert!(text.contains("\"hwnd\"") && text.contains("\"ancestors\""));
+        assert_eq!(serde_json::from_str::<Origin>(&text).unwrap(), origin);
+
+        let mac = Origin {
+            term_program: Some("Apple_Terminal".into()),
+            ..Origin::default()
+        };
+        let text = serde_json::to_string(&mac).unwrap();
+        assert!(!text.contains("window") && !text.contains("ancestors"));
+        let older: Origin = serde_json::from_value(
+            json!({"term_program": "Apple_Terminal", "tty": "/dev/ttys002"}),
+        )
+        .unwrap();
+        assert_eq!((older.window, older.ancestors), (None, Vec::new()));
     }
 
     #[test]

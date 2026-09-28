@@ -6,13 +6,15 @@ use marimo_core::Origin;
 // OS と端末が設定するものだけを使う。Terminal.app では TERM_PROGRAM=Apple_Terminal と
 // __CFBundleIdentifier=com.apple.Terminal、デスクトップアプリの Code タブでは
 // __CFBundleIdentifier=com.anthropic.claudefordesktop が、フックの環境に入ることを確かめてある。
-pub fn detect() -> Origin {
-    Origin {
+pub fn detect(event: &str) -> Origin {
+    let mut origin = Origin {
         bundle_id: var("__CFBundleIdentifier"),
         term_program: var("TERM_PROGRAM"),
         tty: ancestor_tty(),
-        entrypoint: None,
-    }
+        ..Origin::default()
+    };
+    windows_clues(&mut origin, event);
+    origin
 }
 
 fn var(name: &str) -> Option<String> {
@@ -72,3 +74,19 @@ fn ancestor_tty() -> Option<String> {
 fn ancestor_tty() -> Option<String> {
     None
 }
+
+// プロセスの一覧を取ってコンソールをつなぎ直すのは、環境変数を読むより時間がかかる。起動元が変わりうるのは
+// セッションの開始と --resume の後だけなので、その後に必ず届くイベントでだけ調べ、ほかのイベントでは
+// 保存済みの値を Origin::merge に残させる。呼ばれるのは標準入力を読み終えた後で、hook は標準出力に何も書かない。
+#[cfg(windows)]
+fn windows_clues(origin: &mut Origin, event: &str) {
+    if !matches!(event, "SessionStart" | "UserPromptSubmit") {
+        return;
+    }
+    let ancestors = marimo_core::winfocus::lineage();
+    origin.window = marimo_core::winfocus::console_window(&ancestors);
+    origin.ancestors = ancestors;
+}
+
+#[cfg(not(windows))]
+fn windows_clues(_: &mut Origin, _: &str) {}
