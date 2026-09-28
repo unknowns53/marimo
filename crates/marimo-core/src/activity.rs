@@ -179,6 +179,14 @@ pub fn tool_activity(tool_name: &str, tool_input: Option<&Value>, cwd: Option<&s
             };
             Activity::tool(name, summary, get("message").map(str::to_owned))
         }
+        // 引数は codex-rs/protocol/src/request_permissions.rs の RequestPermissionsArgs に従う。
+        "request_permissions" => {
+            let summary = match get("reason") {
+                Some(r) => format!("権限の要求: {}", first_line(r)),
+                None => "権限の要求".to_owned(),
+            };
+            Activity::tool(name, summary, None)
+        }
         // 引数は codex-rs/core/src/tools/handlers/view_image.rs の ViewImageArgs に従う。
         "view_image" => {
             let path = get("path");
@@ -434,6 +442,18 @@ mod tests {
                 json!({"message": "Look into the tests", "task_name": "tests", "agent_type": "explorer"}),
                 "サブエージェント: tests",
                 Some("Look into the tests"),
+            ),
+            (
+                "request_permissions",
+                json!({"reason": "ホームへ書き込む\n詳細", "permissions": {}}),
+                "権限の要求: ホームへ書き込む",
+                None,
+            ),
+            (
+                "request_permissions",
+                json!({"permissions": {}}),
+                "権限の要求",
+                None,
             ),
             (
                 "spawn_agent",

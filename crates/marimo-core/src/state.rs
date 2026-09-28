@@ -547,10 +547,12 @@ fn main_update(
         "PreToolUse" => {
             let (name, a) = tool();
             // これらのツールは、呼ばれた時点でユーザーの回答や承認を待つ。request_user_input は
-            // Codex の質問のツールである。
+            // Codex の質問のツールである。Codex の request_permissions は承認を求めても PermissionRequest を
+            // 通らない（codex-rs/core/src/session/mod.rs の request_permissions_for_environment が
+            // request_guardian_approval を直接呼ぶ）ので、呼ばれた時点で承認待ちにする。
             if matches!(
                 name,
-                "AskUserQuestion" | "ExitPlanMode" | "request_user_input"
+                "AskUserQuestion" | "ExitPlanMode" | "request_user_input" | "request_permissions"
             ) {
                 (Status::Waiting, Act::Set(a))
             } else {
@@ -619,6 +621,7 @@ fn main_update(
         "PreToolUse" => match input.tool_name.as_deref() {
             Some("AskUserQuestion" | "request_user_input") => Some("question".to_owned()),
             Some("ExitPlanMode") => Some("plan".to_owned()),
+            Some("request_permissions") => Some("permission".to_owned()),
             _ => None,
         },
         "StopFailure" => input.error.clone().filter(|e| !e.is_empty()),
@@ -688,8 +691,13 @@ fn subagent_update(
     if run.agent_type.is_none() {
         run.agent_type = input.agent_type.clone().filter(|t| !t.is_empty());
     }
+    let asks_permission = match input.hook_event_name.as_str() {
+        "PermissionRequest" => true,
+        "PreToolUse" => input.tool_name.as_deref() == Some("request_permissions"),
+        _ => false,
+    };
     match input.hook_event_name.as_str() {
-        "PermissionRequest" => {
+        _ if asks_permission => {
             let name = input.tool_name.as_deref().unwrap_or("");
             run.pending = Some(activity::tool_activity(
                 name,
@@ -897,6 +905,11 @@ mod tests {
                 Some(Working),
                 Some(Waiting),
             ),
+            (
+                json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"request_permissions","tool_input":{"permissions":{}}}),
+                Some(Working),
+                Some(Waiting),
+            ),
             (ev("Interrupt"), Some(Working), Some(Idle)),
             (ev("Interrupt"), Some(Waiting), Some(Idle)),
             (ev("SubagentStop"), Some(Working), None),
@@ -1028,6 +1041,13 @@ mod tests {
                 .status_reason
                 .as_deref(),
             Some("plan")
+        );
+        let perm = json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"request_permissions","tool_input":{}});
+        assert_eq!(
+            write(transition(&input(perm), Some(&s), 330))
+                .status_reason
+                .as_deref(),
+            Some("permission")
         );
         let stop =
             json!({"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"ok"});
@@ -1393,6 +1413,14 @@ mod tests {
                 "{end}"
             );
         }
+        // Codex のサブエージェントが request_permissions で承認を求めた場合も同じく待つ。
+        let mut ask = sub("PreToolUse", "a3");
+        ask.tool_name = Some("request_permissions".to_owned());
+        let asked = write(transition(&ask, Some(&done), 55));
+        assert_eq!(
+            (asked.status, asked.status_reason.as_deref()),
+            (Status::Waiting, Some("permission"))
+        );
         let s = write(transition(&sub("PostToolUse", "a1"), Some(&s), 50));
         let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 60));
         assert_eq!((s.status, s.status_since), (Status::Done, 60));

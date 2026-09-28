@@ -1,5 +1,5 @@
 import { sessionKey } from "./acknowledged";
-import { folderName, formatTokens } from "./format";
+import { folderName, formatTokens, isCodexScratch } from "./format";
 import { limitLine, type LimitLine } from "./limits";
 import { hasContent, isEmpty, type PanelPlan, type PanelView } from "./panelModel";
 import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
@@ -137,7 +137,7 @@ function renderRow(
 
   const names = el("span", "names");
   names.append(el("span", "folder", folderName(s)));
-  if (s.title) names.append(el("span", "chat-title", s.title));
+  if (s.title && (s.repo || !isCodexScratch(s))) names.append(el("span", "chat-title", s.title));
   row.append(
     el("span", `dot ${s.status}`),
     names,

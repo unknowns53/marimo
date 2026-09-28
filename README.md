@@ -94,10 +94,10 @@ marimo は、OpenAI の Codex CLI のセッションも記録して表示でき�
 
 Codex のフックから記録するものは次のとおりです。
 
-- **状態** セッションの開始、プロンプトの送信、ツールの実行の前後、実行許可の確認（PermissionRequest）、応答の終了（Stop）、サブエージェントの開始と終了を、Claude Code と同じ状態に対応させます。Codex の質問のツール `request_user_input` は、Claude Code の AskUserQuestion と同じく承認待ちにします。利用者がターンを中断したときに届く Interrupt では、作業中や承認待ちから待機へ戻します。
+- **状態** セッションの開始、プロンプトの送信、ツールの実行の前後、実行許可の確認（PermissionRequest）、応答の終了（Stop）、サブエージェントの開始と終了を、Claude Code と同じ状態に対応させます。Codex の質問のツール `request_user_input` は、Claude Code の AskUserQuestion と同じく承認待ちにします。Codex がサンドボックスの外への書き込みなどの権限を `request_permissions` で求めたときは、PermissionRequest が届かないので、このツールの PreToolUse で承認待ちにし、許可か拒否が済んで PostToolUse が届くと作業中へ戻します。利用者がターンを中断したときに届く Interrupt では、作業中や承認待ちから待機へ戻します。
 - **作業の要約** シェルのコマンド（Codex はツール名 `Bash` で送ります）、ファイルの編集（`apply_patch`。パッチに書かれたファイルの名前を出します）、MCP のツール、サブエージェントの起動（`spawn_agent`）、画像の表示（`view_image`）、質問（`request_user_input`）を要約します。それ以外のツールは、ツール名と引数をそのまま短く出します。
 - **コンテキスト使用率** Codex が会話ごとに書く記録（rollout。`~/.codex/sessions/` の下の JSON Lines 形式のファイル）の末尾から最後の `token_count` を読み、Codex の画面の下に出る残りの割合と同じ式で計算します。Codex は、システムプロンプトなどで常に使われる 12000 トークンをコンテキストの上限と使用量の両方から引いて割合を出すので、marimo も同じように引き、100 からその残りの割合を引いた値を使用率として記録します。読むのはセッションの開始、PostToolUse、Stop のときだけです。
-- **題名** セッションの開始、プロンプトの送信、Stop のときに、`~/.codex/session_index.jsonl` の末尾からそのセッションの最後の `thread_name` を読みます。
+- **題名** セッションの開始、プロンプトの送信、Stop のときに、`~/.codex/session_index.jsonl` の末尾からそのセッションの最後の `thread_name` を読みます。Codex のデスクトップアプリは、プロジェクトを選ばずに始めた会話ごとに `~/Documents/Codex/<日付>/<最初のプロンプトから作った名前>` という作業フォルダを作ります。このフォルダ名は題名の言い換えでしかないので、行の名前と吹き出しの `{folder}` には、フォルダ名の代わりに題名を使います。
 - **利用制限** rollout の同じ `token_count` にある利用制限を、`~/.marimo/codex_rate_limits.json` に書きます。Codex の利用制限の窓は、プランによって 5 時間と 7 日の二つだったり 7 日の一つだけだったりするので、窓の長さを分単位のまま記録します。複数のセッションの rollout はそれぞれ別の時点の値を持つので、すでに記録した値より新しい時点の値だけで書き換えます。
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
