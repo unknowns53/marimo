@@ -22,6 +22,18 @@
       "image": "working_curious.png",
       "blink": "working_curious_blink.png"
     },
+    "working_read": {
+      "image": "working_read.png",
+      "blink": "working_read_blink.png"
+    },
+    "working_think": {
+      "image": "working_think.png",
+      "blink": "working_think_blink.png"
+    },
+    "working_delegate": {
+      "image": "working_delegate.png",
+      "blink": "working_delegate_blink.png"
+    },
     "waiting": {
       "image": "waiting.png"
     },
@@ -74,12 +86,29 @@
       },
       {
         "tools": [
+          "Read",
+          "Grep",
+          "Glob"
+        ],
+        "expression": "working_read"
+      },
+      {
+        "tools": [
           "WebSearch",
           "WebFetch"
         ],
         "expression": "working_curious"
+      },
+      {
+        "tools": [
+          "Agent",
+          "Task",
+          "spawn_agent"
+        ],
+        "expression": "working_delegate"
       }
     ],
+    "working_no_tool": "working_think",
     "min_switch_ms": 4000,
     "idle_gestures": {
       "interval_ms": [

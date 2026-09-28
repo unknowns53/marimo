@@ -20,6 +20,7 @@ export interface StandingManifest {
 export interface ManifestRules {
   status?: Partial<Record<Status, string>>;
   working_tools?: { tools: string[]; expression: string }[];
+  working_no_tool?: string;
   min_switch_ms?: number;
   idle_gestures?: {
     interval_ms: [number, number];
@@ -33,6 +34,7 @@ export interface ManifestRules {
 export interface ExpressionRules {
   status: Partial<Record<Status, string>>;
   workingTools: Map<string, string>;
+  workingNoTool: string | null;
   minSwitchMs: number;
   idleGestures: {
     intervalMs: [number, number];
@@ -76,6 +78,7 @@ export function normalize(manifest: StandingManifest): Character {
     rules: {
       status,
       workingTools,
+      workingNoTool: r.working_no_tool ?? null,
       minSwitchMs: r.min_switch_ms ?? DEFAULT_MIN_SWITCH_MS,
       idleGestures: r.idle_gestures
         ? {

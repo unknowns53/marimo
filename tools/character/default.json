@@ -49,6 +49,27 @@
       "face": "art/default/working_curious_blink.png",
       "onto": "working_curious"
     },
+    "working_read": {
+      "face": "art/default/working_read.png"
+    },
+    "working_read_blink": {
+      "face": "art/default/working_read_blink.png",
+      "onto": "working_read"
+    },
+    "working_think": {
+      "face": "art/default/working_think.png"
+    },
+    "working_think_blink": {
+      "face": "art/default/working_think_blink.png",
+      "onto": "working_think"
+    },
+    "working_delegate": {
+      "face": "art/default/working_delegate.png"
+    },
+    "working_delegate_blink": {
+      "face": "art/default/working_delegate_blink.png",
+      "onto": "working_delegate"
+    },
     "idle_look_away": {
       "face": "art/default/idle_look_away.png"
     },

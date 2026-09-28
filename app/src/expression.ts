@@ -77,7 +77,9 @@ export class ExpressionDirector {
   private baseExpression(now: number): string | null {
     const base = this.statusExpression(this.input.status);
     if (this.input.status !== "working") return base;
-    const mapped = this.input.tool ? this.rules.workingTools.get(this.input.tool) : undefined;
+    const mapped = this.input.tool
+      ? this.rules.workingTools.get(this.input.tool)
+      : (this.rules.workingNoTool ?? undefined);
     const candidate = mapped && this.available(mapped) ? mapped : base;
     if (this.workingExpression === null) {
       this.workingExpression = candidate;

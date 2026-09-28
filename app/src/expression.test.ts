@@ -12,6 +12,7 @@ const FULL: StandingManifest = {
       "working",
       "working_focus",
       "working_curious",
+      "working_think",
       "waiting",
       "done",
       "error",
@@ -26,6 +27,7 @@ const FULL: StandingManifest = {
       { tools: ["Bash", "Edit"], expression: "working_focus" },
       { tools: ["WebSearch", "WebFetch"], expression: "working_curious" },
     ],
+    working_no_tool: "working_think",
     min_switch_ms: 4000,
     idle_gestures: {
       interval_ms: [20000, 60000],
@@ -59,7 +61,10 @@ describe("ExpressionDirector", () => {
     expect(f.current(0)).toBe("working");
     const g = director();
     g.setInput({ status: "working", tool: null });
-    expect(g.current(0)).toBe("working");
+    expect(g.current(0)).toBe("working_think");
+    const h = director(["working_think"]);
+    h.setInput({ status: "working", tool: null });
+    expect(h.current(0)).toBe("working");
   });
 
   it("does not switch working expressions more often than the minimum interval", () => {
