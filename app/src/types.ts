@@ -29,6 +29,8 @@ export interface Origin {
 export interface SessionState {
   session_id: string;
   cwd: string | null;
+  repo?: string;
+  title?: string;
   status: Status;
   status_since: number;
   started_at: number;

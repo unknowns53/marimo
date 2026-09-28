@@ -177,6 +177,13 @@ pub struct SessionState {
     pub session_id: String,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// cwd を含む git リポジトリの名前。linked worktree では元のリポジトリの名前になる。
+    /// パネルの行を worktree のフォルダ名ではなくリポジトリで見分けられるようにする。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    /// 会話の題名。statusLine の session_name か、会話ログの custom-title の行から取る。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(default)]
     pub status: Status,
     /// 今の status になった時刻。吹き出しが「同じ状態が続いている間」を見分けるのに使う。
@@ -240,6 +247,8 @@ impl SessionState {
         Self {
             session_id: session_id.into(),
             cwd: None,
+            repo: None,
+            title: None,
             status: Status::Idle,
             status_since: 0,
             started_at: 0,
@@ -343,6 +352,36 @@ impl HookInput {
                 .transcript_path
                 .as_deref()
                 .is_some_and(|p| !p.is_empty())
+    }
+}
+
+/// 保存する題名の長さの上限。パネルでは一行に切り詰めて見せるので、これを超える部分は使わない。
+pub const TITLE_MAX_CHARS: usize = 200;
+
+/// 前後の空白を除き、長すぎる題名を文字の境目で切る。空なら None を返す。
+pub fn clean_title(raw: &str) -> Option<String> {
+    let t = raw.trim();
+    (!t.is_empty()).then(|| t.chars().take(TITLE_MAX_CHARS).collect())
+}
+
+/// 親の会話のイベントで cwd が変わったときか、まだリポジトリ名を持たないときだけ `lookup` で
+/// 調べ直し、next.repo を置き換える。フックのたびにファイルを調べないためである。
+/// サブエージェントのイベントは cwd を変えないので、リポジトリ名も変えない。
+pub fn refresh_repo(
+    input: &HookInput,
+    current: Option<&SessionState>,
+    next: &mut SessionState,
+    lookup: impl FnOnce(&str) -> Option<String>,
+) {
+    if input.subagent().is_some() {
+        return;
+    }
+    let Some(cwd) = next.cwd.as_deref().filter(|c| !c.is_empty()) else {
+        return;
+    };
+    let moved = current.and_then(|c| c.cwd.as_deref()) != Some(cwd);
+    if moved || next.repo.is_none() {
+        next.repo = lookup(cwd);
     }
 }
 
@@ -526,7 +565,7 @@ fn subagent_update(
         return Some(next);
     }
     // ファイルがまだ無くても作る。サブエージェントが動いている間は行を作業中として出すので、
-    // フックを入れる前から動いていた会話でも、ここで行が現れる。作業フォルダ名は親の会話の次の
+    // フックを入れる前から動いていた会話でも、ここで行が現れる。行の名前は親の会話の次の
     // イベントが cwd を持ってくるまで出せない。
     let mut next = current
         .cloned()
@@ -1452,6 +1491,48 @@ mod tests {
         assert_eq!(serde_json::from_str::<SessionState>(&text).unwrap(), s);
         let plain = serde_json::to_string(&working_parent()).unwrap();
         assert!(!plain.contains("\"agents\""));
+    }
+
+    #[test]
+    fn repo_is_looked_up_only_when_needed() {
+        let lookup_count = std::cell::Cell::new(0);
+        let lookup = |cwd: &str| {
+            lookup_count.set(lookup_count.get() + 1);
+            Some(format!("repo-of-{cwd}"))
+        };
+        let ev =
+            input(json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","cwd":"/w/a"}));
+        let mut next = write(transition(&ev, None, 1));
+        refresh_repo(&ev, None, &mut next, lookup);
+        assert_eq!(next.repo.as_deref(), Some("repo-of-/w/a"));
+
+        let cur = next.clone();
+        let mut again = write(transition(&ev, Some(&cur), 2));
+        refresh_repo(&ev, Some(&cur), &mut again, lookup);
+        assert_eq!(lookup_count.get(), 1);
+
+        let moved = input(
+            json!({"session_id":"s1","hook_event_name":"PreToolUse","cwd":"/w/b","tool_name":"Bash"}),
+        );
+        let mut next = write(transition(&moved, Some(&cur), 3));
+        refresh_repo(&moved, Some(&cur), &mut next, |_| None);
+        assert_eq!(next.repo, None);
+
+        let sub = input(
+            json!({"session_id":"s1","hook_event_name":"PreToolUse","agent_id":"a1","cwd":"/w/b"}),
+        );
+        let mut next = write(transition(&sub, Some(&cur), 4));
+        refresh_repo(&sub, Some(&cur), &mut next, lookup);
+        assert_eq!(next.repo.as_deref(), Some("repo-of-/w/a"));
+        assert_eq!(lookup_count.get(), 1);
+    }
+
+    #[test]
+    fn titles_are_trimmed_and_capped() {
+        assert_eq!(clean_title("  題名 \n").as_deref(), Some("題名"));
+        assert_eq!(clean_title(" \t "), None);
+        let long = clean_title(&"é".repeat(TITLE_MAX_CHARS + 5)).unwrap();
+        assert_eq!(long.chars().count(), TITLE_MAX_CHARS);
     }
 
     #[test]

@@ -9,12 +9,13 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::paths::MarimoHome;
+use crate::repo::repo_name;
 use crate::state::{
     ContextUsage, HookInput, Origin, RateLimits, RateWindow, SessionState, Snapshot, Transition,
-    aggregate, context_from_transcript, expire_agents, transition,
+    aggregate, clean_title, context_from_transcript, expire_agents, refresh_repo, transition,
 };
 use crate::time::{now_ms, rfc3339_utc, utc_date};
-use crate::transcript::TranscriptUsage;
+use crate::transcript::TranscriptTail;
 
 // フックは Claude Code の処理を止めてしまうので、ロックを待つ時間に上限を設ける。
 // 上限を過ぎたらロックなしで書く。書き込み自体は rename で原子的なので、
@@ -151,7 +152,7 @@ pub fn read_session(home: &MarimoHome, session_id: &str) -> Option<SessionState>
 #[derive(Debug, Clone, Default)]
 pub struct HookExtras {
     pub origin: Option<Origin>,
-    pub transcript: Option<TranscriptUsage>,
+    pub transcript: Option<TranscriptTail>,
 }
 
 pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> io::Result<()> {
@@ -162,17 +163,23 @@ pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> 
     let current = read_session(home, &input.session_id);
     match transition(input, current.as_ref(), now_ms()) {
         Transition::Write(mut next) => {
-            let entrypoint = extras
-                .transcript
-                .as_ref()
-                .and_then(|t| t.entrypoint.as_deref());
+            let usage = extras.transcript.as_ref().and_then(|t| t.usage.as_ref());
+            let entrypoint = usage.and_then(|u| u.entrypoint.as_deref());
             next.origin = Origin::merge(next.origin.as_ref(), extras.origin.as_ref(), entrypoint);
-            if let Some(t) = &extras.transcript
+            if let Some(u) = usage
                 && let Some(ctx) =
-                    context_from_transcript(next.context.as_ref(), t.context_tokens, now_ms())
+                    context_from_transcript(next.context.as_ref(), u.context_tokens, now_ms())
             {
                 next.context = Some(ctx);
             }
+            if let Some(title) = extras.transcript.as_ref().and_then(|t| t.title.clone()) {
+                next.title = Some(title);
+            }
+            // 調べ直すかどうかは保存済みの cwd で決まるので、ロックの内側で調べる。
+            // 調べるのは cwd が変わったときなどに限られ、数回の stat で済む。
+            refresh_repo(input, current.as_ref(), &mut next, |cwd| {
+                repo_name(Path::new(cwd))
+            });
             write_json_atomic(&path, &next)
         }
         Transition::Delete => match fs::remove_file(&path) {
@@ -198,12 +205,21 @@ pub fn apply_statusline(home: &MarimoHome, input: &Value) -> io::Result<()> {
 
     // セッションのファイルはフックだけが作る。SessionEnd で消した後に statusLine が
     // 遅れて届いても、終わったセッションを復活させないためである。
-    if let (Some(id), Some(context)) = (
-        input.get("session_id").and_then(Value::as_str),
-        context_from(input, now),
-    ) && let (Some(path), Some(mut session)) = (home.session_file(id), read_session(home, id))
+    let context = context_from(input, now);
+    let title = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .and_then(clean_title);
+    if let Some(id) = input.get("session_id").and_then(Value::as_str)
+        && (context.is_some() || title.is_some())
+        && let (Some(path), Some(mut session)) = (home.session_file(id), read_session(home, id))
     {
-        session.context = Some(context);
+        if let Some(context) = context {
+            session.context = Some(context);
+        }
+        if let Some(title) = title {
+            session.title = Some(title);
+        }
         if let Err(e) = write_json_atomic(&path, &session) {
             first_err.get_or_insert(e);
         }
@@ -613,6 +629,80 @@ mod tests {
         assert_eq!(ctx.used_percentage, Some(8.0));
         assert_eq!(ctx.total_input_tokens, Some(15500));
         assert_eq!(read_session(&home, "s1").unwrap().status, Status::Working);
+    }
+
+    #[test]
+    fn title_comes_from_statusline_and_transcript() {
+        let (_d, home) = home();
+        let named = json!({"session_id": "s1", "session_name": "  ウィジェットの改修  "});
+        apply_statusline(&home, &named).unwrap();
+        assert!(read_session(&home, "s1").is_none());
+
+        hook(
+            &home,
+            json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","prompt":"hi"}),
+        );
+        apply_statusline(&home, &named).unwrap();
+        assert_eq!(
+            read_session(&home, "s1").unwrap().title.as_deref(),
+            Some("ウィジェットの改修")
+        );
+        apply_statusline(&home, &json!({"session_id": "s1", "session_name": ""})).unwrap();
+        apply_statusline(&home, &json!({"session_id": "s1"})).unwrap();
+        assert_eq!(
+            read_session(&home, "s1").unwrap().title.as_deref(),
+            Some("ウィジェットの改修")
+        );
+
+        let stop: HookInput = serde_json::from_value(
+            json!({"session_id":"s1","hook_event_name":"Stop","transcript_path":"/t.jsonl"}),
+        )
+        .unwrap();
+        let with_title = |title: Option<&str>| HookExtras {
+            origin: None,
+            transcript: Some(TranscriptTail {
+                usage: None,
+                title: title.map(str::to_owned),
+            }),
+        };
+        apply_hook(&home, &stop, &with_title(Some("デスクトップの題名"))).unwrap();
+        assert_eq!(
+            read_session(&home, "s1").unwrap().title.as_deref(),
+            Some("デスクトップの題名")
+        );
+        apply_hook(&home, &stop, &with_title(None)).unwrap();
+        assert_eq!(
+            read_session(&home, "s1").unwrap().title.as_deref(),
+            Some("デスクトップの題名")
+        );
+    }
+
+    #[test]
+    fn repo_follows_the_main_thread_cwd() {
+        let (_d, home) = home();
+        let work = tempfile::tempdir().unwrap();
+        let repo = work.path().join("marimo");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        fs::create_dir_all(repo.join("app")).unwrap();
+        let plain = work.path().join("notes");
+        fs::create_dir_all(&plain).unwrap();
+        let at = |cwd: &Path| json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","cwd":cwd.to_str().unwrap()});
+
+        hook(&home, at(&repo.join("app")));
+        assert_eq!(
+            read_session(&home, "s1").unwrap().repo.as_deref(),
+            Some("marimo")
+        );
+        hook(
+            &home,
+            json!({"session_id":"s1","hook_event_name":"SubagentStart","agent_id":"a1","cwd":plain.to_str().unwrap()}),
+        );
+        assert_eq!(
+            read_session(&home, "s1").unwrap().repo.as_deref(),
+            Some("marimo")
+        );
+        hook(&home, at(&plain));
+        assert_eq!(read_session(&home, "s1").unwrap().repo, None);
     }
 
     #[test]

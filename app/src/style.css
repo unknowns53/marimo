@@ -227,11 +227,37 @@ body {
   background: var(--error);
 }
 
+/* 幅が足りないときは題名から縮め、題名が消えてから名前を省略する。 */
+.names {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .folder {
+  flex: 0 0 auto;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+}
+
+/* 区切りの点は縮む要素の中に置き、題名と一緒に隠れるようにする。 */
+.chat-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.chat-title::before {
+  content: "·";
+  margin: 0 5px;
 }
 
 .row-summary {

@@ -1,6 +1,7 @@
 import type { SessionState } from "./types";
 
-export function folderName(session: Pick<SessionState, "cwd" | "session_id">): string {
+export function folderName(session: Pick<SessionState, "cwd" | "session_id" | "repo">): string {
+  if (session.repo) return session.repo;
   const parts = (session.cwd ?? "").split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? session.session_id.slice(0, 8);
 }

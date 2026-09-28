@@ -93,11 +93,7 @@ fn hook() -> Result<(), String> {
         .transcript_path
         .as_deref()
         .filter(|_| parsed.wants_transcript_usage())
-        .and_then(|p| {
-            transcript::last_usage(std::path::Path::new(p))
-                .ok()
-                .flatten()
-        });
+        .and_then(|p| transcript::read_tail(std::path::Path::new(p)).ok());
     // サブエージェントのフックで親の行を書くのは承認待ちの出入りだけなので、起動元の手がかりは
     // 親の会話のフックからだけ取る。
     let extras = store::HookExtras {

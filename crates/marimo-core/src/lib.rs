@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod paths;
+pub mod repo;
 pub mod state;
 pub mod store;
 pub mod time;

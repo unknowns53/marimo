@@ -4,6 +4,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::state::clean_title;
+
 // 会話ログは数十 MB になりうるので、末尾から少しずつ広げて探す。最後の assistant の
 // 応答はふつう末尾近くにあり、最初の範囲で見つかる。
 const FIRST_WINDOW: u64 = 512 * 1024;
@@ -14,6 +16,14 @@ pub struct TranscriptUsage {
     /// statusLine の used_percentage と同じ式で数えた、コンテキストを占めるトークン数。
     pub context_tokens: u64,
     pub entrypoint: Option<String>,
+}
+
+/// 会話ログの末尾から読み取れたもの。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TranscriptTail {
+    pub usage: Option<TranscriptUsage>,
+    /// 読んだ範囲で最後の custom-title の行の題名。範囲を広げてまでは探さない。
+    pub title: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -71,7 +81,7 @@ impl Usage {
     }
 }
 
-pub fn last_usage(path: &Path) -> io::Result<Option<TranscriptUsage>> {
+pub fn read_tail(path: &Path) -> io::Result<TranscriptTail> {
     let mut file = File::open(path)?;
     let len = file.metadata()?.len();
     let mut window = FIRST_WINDOW.min(len);
@@ -80,11 +90,9 @@ pub fn last_usage(path: &Path) -> io::Result<Option<TranscriptUsage>> {
         file.seek(SeekFrom::Start(start))?;
         let mut buf = Vec::with_capacity(window as usize);
         (&mut file).take(window).read_to_end(&mut buf)?;
-        if let Some(found) = scan(&buf, start == 0) {
-            return Ok(Some(found));
-        }
-        if window >= len || window >= MAX_WINDOW {
-            return Ok(None);
+        let tail = scan(&buf, start == 0);
+        if tail.usage.is_some() || window >= len || window >= MAX_WINDOW {
+            return Ok(tail);
         }
         window = (window * 8).min(MAX_WINDOW).min(len);
     }
@@ -92,18 +100,43 @@ pub fn last_usage(path: &Path) -> io::Result<Option<TranscriptUsage>> {
 
 // buf の先頭がファイルの途中なら、最初の行は切れているので読まない。末尾の改行で
 // 終わっていない行も書き込みの途中なので読まない。
-fn scan(buf: &[u8], starts_at_file_head: bool) -> Option<TranscriptUsage> {
-    let complete_end = buf.iter().rposition(|&b| b == b'\n')?;
+fn scan(buf: &[u8], starts_at_file_head: bool) -> TranscriptTail {
+    let Some(complete_end) = buf.iter().rposition(|&b| b == b'\n') else {
+        return TranscriptTail::default();
+    };
     let body = &buf[..complete_end];
     let mut lines: Vec<&[u8]> = body.split(|&b| b == b'\n').collect();
     if !starts_at_file_head && !lines.is_empty() {
         lines.remove(0);
     }
-    lines
-        .into_iter()
+    let usage = lines
+        .iter()
         .rev()
         .filter(|l| contains(l, b"\"usage\"") && contains(l, b"\"assistant\""))
-        .find_map(parse_line)
+        .find_map(|l| parse_line(l));
+    let title = lines
+        .iter()
+        .rev()
+        .filter(|l| contains(l, b"\"custom-title\""))
+        .find_map(|l| parse_title(l));
+    TranscriptTail { usage, title }
+}
+
+// custom-title の行は Claude Code のドキュメントに載っていない形式で、デスクトップアプリの会話ログに
+// 同じ題名が何度も書き足される。形が変わったら題名が出なくなるだけで済むよう、読めない行は捨てる。
+fn parse_title(bytes: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct TitleLine {
+        #[serde(rename = "type")]
+        kind: Option<String>,
+        #[serde(rename = "customTitle")]
+        custom_title: Option<String>,
+    }
+    let line: TitleLine = serde_json::from_slice(bytes).ok()?;
+    if line.kind.as_deref() != Some("custom-title") {
+        return None;
+    }
+    clean_title(line.custom_title.as_deref()?)
 }
 
 fn parse_line(bytes: &[u8]) -> Option<TranscriptUsage> {
@@ -127,6 +160,14 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::io::Write;
+
+    fn last_usage(path: &Path) -> io::Result<Option<TranscriptUsage>> {
+        read_tail(path).map(|t| t.usage)
+    }
+
+    fn title(t: &str) -> String {
+        json!({"type": "custom-title", "customTitle": t, "sessionId": "s1"}).to_string()
+    }
 
     fn assistant(usage: serde_json::Value, sidechain: bool) -> String {
         json!({
@@ -214,5 +255,37 @@ mod tests {
         let lines = vec![assistant(usage(1, 2, 3), false), cut, filler];
         let f = write(&lines, "");
         assert_eq!(last_usage(f.path()).unwrap().unwrap().context_tokens, 27);
+    }
+
+    #[test]
+    fn takes_the_last_title_in_the_window() {
+        let lines = vec![
+            title("最初の題名"),
+            json!({"type": "agent-name", "agentName": "x"}).to_string(),
+            assistant(usage(1, 2, 3), false),
+            title(&format!("  {}  ", "長".repeat(300))),
+            title("   "),
+            json!({"type": "custom-title", "customTitle": 5}).to_string(),
+            json!({"type": "user", "message": {"content": "\"custom-title\""}}).to_string(),
+        ];
+        let got = read_tail(write(&lines, "").path()).unwrap();
+        assert_eq!(got.usage.unwrap().context_tokens, 6);
+        let t = got.title.unwrap();
+        assert_eq!(t.chars().count(), crate::state::TITLE_MAX_CHARS);
+        assert!(t.starts_with('長'));
+
+        let got = read_tail(write(&[title("題名だけ")], "").path()).unwrap();
+        assert_eq!((got.usage, got.title.as_deref()), (None, Some("題名だけ")));
+    }
+
+    #[test]
+    fn title_is_not_searched_beyond_the_usage_window() {
+        let filler =
+            json!({"type": "user", "message": {"content": "t".repeat(FIRST_WINDOW as usize)}})
+                .to_string();
+        let lines = vec![title("遠い題名"), filler, assistant(usage(1, 1, 1), false)];
+        let got = read_tail(write(&lines, "").path()).unwrap();
+        assert_eq!(got.usage.unwrap().context_tokens, 3);
+        assert_eq!(got.title, None);
     }
 }

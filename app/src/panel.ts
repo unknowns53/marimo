@@ -101,7 +101,8 @@ function renderRow(s: SessionState, read: boolean, onSelect: (session: SessionSt
   const row = el("div", read ? "row read" : "row");
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
   const detail = s.activity?.detail ?? "";
-  row.title = [s.cwd ?? s.session_id, summary, detail].filter(Boolean).join("\n\n");
+  const place = [s.title, s.cwd ?? s.session_id].filter(Boolean).join("\n");
+  row.title = [place, summary, detail].filter(Boolean).join("\n\n");
   row.addEventListener("click", (e) => {
     e.stopPropagation();
     onSelect(s);
@@ -113,7 +114,10 @@ function renderRow(s: SessionState, read: boolean, onSelect: (session: SessionSt
 
 function renderHead(s: SessionState): HTMLElement {
   const head = el("div", "row-head");
-  head.append(el("span", `dot ${s.status}`), el("span", "folder", folderName(s)), renderContext(s));
+  const names = el("span", "names");
+  names.append(el("span", "folder", folderName(s)));
+  if (s.title) names.append(el("span", "chat-title", s.title));
+  head.append(el("span", `dot ${s.status}`), names, renderContext(s));
   return head;
 }
 
