@@ -173,7 +173,7 @@ marimo は Claude Code の作業を一切妨げないことを最優先にして
 
 - `~/.marimo` の中のファイル（[ファイルとデータ](#ファイルとデータ)を参照）。状態ファイルには、実行したコマンド、ファイルのパス、応答の冒頭などの要約が最大 500 文字まで入ります。リポジトリ名と、チャットの題名も最大 200 文字まで入ります。
 - `install` と `uninstall` を実行したときの Claude Code の settings.json と、そのバックアップ。Codex のフォルダがあれば、Codex の `hooks.json` と、そのバックアップ。
-- 「ログイン時に起動」を有効にしたときの `~/Library/LaunchAgents/com.marimo.desktop.plist`。
+- 「ログイン時に起動」を有効にしたときの、macOS では `~/Library/LaunchAgents/com.marimo.desktop.plist`、Windows ではレジストリの `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` にある marimo の値。
 
 ### marimo が送るもの
 
