@@ -9,7 +9,7 @@ import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
 import { BubbleModel } from "./bubbleModel";
 import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
-import { characterCandidates, characterInfo, type CharacterInfo } from "./manifest";
+import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
 import { onScrollbar, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
 import {
@@ -72,6 +72,9 @@ let renderer: CharacterRenderer | undefined;
 // メニューに並べる組み込みのキャラクター。manifest を読めたものだけを index.json の順に持つ。
 let characters: { info: CharacterInfo; manifest: Manifest }[] = [];
 let characterId: string | undefined;
+// 立ち絵の画像を読む間に別のキャラクターが選ばれることがあるので、最後に頼んだものだけを出す。
+let requestedCharacter: string | undefined;
+let characterRequest = 0;
 let snapshot: Snapshot | null = null;
 // snapshot を、見たと示された完了を除いて集約し直したもの。表情、吹き出し、パネルはこちらを使う。
 let shown: Snapshot | null = null;
@@ -203,7 +206,9 @@ async function loadCharacters(): Promise<unknown> {
   const index = await fetch(new URL("index.json", CHARACTER_ROOT))
     .then((r) => (r.ok ? (r.json() as Promise<unknown>) : []))
     .catch(() => []);
-  const ids = Array.isArray(index) ? index.filter((x): x is string => typeof x === "string") : [];
+  const listed = Array.isArray(index) ? index.filter((x): x is string => typeof x === "string") : [];
+  // 一覧を読めなくても、characterCandidates が選ぶ既定のキャラクターの素材は無事なことがある。
+  const ids = listed.length > 0 ? listed : [DEFAULT_CHARACTER];
   const loaded = await Promise.all(
     ids.map((id) =>
       loadManifest(characterBase(id)).then(
@@ -220,19 +225,33 @@ async function loadCharacters(): Promise<unknown> {
 }
 
 // 新しい立ち絵を読み終えてから古いものと入れ替えるので、読めなかったときは今の立ち絵が残る。
+// 読んでいる間に次の依頼が来ていたら、読み終えたものを捨てて何も変えない。
 // 枠の高さは素材の縦横比で決まり、窓の大きさも合わせるよう Rust に知らせる。
-async function showCharacter(id: string): Promise<boolean> {
+async function showCharacter(id: string): Promise<"shown" | "failed" | "superseded"> {
+  const request = ++characterRequest;
+  requestedCharacter = id;
+  const superseded = () => request !== characterRequest;
   const entry = characters.find((c) => c.info.id === id);
-  if (!entry) return false;
   const base = characterBase(id);
-  let next: CharacterRenderer;
+  let next: CharacterRenderer | undefined;
   try {
+    if (!entry) throw new Error("not in the character index");
     next = createRenderer(entry.manifest, base);
     next.onShapeChange = () => hits.schedule();
     await next.mount(stage);
   } catch (e) {
     console.error("character", id, e);
-    return false;
+    next?.destroy();
+    if (superseded()) return "superseded";
+    requestedCharacter = characterId;
+    return "failed";
+  }
+  const nextDialogue = await fetch(new URL("dialogue.json", base))
+    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
+    .catch(() => ({}));
+  if (superseded()) {
+    next.destroy();
+    return "superseded";
   }
   document.documentElement.style.setProperty("--stage-aspect", String(entry.info.aspect));
   stage.classList.toggle("pixelated", entry.info.pixelated);
@@ -240,17 +259,15 @@ async function showCharacter(id: string): Promise<boolean> {
   renderer?.destroy();
   renderer = next;
   characterId = id;
+  defaultDialogue = nextDialogue;
   if (shown) renderer.update({ status: shown.aggregate, tool: focusedTool(shown) });
-  defaultDialogue = await fetch(new URL("dialogue.json", base))
-    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
-    .catch(() => ({}));
   await reloadDialogue();
   hits.schedule();
-  return true;
+  return "shown";
 }
 
 async function switchCharacter(id: string): Promise<void> {
-  if (id === characterId || !(await showCharacter(id))) return;
+  if (id === requestedCharacter || (await showCharacter(id)) !== "shown") return;
   void invoke("set_character", { id }).catch((e) => console.error("character", e));
 }
 
@@ -463,7 +480,7 @@ async function start(): Promise<void> {
   const index = await loadCharacters();
   const saved = await invoke<string>("get_character").catch(() => null);
   for (const id of characterCandidates(saved, index)) {
-    if (await showCharacter(id)) break;
+    if ((await showCharacter(id)) !== "failed") break;
   }
   // マウスが立ち絵の上にあるかは Rust 側がクリックを通す判定のついでに調べて知らせる。透明な部分では
   // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
