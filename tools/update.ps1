@@ -108,9 +108,9 @@ function Get-Build([string]$Work) {
     $ProgressPreference = 'SilentlyContinue'
 
     $slug = Get-RepoSlug
-    # CI は文書だけを変えたコミットをビルドしないので、文書以外を変えた最後のコミットのビルドを探す。
-    # この一覧は .github/workflows/ci.yml の paths-ignore と同じにしておく。
-    $sha = git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*'
+    # CI はアプリに入らないファイルだけを変えたコミットをビルドしないので、アプリに入るファイルを変えた最後のコミットのビルドを探す。
+    # この一覧は .github/workflows/ci.yml の target ジョブと同じにしておく。
+    $sha = git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore'
     if ($LASTEXITCODE -ne 0 -or -not $sha) { Fail 'git でビルドを探すコミットを調べられませんでした。' }
     $short = $sha.Substring(0, 12)
     $tag = "build-$short"
