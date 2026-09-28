@@ -194,6 +194,7 @@ marimo は、状態ファイルも会話の内容も、手元のコンピュー�
 | `art/koharu` | 小春の素材の元になった画像 |
 | `tools/character` | 小春の素材を作るスクリプト `build.py` とその設定 `koharu.json`、Clawd の素材を描くスクリプト `clawd.py`、Python の依存 `requirements.txt` |
 | `tools/tray_icon.py` | メニューバーと通知領域のアイコンを描くスクリプト |
+| `tools/app_icon.py` | アプリのアイコンを描くスクリプト |
 | `tools/update.sh`、`tools/update.ps1` | 取り込み、ビルド、アプリの差し替え、`install`、起動し直しをまとめて行う更新用のスクリプト。`update.sh` は macOS 用、`update.ps1` は Windows 用です |
 
 ## テストと検査
