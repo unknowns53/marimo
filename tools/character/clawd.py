@@ -3,6 +3,7 @@
 使い方（リポジトリ直下で実行する）:
     .venv/bin/python tools/character/clawd.py
     .venv/bin/python tools/character/clawd.py --preview preview.png
+    .venv/bin/python tools/character/clawd.py --tray
 
 形は Claude Code の起動時のロゴ（ブロック文字で描いたもの）を、1 文字を 2×2 の画素に読み解いたものに従う。
 ロゴの 1 画素は端末の文字の升目の 4 分の 1 で、横 1 に対して縦がほぼ 2 あるので、横 2 マス、縦 4 マスで描き、
@@ -19,6 +20,7 @@ from PIL import Image, ImageDraw
 
 REPO = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO / "assets/character/clawd"
+ICON_DIR = REPO / "app/src-tauri/icons"
 
 COLS, ROWS = 60, 30
 CELL = 6
@@ -204,10 +206,44 @@ def preview(images, path):
     sheet.save(path)
 
 
+def tray_icons():
+    """メニューバーと通知領域のアイコンを、ロゴの形のまま目を穴として抜いた影絵で描く。
+
+    macOS のメニューバーは画像の高さを 18 pt に縮めて置くので、2 倍の画面で等倍になる高さ 36 px にし、
+    ロゴの 1 画素を横 3 px、縦 6 px にして上下に 3 px ずつ余白を足す。色は黒だけのテンプレート画像にして、
+    明るいメニューバーでも暗いメニューバーでも macOS に塗り分けさせる。Windows の通知領域はテンプレート
+    画像を知らず、黒の影絵は暗いタスクバーに沈むので、体の色で塗って目を濃い色にした正方形の画像を別に作る。
+    """
+    def silhouette(px_w, px_h, size, body, eye):
+        img = Image.new("RGBA", size, (0, 0, 0, 0))
+        ox = (size[0] - len(LOGO[0]) * px_w) // 2
+        oy = (size[1] - len(LOGO) * px_h) // 2
+        pen = ImageDraw.Draw(img)
+        for ly, row in enumerate(LOGO):
+            for lx, c in enumerate(row):
+                color = body if c == "#" else eye if (lx, ly) in EYE_HOLES else None
+                if color:
+                    x, y = ox + lx * px_w, oy + ly * px_h
+                    pen.rectangle([x, y, x + px_w - 1, y + px_h - 1], fill=color + (255,))
+        return img
+
+    return {
+        "tray-template.png": silhouette(3, 6, (54, 36), (0, 0, 0), None),
+        "tray-color.png": silhouette(2, 4, (36, 36), PALETTE["#"], PALETTE["E"]),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--preview", type=Path, help="暗い背景と明るい背景に重ねた一覧画像の保存先")
+    parser.add_argument("--tray", action="store_true", help="立ち絵の代わりにメニューバーと通知領域のアイコンを書き出す")
     args = parser.parse_args()
+
+    if args.tray:
+        for name, img in tray_icons().items():
+            img.save(ICON_DIR / name, optimize=True)
+            print(f"{name}: {ICON_DIR / name}")
+        return
 
     images = build()
     OUT_DIR.mkdir(parents=True, exist_ok=True)

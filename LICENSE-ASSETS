@@ -16,8 +16,9 @@ The images of the character koharu were created with OpenAI's image
 generation model and then edited and composited with tools/character/build.py.
 The source images in art/ keep the generator's embedded metadata.
 
-The pixel art of Clawd in assets/character/clawd/ is drawn by
-tools/character/clawd.py after the Claude Code startup logo. Clawd is
+The pixel art of Clawd in assets/character/clawd/ and the tray icons
+app/src-tauri/icons/tray-template.png and app/src-tauri/icons/tray-color.png
+are drawn by tools/character/clawd.py after the Claude Code startup logo. Clawd is
 Anthropic's mascot, and this license grants no rights to Anthropic's design or
 trademarks.
 

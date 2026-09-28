@@ -18,8 +18,8 @@ marimo-core.workspace = true
 notify = "8"
 serde.workspace = true
 serde_json.workspace = true
-# 透過した窓を macOS で出すには macos-private-api が要る。
-tauri = { version = "2", features = ["macos-private-api"] }
+# 透過した窓を macOS で出すには macos-private-api が要る。メニューバーと通知領域のアイコンに tray-icon を使う。
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 time = { version = "0.3", features = ["parsing"] }
