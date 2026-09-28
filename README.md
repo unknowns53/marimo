@@ -82,7 +82,7 @@ Claude Code は 2.1.139 以降が必要です。marimo は、この版で加わ�
 
 ### 1. ビルドする
 
-marimo は配布用のバイナリを用意していないので、リポジトリを手元に置いたら自分でビルドします。Rust 1.90 以降と Node.js 22.12 以降が要り、Linux では OpenSSL の開発用パッケージも要ります（[必要なもの](docs/development.md#必要なもの)を参照）。
+marimo は配布用のバイナリを用意していないので、リポジトリを手元に置いたら自分でビルドします。必要なツールとそのバージョンは、[必要なもの](docs/development.md#必要なもの)に書いています。
 
 まず、Claude Code から呼ばれるコマンド `marimo-hook` をビルドします。
 
@@ -90,7 +90,7 @@ marimo は配布用のバイナリを用意していないので、リポジト�
 cargo build --release -p marimo-hook
 ```
 
-次に、`app/` へ移動して画面部分の依存をインストールし、Tauri でアプリをまとめます。`npm run tauri -- build` は、画面部分のビルドと Rust 側のビルドをまとめて実行します。
+次に、`app/` へ移動して画面部分の依存をインストールし、Tauri でアプリをまとめます。`npm run tauri -- build` は、画面部分のビルド（`npm run build`）と Rust 側のビルドをまとめて実行します。
 
 ```bash
 cd app

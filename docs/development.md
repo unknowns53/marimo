@@ -19,15 +19,15 @@ marimo をソースからビルドする人、`install` が何を書き換える
 | ツール | バージョン | 使う場面 |
 | --- | --- | --- |
 | Rust（rustc と cargo） | 1.90 以降（`Cargo.toml` の `rust-version`）、edition 2024 | フックのコマンド `marimo-hook` とアプリ本体のビルド |
-| Node.js と npm | Node.js 22.12 以降 | アプリの画面部分のビルドとテスト |
+| Node.js と npm | Node.js 22.12 以上の 22 系、24 系、または 26 以降 | アプリの画面部分のビルドとテスト |
 
-Node.js のバージョンは、依存しているビルドツールの Vite と、テストツールの Vitest が求める範囲から決めています。アプリ本体は Tauri v2（Web の技術で画面を作り、Rust で OS の機能を呼ぶデスクトップアプリの枠組み）で作られています。
+Node.js のバージョンは、依存しているビルドツールの Vite と、テストツールの Vitest の両方が求める範囲から決めています。23 系と 25 系は Vitest の範囲に入りません。アプリ本体は Tauri v2（Web の技術で画面を作り、Rust で OS の機能を呼ぶデスクトップアプリの枠組み）で作られています。
 
 アプリは利用量の API との通信の暗号化に、macOS と Linux では OS の TLS の実装を、Windows では Rust で書かれた実装の rustls を使います。Linux では、そのための Rust のライブラリ native-tls が OpenSSL を使うので、ビルドの前に OpenSSL の開発用パッケージ（Debian や Ubuntu では `libssl-dev`、Fedora では `openssl-devel`）を入れてください。macOS では OS に含まれる実装を使うので、追加で入れるものはありません。Windows では rustls が使う暗号のライブラリ ring が C のコードを含みますが、Tauri のビルドに要る Visual Studio の C++ のビルドツールでそのままビルドできます。
 
 ### ビルドの成果物
 
-`cargo build --release -p marimo-hook` でできる実行ファイルは `target/release/marimo-hook` に置かれます。`npm run tauri -- build` を実行すると、macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<版>_x64-setup.exe` と `target/release/bundle/msi/marimo_<版>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
+`cargo build --release -p marimo-hook` でできる実行ファイルは `target/release/marimo-hook`（Windows では `marimo-hook.exe`）に置かれます。`npm run tauri -- build` は、`app/src-tauri/tauri.conf.json` の `beforeBuildCommand` に従って先に `npm run build` を実行します。macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<版>_x64-setup.exe` と `target/release/bundle/msi/marimo_<版>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
 
 `target\release\marimo.exe` を直接起動しても動きますが、ふだん使いには向きません。起動している間は実行ファイルが使用中になり、ビルドし直すと上書きに失敗するためです。MSI のインストーラはすべての利用者向けに Program Files へ入れるもので、管理者の権限が要ります。
 
@@ -128,12 +128,12 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine と API からの取得の両方がここへ書きます |
 | `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
-| `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、API からの取得を使うかどうかの `usage_api`、選んだキャラクターの名前の `character` を持ちます。以前の版が書いた `panel_mode` は、表示を切り替えて新しい鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
+| `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、API からの取得を使うかどうかの `usage_api`、選んだキャラクターの名前の `character`、選んだキャラクターの立ち絵の枠の縦横比（高さを幅で割った値）の `stage_aspect` を持ちます。`stage_aspect` はキャラクターを表示したときに保存し、次の起動で窓の大きさを最初から合わせるために使うので、起動の直後に窓が動きません。以前の版が書いた `panel_mode` は、表示を切り替えて新しい鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
 | `window.json` | 窓の位置です |
 | `acknowledged.json` | 既読にした完了などのきっかけの記録です |
 | `dialogue.json` | 利用者が書くセリフの上書きです。marimo はこのファイルを作りません |
 | `dialogue.json.unused-default` | marimo の古い版が書き出した既定のセリフを、起動時に退避したものです |
-| `bin/marimo-hook` | `install` がコピーしたフックのコマンドです。settings.json はこのパスを指しています |
+| `bin/marimo-hook` | `install` がコピーしたフックのコマンドです。Windows では `marimo-hook.exe` です。settings.json はこのパスを指しています |
 | `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。以前の版が書いた `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
 | `logs/usage.log` | 「利用制限を API から取得」の問い合わせの状態が変わるたびに、アプリが手元の時刻を付けて一行ずつ追記するファイルです。トークンと応答の中身は書きません。64 KB を超えたら新しい方の半分だけを残します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
