@@ -24,6 +24,43 @@ pub const EVENTS: [&str; 16] = [
 const HOOK_TIMEOUT_SECS: u64 = 5;
 const HOOK_ARGS: [&str; 1] = ["hook"];
 
+// Codex の hooks.json は Claude Code の hooks と同じ形をしている（codex-rs/config/src/hook_config.rs の
+// HooksFile と HookEventsToml）。PreCompact と PostCompact は状態を変えないので登録しない。
+pub const CODEX_EVENTS: [&str; 10] = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "Stop",
+    "Interrupt",
+    "SessionEnd",
+    "SubagentStart",
+    "SubagentStop",
+];
+
+/// Codex のフックに登録するコマンドの文字列。Codex のハンドラには args が無く、command は常に
+/// シェルを通して実行される（codex-rs/hooks/src/engine/command_runner.rs の build_command）。
+/// Unix では sh 系のシェルなので単一引用符で引用する。Windows では PowerShell か cmd のどちらに
+/// 渡るかが利用者の設定で変わり、cmd /C には全体を二重引用符で包んで渡されるので、どちらでも
+/// 同じ一つのパスとして読まれる一語のパスだけを使い、そう書けなければ None を返す。
+pub fn codex_hook_command(exe_path: &str, windows: bool) -> Option<String> {
+    let exe = if windows {
+        let plain = !exe_path.is_empty()
+            && exe_path.chars().all(|c| {
+                if c.is_ascii() {
+                    c.is_ascii_alphanumeric() || matches!(c, '\\' | ':' | '.' | '_' | '-')
+                } else {
+                    !c.is_whitespace()
+                }
+            });
+        plain.then(|| exe_path.to_owned())?
+    } else {
+        shell_quote(exe_path)
+    };
+    Some(format!("{exe} codex-hook"))
+}
+
 // フックは args を持つ exec form で登録する。hooks のドキュメントの Exec form and shell form の
 // 節にあるとおり、exec form はシェルを通さずに実行ファイルを直接起動するので、パスの引用や
 // シェルの設定ファイルが出力する文字列の混入を気にしなくてよい。
@@ -234,7 +271,7 @@ pub fn install(settings: &mut Value, marimo: &Marimo) -> Result<InstallReport, S
     let root = settings
         .as_object_mut()
         .ok_or("settings.json の最上位が JSON のオブジェクトではありません")?;
-    check_hooks_shape(root)?;
+    check_hooks_shape(root, &EVENTS)?;
 
     let mut added = Vec::new();
     let mut migrated = Vec::new();
@@ -268,17 +305,7 @@ pub fn install(settings: &mut Value, marimo: &Marimo) -> Result<InstallReport, S
                 continue;
             }
         }
-        let hooks = root
-            .entry("hooks")
-            .or_insert_with(|| Value::Object(Map::new()))
-            .as_object_mut()
-            .ok_or("hooks がオブジェクトではありません")?;
-        hooks
-            .entry(event)
-            .or_insert_with(|| Value::Array(Vec::new()))
-            .as_array_mut()
-            .ok_or_else(|| format!("hooks.{event} が配列ではありません"))?
-            .push(json!({ "hooks": [marimo.hook_handler()] }));
+        push_group(root, event, marimo.hook_handler())?;
         added.push(event);
     }
 
@@ -289,6 +316,74 @@ pub fn install(settings: &mut Value, marimo: &Marimo) -> Result<InstallReport, S
         already,
         status_line,
     })
+}
+
+fn push_group(root: &mut Map<String, Value>, event: &str, handler: Value) -> Result<(), String> {
+    root.entry("hooks")
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or("hooks がオブジェクトではありません")?
+        .entry(event)
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| format!("hooks.{event} が配列ではありません"))?
+        .push(json!({ "hooks": [handler] }));
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodexInstallReport {
+    pub added: Vec<&'static str>,
+    pub already: Vec<&'static str>,
+}
+
+/// Codex はフックの定義を正規化したもののハッシュで信頼を覚えるので、すでに同じコマンドの
+/// ハンドラがあるイベントには手を付けない。書き直すと利用者が /hooks で信頼し直すことになる。
+pub fn install_codex(file: &mut Value, command: &str) -> Result<CodexInstallReport, String> {
+    let root = file
+        .as_object_mut()
+        .ok_or("hooks.json の最上位が JSON のオブジェクトではありません")?;
+    check_hooks_shape(root, &CODEX_EVENTS)?;
+    let mut added = Vec::new();
+    let mut already = Vec::new();
+    for event in CODEX_EVENTS {
+        let registered = root
+            .get("hooks")
+            .and_then(|h| h.get(event))
+            .and_then(Value::as_array)
+            .is_some_and(|groups| {
+                groups.iter().any(|g| {
+                    g.get("hooks")
+                        .and_then(Value::as_array)
+                        .is_some_and(|hs| hs.iter().any(|h| is_codex_handler(h, command)))
+                })
+            });
+        if registered {
+            already.push(event);
+            continue;
+        }
+        let handler = json!({
+            "type": "command",
+            "command": command,
+            "timeout": HOOK_TIMEOUT_SECS,
+        });
+        push_group(root, event, handler)?;
+        added.push(event);
+    }
+    Ok(CodexInstallReport { added, already })
+}
+
+pub fn uninstall_codex(file: &mut Value, command: &str) -> Result<Vec<String>, String> {
+    let root = file
+        .as_object_mut()
+        .ok_or("hooks.json の最上位が JSON のオブジェクトではありません")?;
+    check_hooks_shape(root, &CODEX_EVENTS)?;
+    Ok(remove_handlers(root, |h| is_codex_handler(h, command)))
+}
+
+fn is_codex_handler(handler: &Value, command: &str) -> bool {
+    handler.get("type").and_then(Value::as_str) == Some("command")
+        && handler.get("command").and_then(Value::as_str) == Some(command)
 }
 
 const API_HINT: &str = "利用制限を表示するには、アプリの右クリックメニューで「利用制限を API から取得」を有効にしてください";
@@ -335,8 +430,17 @@ pub fn uninstall(settings: &mut Value, marimo: &Marimo) -> Result<UninstallRepor
     let root = settings
         .as_object_mut()
         .ok_or("settings.json の最上位が JSON のオブジェクトではありません")?;
-    check_hooks_shape(root)?;
+    check_hooks_shape(root, &EVENTS)?;
+    let removed = remove_handlers(root, |h| handler_is_marimo(h, marimo));
+    let status_line = uninstall_status_line(root, marimo);
+    Ok(UninstallReport {
+        removed,
+        status_line,
+    })
+}
 
+// is_ours に当たるハンドラを取り除き、手を入れたイベントの名前を返す。
+fn remove_handlers(root: &mut Map<String, Value>, is_ours: impl Fn(&Value) -> bool) -> Vec<String> {
     let mut removed = Vec::new();
     if let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) {
         let mut emptied = Vec::new();
@@ -348,7 +452,7 @@ pub fn uninstall(settings: &mut Value, marimo: &Marimo) -> Result<UninstallRepor
             for group in groups.iter_mut() {
                 if let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) {
                     let n = handlers.len();
-                    handlers.retain(|h| !handler_is_marimo(h, marimo));
+                    handlers.retain(|h| !is_ours(h));
                     touched |= handlers.len() != n;
                 }
             }
@@ -379,12 +483,7 @@ pub fn uninstall(settings: &mut Value, marimo: &Marimo) -> Result<UninstallRepor
     {
         root.shift_remove("hooks");
     }
-
-    let status_line = uninstall_status_line(root, marimo);
-    Ok(UninstallReport {
-        removed,
-        status_line,
-    })
+    removed
 }
 
 fn uninstall_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> StatusLineChange {
@@ -420,15 +519,15 @@ fn uninstall_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> Stat
     }
 }
 
-fn check_hooks_shape(root: &Map<String, Value>) -> Result<(), String> {
+fn check_hooks_shape(root: &Map<String, Value>, events: &[&str]) -> Result<(), String> {
     let Some(hooks) = root.get("hooks") else {
         return Ok(());
     };
     let hooks = hooks
         .as_object()
         .ok_or("hooks がオブジェクトではありません")?;
-    for event in EVENTS {
-        if let Some(v) = hooks.get(event)
+    for event in events {
+        if let Some(v) = hooks.get(*event)
             && !v.is_array()
         {
             return Err(format!("hooks.{event} が配列ではありません"));
@@ -523,6 +622,43 @@ mod tests {
             "'/Users/a b/.marimo/bin/marimo-hook'"
         );
         assert_eq!(shell_quote("/tmp/it's"), r"'/tmp/it'\''s'");
+    }
+
+    #[test]
+    fn codex_command_is_one_shell_word_or_nothing() {
+        let cases = [
+            (
+                "/Users/a/.marimo/bin/marimo-hook",
+                false,
+                Some("/Users/a/.marimo/bin/marimo-hook codex-hook"),
+            ),
+            (
+                "/Users/a b/.marimo/bin/marimo-hook",
+                false,
+                Some("'/Users/a b/.marimo/bin/marimo-hook' codex-hook"),
+            ),
+            (
+                r"C:\Users\a\.marimo\bin\marimo-hook.exe",
+                true,
+                Some(r"C:\Users\a\.marimo\bin\marimo-hook.exe codex-hook"),
+            ),
+            (
+                r"C:\Users\山田\.marimo\bin\marimo-hook.exe",
+                true,
+                Some(r"C:\Users\山田\.marimo\bin\marimo-hook.exe codex-hook"),
+            ),
+            (r"C:\Users\a b\.marimo\bin\marimo-hook.exe", true, None),
+            (r"C:\Users\a&b\marimo-hook.exe", true, None),
+            (r"C:\Users\$a\marimo-hook.exe", true, None),
+            ("", true, None),
+        ];
+        for (exe, windows, expected) in cases {
+            assert_eq!(
+                codex_hook_command(exe, windows).as_deref(),
+                expected,
+                "{exe}"
+            );
+        }
     }
 
     #[test]

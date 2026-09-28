@@ -27,6 +27,8 @@ struct Env {
     dir: tempfile::TempDir,
     home: PathBuf,
     settings: PathBuf,
+    /// CODEX_HOME として渡す場所。with_codex で作るまでは存在しないので、Codex は入っていない扱いになる。
+    codex: PathBuf,
 }
 
 impl Env {
@@ -38,6 +40,7 @@ impl Env {
         Self {
             home,
             settings: claude.join("settings.json"),
+            codex: dir.path().join("codex"),
             dir,
         }
     }
@@ -59,10 +62,24 @@ impl Env {
             // 一時フォルダをホームとして渡して結果を決まったものにする。
             .env("HOME", self.dir.path())
             .env("USERPROFILE", self.dir.path())
+            .env("CODEX_HOME", &self.codex)
             .env_remove("CLAUDE_CONFIG_DIR")
             .stdin(Stdio::null())
             .output()
             .unwrap()
+    }
+
+    fn with_codex(hooks_json: Option<&str>) -> Self {
+        let env = Self::with_settings("{}");
+        fs::create_dir_all(&env.codex).unwrap();
+        if let Some(text) = hooks_json {
+            fs::write(env.codex_hooks(), text).unwrap();
+        }
+        env
+    }
+
+    fn codex_hooks(&self) -> PathBuf {
+        self.codex.join("hooks.json")
     }
 
     fn installed_exe(&self) -> PathBuf {
@@ -437,6 +454,7 @@ fn claude_config_dir_sets_the_default_settings_path() {
         .args(["install", "--dry-run"])
         .env("MARIMO_HOME", &env.home)
         .env("CLAUDE_CONFIG_DIR", env.settings.parent().unwrap())
+        .env("CODEX_HOME", &env.codex)
         .output()
         .unwrap();
     assert!(
@@ -725,4 +743,105 @@ fn wrapped_status_line_behaves_like_the_original() {
         assert!(env.run(&["uninstall"]).status.success());
         assert_eq!(env.json()["statusLine"]["command"], original);
     }
+}
+
+const CODEX_EVENTS: [&str; 10] = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "Stop",
+    "Interrupt",
+    "SessionEnd",
+    "SubagentStart",
+    "SubagentStop",
+];
+
+// 実行ファイルのパスに空白があるので、Unix では単一引用符で引用される。Windows では一語で書けないので登録しない。
+#[test]
+fn codex_hooks_round_trip_and_reinstall_changes_nothing() {
+    let original = pretty(&json!({
+        "description": "my hooks",
+        "hooks": {
+            "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "./guard.sh", "timeout": 30}]}],
+            "PreCompact": [{"hooks": [{"type": "command", "command": "echo compact"}]}]
+        }
+    }));
+    let env = Env::with_codex(Some(&original));
+    let out = env.run(&["install"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    if cfg!(windows) {
+        assert!(text.contains("Codex のフックは扱いませんでした"), "{text}");
+        assert_eq!(fs::read_to_string(env.codex_hooks()).unwrap(), original);
+        return;
+    }
+    assert!(text.contains("/hooks で"), "{text}");
+    let command = format!("'{}' codex-hook", env.installed_exe().display());
+    let installed: Value =
+        serde_json::from_str(&fs::read_to_string(env.codex_hooks()).unwrap()).unwrap();
+    assert_eq!(installed["description"], "my hooks");
+    for event in CODEX_EVENTS {
+        let groups = installed["hooks"][event].as_array().unwrap();
+        assert_eq!(
+            groups.last().unwrap(),
+            &json!({"hooks": [{"type": "command", "command": command, "timeout": 5}]}),
+            "{event}"
+        );
+    }
+    assert_eq!(
+        installed["hooks"]["PreToolUse"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(
+        installed["hooks"]["PreCompact"].as_array().unwrap().len(),
+        1
+    );
+
+    // 同じ実行ファイルで入れ直しても hooks.json を書き換えないので、Codex の信頼は保たれる。
+    let before = fs::read(env.codex_hooks()).unwrap();
+    let out = env.run(&["install"]);
+    assert!(out.status.success());
+    assert_eq!(fs::read(env.codex_hooks()).unwrap(), before);
+    assert!(!stdout(&out).contains("/hooks で"));
+
+    let out = env.run(&["uninstall"]);
+    assert!(out.status.success());
+    assert_eq!(fs::read_to_string(env.codex_hooks()).unwrap(), original);
+}
+
+#[test]
+fn codex_is_handled_only_when_its_folder_exists() {
+    let env = Env::with_settings("{}");
+    for args in [&["install"][..], &["uninstall"][..]] {
+        let out = env.run(args);
+        assert!(out.status.success());
+        assert!(!stdout(&out).contains("Codex"), "{args:?}");
+    }
+    assert!(!env.codex.exists());
+
+    // hooks.json がなければ作る。
+    let env = Env::with_codex(None);
+    let out = env.run(&["install"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    if cfg!(unix) {
+        let created: Value =
+            serde_json::from_str(&fs::read_to_string(env.codex_hooks()).unwrap()).unwrap();
+        assert_eq!(
+            created["hooks"].as_object().unwrap().len(),
+            CODEX_EVENTS.len()
+        );
+        assert!(env.run(&["uninstall"]).status.success());
+        assert_eq!(fs::read_to_string(env.codex_hooks()).unwrap(), "{}\n");
+    }
+    assert!(!env.codex.join("config.toml").exists());
 }

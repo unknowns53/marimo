@@ -4,6 +4,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use marimo_core::codex::codex_home;
 use marimo_core::paths::user_home;
 use marimo_core::time::now_ms;
 use marimo_core::{MarimoHome, store};
@@ -28,9 +29,82 @@ pub fn run(mode: Mode, args: &[OsString]) -> Result<(), String> {
     let exe = home.hook_executable();
     let marimo = marimo_for(&exe);
     match mode {
-        Mode::Install => install(&opts, &exe, &marimo),
-        Mode::Uninstall => uninstall(&opts, &home, &exe, &marimo),
+        Mode::Install => {
+            install(&opts, &exe, &marimo)?;
+            codex(&mode, &opts, &exe)
+        }
+        Mode::Uninstall => {
+            uninstall(&opts, &marimo)?;
+            codex(&mode, &opts, &exe)?;
+            print(&format!(
+                "実行ファイルとデータは残しています。不要なら次を消してください。\n  {}\n  {}\n",
+                exe.display(),
+                home.root().display()
+            ));
+            Ok(())
+        }
     }
+}
+
+const CODEX_TRUST_NOTE: &str = "Codex は、利用者が Codex CLI の /hooks でフックを確かめて信頼するまで、追加したフックを実行しません。marimo-hook の場所が変わったときは、もう一度 /hooks で信頼してください。\n";
+
+// Codex のフォルダが無ければ Codex は入っていないものとして、何も表示しない。
+// 信頼の記録は config.toml にあるが、利用者が /hooks で確かめる前提を崩さないよう触らない。
+fn codex(mode: &Mode, opts: &Options, exe: &Path) -> Result<(), String> {
+    let Some(dir) = codex_home().filter(|d| d.is_dir()) else {
+        return Ok(());
+    };
+    let path = dir.join("hooks.json");
+    let mut out = String::from("\nCodex\n");
+    let Some(command) = settings_edit::codex_hook_command(&exe.to_string_lossy(), cfg!(windows))
+    else {
+        out += "marimo-hook のパスに空白などが含まれ、Codex のシェルに引用なしで渡せないため、Codex のフックは扱いませんでした。\n";
+        print(&out);
+        return Ok(());
+    };
+    if opts.dry_run {
+        out += "dry-run のため、ファイルは書き換えていません。\n";
+    }
+    out += &format!("設定ファイル: {}\n", path.display());
+    match mode {
+        Mode::Install => {
+            let original = read_settings(&path, true)?;
+            let mut file = original
+                .as_ref()
+                .map_or_else(|| Value::Object(Default::default()), |s| s.value.clone());
+            let report = settings_edit::install_codex(&mut file, &command)?;
+            out += &format!("追加するフック: {}\n", list_or_none(&report.added));
+            if !report.already.is_empty() {
+                out += &format!("登録済みのフック: {}\n", report.already.join(", "));
+            }
+            if report.added.is_empty() {
+                out += "変更はありません（すでにインストール済みです）。\n";
+            } else {
+                out += &commit(
+                    &path,
+                    opts.dry_run,
+                    original.as_ref().map(|s| s.bytes.as_slice()),
+                    &file,
+                )?;
+                out += CODEX_TRUST_NOTE;
+            }
+        }
+        Mode::Uninstall => match read_settings(&path, false)? {
+            None => out += "hooks.json がないので、取り除くものはありません。\n",
+            Some(original) => {
+                let mut file = original.value.clone();
+                let removed = settings_edit::uninstall_codex(&mut file, &command)?;
+                out += &format!("取り除くフック: {}\n", list_or_none(&removed));
+                if removed.is_empty() {
+                    out += "変更はありません（marimo は登録されていません）。\n";
+                } else {
+                    out += &commit(&path, opts.dry_run, Some(&original.bytes), &file)?;
+                }
+            }
+        },
+    }
+    print(&out);
+    Ok(())
 }
 
 fn parse_args(args: &[OsString]) -> Result<Options, String> {
@@ -120,7 +194,8 @@ fn install(opts: &Options, exe: &Path, marimo: &Marimo) -> Result<(), String> {
 
     if report.changed() {
         out += &commit(
-            opts,
+            &opts.settings,
+            opts.dry_run,
             original.as_ref().map(|s| s.bytes.as_slice()),
             &settings,
         )?;
@@ -131,7 +206,7 @@ fn install(opts: &Options, exe: &Path, marimo: &Marimo) -> Result<(), String> {
     Ok(())
 }
 
-fn uninstall(opts: &Options, home: &MarimoHome, exe: &Path, marimo: &Marimo) -> Result<(), String> {
+fn uninstall(opts: &Options, marimo: &Marimo) -> Result<(), String> {
     let Some(original) = read_settings(&opts.settings, false)? else {
         print(&format!(
             "{} がないので、取り除くものはありません。\n",
@@ -149,27 +224,36 @@ fn uninstall(opts: &Options, home: &MarimoHome, exe: &Path, marimo: &Marimo) -> 
     out += &format!("取り除くフック: {}\n", list_or_none(&report.removed));
     out += &describe_status_line(&report.status_line);
     if report.changed() {
-        out += &commit(opts, Some(&original.bytes), &settings)?;
+        out += &commit(
+            &opts.settings,
+            opts.dry_run,
+            Some(&original.bytes),
+            &settings,
+        )?;
     } else {
         out += "変更はありません（marimo は登録されていません）。\n";
     }
-    out += &format!(
-        "実行ファイルとデータは残しています。不要なら次を消してください。\n  {}\n  {}\n",
-        exe.display(),
-        home.root().display()
-    );
     print(&out);
     Ok(())
 }
 
-// original は読み込んだときの settings.json の中身で、ファイルがなかったときは None になる。
-fn commit(opts: &Options, original: Option<&[u8]>, settings: &Value) -> Result<String, String> {
+// original は読み込んだときのファイルの中身で、ファイルがなかったときは None になる。
+fn commit(
+    path: &Path,
+    dry_run: bool,
+    original: Option<&[u8]>,
+    settings: &Value,
+) -> Result<String, String> {
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
     let mut text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     text.push('\n');
-    if opts.dry_run {
-        return Ok(format!("変更後の settings.json:\n{text}"));
+    if dry_run {
+        return Ok(format!("変更後の {name}:\n{text}"));
     }
-    let target = resolve_symlink(&opts.settings);
+    let target = resolve_symlink(path);
     ensure_unchanged(&target, original)?;
     let mut out = String::new();
     if original.is_some() {
@@ -181,7 +265,7 @@ fn commit(opts: &Options, original: Option<&[u8]>, settings: &Value) -> Result<S
     serde_json::from_slice::<Value>(&reread).map_err(|e| {
         format!("書き込んだ設定が JSON として読めません（バックアップから戻してください）: {e}")
     })?;
-    out += "settings.json を書き換えました。\n";
+    out += &format!("{name} を書き換えました。\n");
     Ok(out)
 }
 
@@ -393,14 +477,10 @@ mod tests {
     fn commit_writes_nothing_when_settings_changed_after_reading() {
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");
-        let opts = Options {
-            settings: settings.clone(),
-            dry_run: false,
-        };
         let edited = serde_json::json!({"hooks": {}});
 
         fs::write(&settings, "{\"model\": \"sonnet\"}").unwrap();
-        assert!(commit(&opts, Some(b"{}"), &edited).is_err());
+        assert!(commit(&settings, false, Some(b"{}"), &edited).is_err());
         assert_eq!(
             fs::read_to_string(&settings).unwrap(),
             "{\"model\": \"sonnet\"}"
@@ -409,11 +489,7 @@ mod tests {
         // 読んだときはなかったファイルが、書く前に作られていた場合も止める。
         let fresh = dir.path().join("fresh.json");
         fs::write(&fresh, "{}").unwrap();
-        let opts = Options {
-            settings: fresh.clone(),
-            dry_run: false,
-        };
-        assert!(commit(&opts, None, &edited).is_err());
+        assert!(commit(&fresh, false, None, &edited).is_err());
         assert_eq!(fs::read_to_string(&fresh).unwrap(), "{}");
 
         let names: Vec<_> = fs::read_dir(dir.path())
