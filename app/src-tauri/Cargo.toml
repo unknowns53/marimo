@@ -14,6 +14,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.22"
+# 利用量のログに手元の時刻を書く。time の現地時刻はスレッドが複数あると取れないので chrono を使う。
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 marimo-core.workspace = true
 notify = "8"
 serde.workspace = true
@@ -62,6 +64,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 [features]
 # 試験用のビルドで、カーソル位置の列を流し込んで開閉の動きを確かめるときだけ有効にする。
 cursor-replay = []
+# 試験用のビルドで、キーチェーンにも API にも触れずに利用制限の行に出す理由を確かめるときだけ有効にする。
+usage-replay = []
 
 [dev-dependencies]
 tempfile.workspace = true

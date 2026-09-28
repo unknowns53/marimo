@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod acknowledged;
+// usage-replay の試験用のビルドは資格情報を読まないので、使われない部分の警告を出さない。
+#[cfg_attr(feature = "usage-replay", allow(dead_code))]
 mod credentials;
 mod dialogue;
 mod focus;
@@ -118,6 +120,12 @@ fn set_usage_api(state: State<'_, AppState>, enabled: bool) -> Result<(), String
     Ok(())
 }
 
+// 状態は変わるたびに usage-status のイベントでも届くので、これは起動時に一度だけ読む。
+#[tauri::command]
+fn get_usage_status(state: State<'_, AppState>) -> usage::UsageStatus {
+    state.usage.status()
+}
+
 #[tauri::command]
 fn get_acknowledged(state: State<'_, AppState>) -> Vec<String> {
     acknowledged::load(&state.home)
@@ -199,6 +207,7 @@ fn main() {
             set_stage_aspect,
             get_usage_api,
             set_usage_api,
+            get_usage_status,
             get_acknowledged,
             set_acknowledged,
             focus_session,
@@ -225,7 +234,7 @@ fn main() {
             tray::show_status(app.handle(), store::load_snapshot(&home).aggregate);
             watch::spawn(app.handle().clone(), home.clone());
             watch::spawn_pruner(home.clone());
-            usage.spawn(home.clone());
+            usage.spawn(home.clone(), app.handle().clone());
             hit::spawn(app.handle().clone(), window, hits.clone());
             Ok(())
         })

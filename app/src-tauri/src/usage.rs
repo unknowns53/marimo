@@ -1,15 +1,24 @@
+// usage-replay の試験用のビルドは資格情報も API も使わないので、使われない部分の警告を出さない。
+#![cfg_attr(
+    feature = "usage-replay",
+    allow(dead_code, unused_variables, unused_assignments)
+)]
+
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use chrono::{Local, TimeZone};
 use marimo_core::time::now_ms;
 use marimo_core::{MarimoHome, RateLimits, RateWindow, store};
+use serde::Serialize;
 use serde_json::Value;
+use tauri::{AppHandle, Emitter};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
-use crate::credentials::{self, Credentials, ReadError};
+use crate::credentials::{self, Credentials, ReadError, Unusable};
 
 // Claude の OAuth のトークンで利用制限を返すエンドポイント。公開された API ではなく文書もないので、
 // 応答の形が変わったら書き込まずに次の周期を待つ。
@@ -24,6 +33,8 @@ const TLS_PROVIDER: TlsProvider = TlsProvider::Rustls;
 #[cfg(not(windows))]
 const TLS_PROVIDER: TlsProvider = TlsProvider::NativeTls;
 
+pub const STATUS_EVENT: &str = "usage-status";
+
 pub const INTERVAL: Duration = Duration::from_secs(5 * 60);
 pub const MAX_BACKOFF: Duration = Duration::from_secs(30 * 60);
 // Retry-After が桁違いに大きくても、設定を入れ直さずに再開できるよう上限を設ける。
@@ -34,8 +45,87 @@ pub enum Outcome {
     Updated,
     RateLimited { retry_after: Option<Duration> },
     Unauthorized(u16),
-    Skipped(&'static str),
+    Unusable(Unusable),
+    NotFound,
     Failed(String),
+}
+
+/// 取得がうまくいっているかを画面へ知らせる。再試行の時刻は Unix ミリ秒。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UsageStatus {
+    /// 有効になってから、まだ一度も結果が出ていない。
+    Pending,
+    Disabled,
+    Ok,
+    TokenExpired,
+    MissingScope,
+    NotFound,
+    KeychainDenied,
+    RateLimited {
+        retry_at: u64,
+    },
+    Rejected {
+        code: u16,
+    },
+    Failed {
+        detail: String,
+        retry_at: u64,
+    },
+}
+
+impl UsageStatus {
+    pub fn from_outcome(outcome: &Outcome, retry_at: u64) -> Self {
+        match outcome {
+            Outcome::Updated => Self::Ok,
+            Outcome::RateLimited { .. } => Self::RateLimited { retry_at },
+            Outcome::Unauthorized(code) => Self::Rejected { code: *code },
+            Outcome::Unusable(Unusable::Expired) => Self::TokenExpired,
+            Outcome::Unusable(Unusable::MissingScope) => Self::MissingScope,
+            Outcome::NotFound => Self::NotFound,
+            Outcome::Failed(detail) => Self::Failed {
+                detail: detail.clone(),
+                retry_at,
+            },
+        }
+    }
+
+    // 失敗が続くと再試行の時刻は周期ごとに変わるので、ログはそれ以外が変わったときだけ書く。
+    fn same_state(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::RateLimited { .. }, Self::RateLimited { .. }) => true,
+            (Self::Failed { detail: a, .. }, Self::Failed { detail: b, .. }) => a == b,
+            _ => self == other,
+        }
+    }
+
+    fn describe(&self) -> String {
+        match self {
+            Self::Pending => "pending: waiting for the first result".to_owned(),
+            Self::Disabled => "disabled: usage polling is turned off".to_owned(),
+            Self::Ok => "ok: rate limits were updated".to_owned(),
+            Self::TokenExpired => format!("token_expired: {}", Unusable::Expired.reason()),
+            Self::MissingScope => format!("missing_scope: {}", Unusable::MissingScope.reason()),
+            Self::NotFound => "not_found: no Claude Code credentials were found".to_owned(),
+            Self::KeychainDenied => "keychain_denied: keychain access was denied; usage polling stops until the setting is turned on again".to_owned(),
+            Self::RateLimited { retry_at } => format!(
+                "rate_limited: usage API is rate limited (HTTP 429); next try at {}",
+                local_time(*retry_at, "%H:%M")
+            ),
+            Self::Rejected { code } => format!("rejected: usage API rejected the token (HTTP {code})"),
+            Self::Failed { detail, retry_at } => format!(
+                "failed: {detail}; next try at {}",
+                local_time(*retry_at, "%H:%M")
+            ),
+        }
+    }
+}
+
+fn local_time(ms: u64, format: &str) -> String {
+    Local
+        .timestamp_millis_opt(ms as i64)
+        .single()
+        .map_or_else(|| ms.to_string(), |t| t.format(format).to_string())
 }
 
 /// 利用者がキーチェーンの確認を拒んだので、設定を入れ直すまで止める。
@@ -87,14 +177,13 @@ pub fn rate_limits_from_usage(body: &str, now: u64) -> Option<RateLimits> {
     (limits.five_hour.is_some() || limits.seven_day.is_some()).then_some(limits)
 }
 
-#[derive(Default)]
 struct Control {
     enabled: bool,
     halted: bool,
     generation: u64,
+    status: UsageStatus,
 }
 
-#[derive(Default)]
 struct Shared {
     control: Mutex<Control>,
     wake: Condvar,
@@ -107,9 +196,25 @@ pub struct Poller {
 
 impl Poller {
     pub fn new(enabled: bool) -> Self {
-        let shared = Arc::new(Shared::default());
-        lock(&shared).enabled = enabled;
+        let status = if enabled {
+            UsageStatus::Pending
+        } else {
+            UsageStatus::Disabled
+        };
+        let shared = Arc::new(Shared {
+            control: Mutex::new(Control {
+                enabled,
+                halted: false,
+                generation: 0,
+                status,
+            }),
+            wake: Condvar::new(),
+        });
         Self { shared }
+    }
+
+    pub fn status(&self) -> UsageStatus {
+        lock(&self.shared).status.clone()
     }
 
     /// 有効にすると、キーチェーンを拒まれて止めていた状態も解いて、すぐに一度取りに行く。
@@ -121,9 +226,14 @@ impl Poller {
         self.shared.wake.notify_all();
     }
 
-    pub fn spawn(&self, home: MarimoHome) {
+    pub fn spawn(&self, home: MarimoHome, app: AppHandle) {
         let shared = self.shared.clone();
-        thread::spawn(move || run(&shared, &home));
+        thread::spawn(move || {
+            let reporter = Reporter::new(home.clone(), move |status: &UsageStatus| {
+                let _ = app.emit(STATUS_EVENT, status);
+            });
+            run(&shared, &home, reporter);
+        });
     }
 }
 
@@ -134,55 +244,112 @@ fn lock(shared: &Shared) -> MutexGuard<'_, Control> {
         .unwrap_or_else(PoisonError::into_inner)
 }
 
-fn run(shared: &Shared, home: &MarimoHome) {
+/// 状態が変わったときだけ画面へ知らせ、再試行の時刻のほかも変わったときだけログへ書く。
+struct Reporter<E> {
+    home: MarimoHome,
+    emit: E,
+    logged: Option<UsageStatus>,
+}
+
+impl<E: Fn(&UsageStatus)> Reporter<E> {
+    fn new(home: MarimoHome, emit: E) -> Self {
+        Self {
+            home,
+            emit,
+            logged: None,
+        }
+    }
+
+    fn report(&mut self, shared: &Shared, status: UsageStatus) {
+        {
+            let mut c = lock(shared);
+            if c.status == status {
+                return;
+            }
+            c.status = status.clone();
+        }
+        (self.emit)(&status);
+        // 一度も有効にしていない利用者のためにログのファイルを作らないよう、最初の無効は書かない。
+        let quiet = match status {
+            UsageStatus::Pending => true,
+            UsageStatus::Disabled => self.logged.is_none(),
+            _ => false,
+        };
+        if quiet || self.logged.as_ref().is_some_and(|l| l.same_state(&status)) {
+            return;
+        }
+        let text = status.describe();
+        if !matches!(status, UsageStatus::Ok | UsageStatus::Disabled) {
+            eprintln!("marimo: {text}");
+        }
+        let line = format!("{} {text}", local_time(now_ms(), "%Y-%m-%d %H:%M:%S %:z"));
+        if let Err(e) = store::append_usage_log(&self.home, &line) {
+            eprintln!("marimo: cannot write the usage log: {e}");
+        }
+        self.logged = Some(status);
+    }
+}
+
+fn run<E: Fn(&UsageStatus)>(shared: &Shared, home: &MarimoHome, mut reporter: Reporter<E>) {
+    #[cfg(not(feature = "usage-replay"))]
     let agent = agent();
     // キーチェーンを読むたびに確認が出うるので、トークンは期限が切れるか拒まれるまで手元に持つ。
     // ファイルにもログにも出さない。
     let mut cached: Option<Credentials> = None;
     let mut interval = INTERVAL;
-    let mut last_note: Option<String> = None;
     loop {
-        let generation = {
-            let mut c = lock(shared);
-            while !c.enabled || c.halted {
-                cached = None;
-                c = shared.wake.wait(c).unwrap_or_else(PoisonError::into_inner);
+        let mut resumed = false;
+        let generation = loop {
+            let idle = {
+                let c = lock(shared);
+                if c.enabled && !c.halted {
+                    break c.generation;
+                }
+                !c.enabled
+            };
+            cached = None;
+            if idle {
+                reporter.report(shared, UsageStatus::Disabled);
             }
-            c.generation
+            let c = lock(shared);
+            if !c.enabled || c.halted {
+                drop(shared.wake.wait(c).unwrap_or_else(PoisonError::into_inner));
+            }
+            resumed = true;
         };
+        // 止めていた間の理由を、次の結果が出るまで残さない。
+        if resumed {
+            reporter.report(shared, UsageStatus::Pending);
+        }
 
-        let outcome = match poll(&agent, home, &mut cached) {
+        #[cfg(not(feature = "usage-replay"))]
+        let polled = poll(&agent, home, &mut cached);
+        #[cfg(feature = "usage-replay")]
+        let polled = replay::poll();
+        let outcome = match polled {
             Ok(outcome) => outcome,
             Err(Halt) => {
-                let mut c = lock(shared);
-                if c.generation == generation {
-                    c.halted = true;
+                let halted = {
+                    let mut c = lock(shared);
+                    if c.generation == generation {
+                        c.halted = true;
+                    }
+                    c.halted
+                };
+                if halted {
+                    reporter.report(shared, UsageStatus::KeychainDenied);
                 }
-                eprintln!(
-                    "marimo: keychain access was denied; usage polling stops until the setting is turned on again"
-                );
-                last_note = None;
                 continue;
             }
         };
         let (next, wait) = next_wait(interval, &outcome);
         interval = next;
-        let note = match &outcome {
-            Outcome::Updated => None,
-            Outcome::RateLimited { .. } => Some(format!(
-                "usage API is rate limited (HTTP 429); next try in {} min",
-                wait.as_secs().div_ceil(60)
-            )),
-            Outcome::Unauthorized(code) => {
-                Some(format!("usage API rejected the token (HTTP {code})"))
-            }
-            Outcome::Skipped(reason) => Some((*reason).to_owned()),
-            Outcome::Failed(message) => Some(message.clone()),
-        };
-        if note.is_some() && note != last_note {
-            eprintln!("marimo: {}", note.as_deref().unwrap_or_default());
-        }
-        last_note = note;
+        reporter.report(
+            shared,
+            UsageStatus::from_outcome(&outcome, now_ms() + wait.as_millis() as u64),
+        );
+        #[cfg(feature = "usage-replay")]
+        let wait = wait.min(replay::TICK);
 
         let deadline = Instant::now() + wait;
         let mut c = lock(shared);
@@ -211,17 +378,15 @@ fn poll(
         None => match credentials::read() {
             Ok(bytes) => match credentials::parse(&bytes) {
                 Ok(c) => c,
-                Err(reason) => return Ok(Outcome::Skipped(reason)),
+                Err(reason) => return Ok(Outcome::Failed(reason.to_owned())),
             },
             Err(ReadError::Denied) => return Err(Halt),
-            Err(ReadError::NotFound) => {
-                return Ok(Outcome::Skipped("no Claude Code credentials were found"));
-            }
+            Err(ReadError::NotFound) => return Ok(Outcome::NotFound),
             Err(ReadError::Other(message)) => return Ok(Outcome::Failed(message)),
         },
     };
     if let Err(unusable) = creds.check(now) {
-        return Ok(Outcome::Skipped(unusable.reason()));
+        return Ok(Outcome::Unusable(unusable));
     }
 
     let outcome = match fetch(agent, &creds) {
@@ -231,7 +396,9 @@ fn poll(
                 Ok(()) => Outcome::Updated,
                 Err(e) => Outcome::Failed(format!("cannot write rate limits: {e}")),
             },
-            None => Outcome::Skipped("the usage API response had no usable five_hour or seven_day"),
+            None => Outcome::Failed(
+                "the usage API response had no usable five_hour or seven_day".to_owned(),
+            ),
         },
         Ok(Response::Status {
             code: 429,
@@ -308,9 +475,43 @@ fn fetch(agent: &ureq::Agent, creds: &Credentials) -> Result<Response, String> {
         .map_err(|e| format!("cannot read the usage API response: {e}"))
 }
 
+#[cfg(feature = "usage-replay")]
+mod replay {
+    //! 試験用のビルドだけで使う。キーチェーンにも API にも触れずに利用制限の行に出す理由を確かめるため、
+    //! MARIMO_USAGE_REPLAY が指すファイルの中身（ok、expired、scope、notfound、denied、`429 秒数`、
+    //! 401、403、それ以外は失敗の文）を、周期ごとに問い合わせの結果の代わりに使う。ファイルを書き換えれば
+    //! すぐに表示が変わるよう、周期も短くする。
+    use std::time::Duration;
+
+    use super::{Halt, Outcome, Unusable, retry_after_seconds};
+
+    pub const TICK: Duration = Duration::from_secs(2);
+
+    pub fn poll() -> Result<Outcome, Halt> {
+        let text = std::env::var_os("MARIMO_USAGE_REPLAY")
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .unwrap_or_default();
+        let mut words = text.split_whitespace();
+        Ok(match (words.next(), words.next()) {
+            (Some("ok"), _) => Outcome::Updated,
+            (Some("expired"), _) => Outcome::Unusable(Unusable::Expired),
+            (Some("scope"), _) => Outcome::Unusable(Unusable::MissingScope),
+            (Some("notfound"), _) => Outcome::NotFound,
+            (Some("denied"), _) => return Err(Halt),
+            (Some("429"), secs) => Outcome::RateLimited {
+                retry_after: secs.and_then(retry_after_seconds),
+            },
+            (Some("401"), _) => Outcome::Unauthorized(401),
+            (Some("403"), _) => Outcome::Unauthorized(403),
+            _ => Outcome::Failed(format!("usage replay: {}", text.trim())),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     const FIXTURE: &str = r#"{
         "five_hour": {"utilization": 23.0, "resets_at": "2026-09-27T19:00:00.279959+00:00", "limit_dollars": null, "used_dollars": null, "remaining_dollars": null, "locked_reason": null},
@@ -394,7 +595,8 @@ mod tests {
         // 429 以外の失敗は、広げた間隔を戻さずに次の周期を待つ。
         for outcome in [
             Outcome::Unauthorized(401),
-            Outcome::Skipped("expired"),
+            Outcome::Unusable(Unusable::Expired),
+            Outcome::NotFound,
             Outcome::Failed("io".to_owned()),
         ] {
             assert_eq!(next_wait(INTERVAL, &outcome), (INTERVAL, INTERVAL));
@@ -418,6 +620,98 @@ mod tests {
         assert_eq!(
             next_wait(INTERVAL, &with(10 * 24 * 60 * 60)),
             (min(10), RETRY_AFTER_CAP)
+        );
+    }
+
+    #[test]
+    fn outcomes_map_to_the_status_the_panel_reads() {
+        let cases = [
+            (Outcome::Updated, json!({"kind": "ok"})),
+            (
+                Outcome::RateLimited { retry_after: None },
+                json!({"kind": "rate_limited", "retry_at": 42}),
+            ),
+            (
+                Outcome::Unauthorized(403),
+                json!({"kind": "rejected", "code": 403}),
+            ),
+            (
+                Outcome::Unusable(Unusable::Expired),
+                json!({"kind": "token_expired"}),
+            ),
+            (
+                Outcome::Unusable(Unusable::MissingScope),
+                json!({"kind": "missing_scope"}),
+            ),
+            (Outcome::NotFound, json!({"kind": "not_found"})),
+            (
+                Outcome::Failed("io".to_owned()),
+                json!({"kind": "failed", "detail": "io", "retry_at": 42}),
+            ),
+        ];
+        for (outcome, expected) in cases {
+            let status = UsageStatus::from_outcome(&outcome, 42);
+            assert_eq!(
+                serde_json::to_value(&status).unwrap(),
+                expected,
+                "{outcome:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn reports_changes_and_logs_only_when_more_than_the_retry_time_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = MarimoHome::at(dir.path());
+        let shared = Poller::new(true).shared;
+        let emitted = std::cell::RefCell::new(Vec::new());
+        let mut reporter = Reporter::new(home.clone(), |s: &UsageStatus| {
+            emitted.borrow_mut().push(s.clone())
+        });
+        let failed = |detail: &str, retry_at| UsageStatus::Failed {
+            detail: detail.to_owned(),
+            retry_at,
+        };
+        for status in [
+            UsageStatus::Pending,
+            UsageStatus::Ok,
+            UsageStatus::Ok,
+            failed("io", 1),
+            failed("io", 2),
+            failed("dns", 3),
+            UsageStatus::RateLimited { retry_at: 4 },
+            UsageStatus::RateLimited { retry_at: 5 },
+            UsageStatus::TokenExpired,
+        ] {
+            reporter.report(&shared, status);
+        }
+        drop(reporter);
+        assert_eq!(
+            emitted.into_inner(),
+            [
+                UsageStatus::Ok,
+                failed("io", 1),
+                failed("io", 2),
+                failed("dns", 3),
+                UsageStatus::RateLimited { retry_at: 4 },
+                UsageStatus::RateLimited { retry_at: 5 },
+                UsageStatus::TokenExpired,
+            ]
+        );
+        let log = std::fs::read_to_string(home.usage_log_file()).unwrap();
+        let kinds: Vec<&str> = log
+            .lines()
+            .map(|l| l.split_whitespace().nth(3).unwrap())
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "ok:",
+                "failed:",
+                "failed:",
+                "rate_limited:",
+                "token_expired:"
+            ]
         );
     }
 }
