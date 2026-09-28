@@ -15,6 +15,13 @@
   --stage-aspect: 1.5;
   /* パネルの上辺の外に付ける切り替えのタブの高さ。パネルの高さの上限からこの分を引く。 */
   --panel-tab-h: 20px;
+  /* パネルと広げた層が窓の上端との間に空ける高さ。立ち絵を出している間は、パネルの右上に重なって
+     出る吹き出し（3 行で 88px）とその隙間の分を空け、吹き出しがタブと行を隠さないようにする。 */
+  --panel-top-room: 104px;
+}
+
+#app.character-hidden {
+  --panel-top-room: 8px;
 }
 
 html,
@@ -140,7 +147,7 @@ body {
 
 /* 画面の隅で場所を取りすぎないよう、立ち絵の倍率とは別に幅を決める。 */
 /* パネルは立ち絵の左に、下端を揃えて置く。行が増えるとパネルだけが上へ伸びる。上辺の外のタブと
-   合わせて窓の上端から 8px 下までで止め、それより多い行は #rows の中でスクロールさせる。 */
+   合わせて窓の上端から --panel-top-room だけ下までで止め、それより多い行は #rows の中でスクロールさせる。 */
 #panel {
   position: absolute;
   right: calc(8px + 180px * var(--scale) + 8px);
@@ -148,7 +155,7 @@ body {
   display: flex;
   flex-direction: column;
   width: 312px;
-  max-height: calc(100% - 8px - var(--panel-tab-h) - 8px);
+  max-height: calc(100% - var(--panel-top-room) - var(--panel-tab-h) - 8px);
   padding: 5px 8px;
   box-sizing: border-box;
   border-radius: 10px;
@@ -373,7 +380,7 @@ body {
 }
 
 /* 件数の行にマウスを載せたときだけ出す層。元の行の下端に揃えて上へ伸ばし、パネルの高さを変えない。
-   窓の上端から 8px 下までで止め、それより多い行は層の中でスクロールさせる。--layer-below は、層の
+   窓の上端から --panel-top-room だけ下までで止め、それより多い行は層の中でスクロールさせる。--layer-below は、層の
    下端から窓の下端までの距離で、panel.ts が入れる。 */
 .hover-layer {
   display: none;
@@ -384,7 +391,7 @@ body {
   bottom: 0;
   z-index: 5;
   box-sizing: border-box;
-  max-height: calc(100vh - 8px - var(--layer-below, 0px));
+  max-height: calc(100vh - var(--panel-top-room) - var(--layer-below, 0px));
   padding: 3px 6px;
   border-radius: 6px;
   background: var(--layer-bg);
