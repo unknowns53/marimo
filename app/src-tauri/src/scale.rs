@@ -329,14 +329,23 @@ mod tests {
             (1.5, Some(counts))
         );
         save(&home, 2.0).unwrap();
-        assert_eq!(load_panel_display(&home), Some(counts));
+        save_character(&home, "clawd").unwrap();
+        assert_eq!(
+            (load_panel_display(&home), load_character(&home).as_str()),
+            (Some(counts), "clawd")
+        );
 
         save_usage_api(&home, true).unwrap();
         save_aspect(&home, 1.0).unwrap();
         assert!(load_usage_api(&home));
         assert_eq!(
-            (load(&home), load_panel_display(&home), load_aspect(&home)),
-            (2.0, Some(counts), 1.0)
+            (
+                load(&home),
+                load_panel_display(&home),
+                load_aspect(&home),
+                load_character(&home).as_str()
+            ),
+            (2.0, Some(counts), 1.0, "clawd")
         );
         save(&home, 2.5).unwrap();
         save_panel_display(&home, display(false, PanelStyle::Detail)).unwrap();
@@ -438,16 +447,6 @@ mod tests {
         let (_d, home) = home();
         assert_eq!(default_character(), "koharu");
         assert_eq!(load_character(&home), "koharu");
-        save(&home, 1.5).unwrap();
-        save_character(&home, "clawd").unwrap();
-        save_panel_display(&home, display(false, PanelStyle::Counts)).unwrap();
-        assert_eq!(
-            (load_character(&home).as_str(), load(&home)),
-            ("clawd", 1.5)
-        );
-        assert!(save_character(&home, "bogus").is_err());
-        assert_eq!(load_character(&home), "clawd");
-
         for (content, expected) in [
             (r#"{"character": "koharu"}"#, "koharu"),
             (r#"{"character": "clawd", "scale": 0.6}"#, "clawd"),
@@ -459,6 +458,14 @@ mod tests {
             fs::write(home.display_file(), content).unwrap();
             assert_eq!(load_character(&home), expected, "content {content:?}");
         }
+    }
+
+    #[test]
+    fn unknown_character_is_not_saved() {
+        let (_d, home) = home();
+        save_character(&home, "clawd").unwrap();
+        assert!(save_character(&home, "bogus").is_err());
+        assert_eq!(load_character(&home), "clawd");
     }
 
     #[test]
