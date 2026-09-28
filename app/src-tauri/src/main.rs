@@ -222,6 +222,7 @@ fn main() {
             let display = scale::load_panel_display(&home).unwrap_or_default();
             let tray = tray::build(app.handle(), display)?;
             let _ = app.state::<AppState>().tray.set(tray);
+            tray::show_status(app.handle(), store::load_snapshot(&home).aggregate);
             watch::spawn(app.handle().clone(), home.clone());
             watch::spawn_pruner(home.clone());
             usage.spawn(home.clone());
