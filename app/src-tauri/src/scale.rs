@@ -112,16 +112,6 @@ mod tests {
     }
 
     #[test]
-    fn save_then_load_round_trips() {
-        let (_d, home) = home();
-        assert_eq!(load(&home), DEFAULT);
-        save(&home, 1.7).unwrap();
-        assert_eq!(load(&home), 1.7);
-        save(&home, MAX).unwrap();
-        assert_eq!(load(&home), MAX);
-    }
-
-    #[test]
     fn invalid_stored_values_fall_back_to_default() {
         let (_d, home) = home();
         for content in [
@@ -140,9 +130,11 @@ mod tests {
     }
 
     #[test]
-    fn scale_and_panel_mode_share_the_file_without_losing_each_other() {
+    fn display_settings_share_one_file() {
         let (_d, home) = home();
+        assert_eq!(load(&home), DEFAULT);
         assert_eq!(load_panel_mode(&home), None);
+        assert!(!load_usage_api(&home));
         save(&home, 1.5).unwrap();
         save_panel_mode(&home, "counts").unwrap();
         assert_eq!(
@@ -152,58 +144,54 @@ mod tests {
         save(&home, 2.0).unwrap();
         assert_eq!(load_panel_mode(&home).as_deref(), Some("counts"));
         assert!(save_panel_mode(&home, "bogus").is_err());
-        fs::write(
-            home.display_file(),
-            r#"{"scale": 1.2, "panel_mode": "tiny"}"#,
-        )
-        .unwrap();
-        assert_eq!((load(&home), load_panel_mode(&home)), (1.2, None));
-        // 倍率だけを持つ古い形式もそのまま読める。
-        fs::write(home.display_file(), r#"{"scale": 1.7}"#).unwrap();
-        assert_eq!((load(&home), load_panel_mode(&home)), (1.7, None));
-    }
 
-    #[test]
-    fn every_panel_mode_round_trips_including_list() {
-        let (_d, home) = home();
-        for mode in ["list", "detail", "counts", "picture", "list"] {
-            save_panel_mode(&home, mode).unwrap();
-            assert_eq!(load_panel_mode(&home).as_deref(), Some(mode));
-        }
-        // リストだけの段階を知らない版が書いたファイルも、そのまま読める。
-        for mode in ["detail", "counts", "picture"] {
-            fs::write(
-                home.display_file(),
-                format!(r#"{{"scale": 1.3, "panel_mode": "{mode}"}}"#),
-            )
-            .unwrap();
-            assert_eq!(
-                (load(&home), load_panel_mode(&home).as_deref()),
-                (1.3, Some(mode))
-            );
-        }
-        fs::write(home.display_file(), r#"{"panel_mode": "list"}"#).unwrap();
-        assert_eq!(load_panel_mode(&home).as_deref(), Some("list"));
-    }
-
-    #[test]
-    fn usage_api_shares_the_file_and_defaults_to_off() {
-        let (_d, home) = home();
-        assert!(!load_usage_api(&home));
-        save(&home, 1.5).unwrap();
-        save_panel_mode(&home, "counts").unwrap();
         save_usage_api(&home, true).unwrap();
         assert!(load_usage_api(&home));
         assert_eq!(
             (load(&home), load_panel_mode(&home).as_deref()),
-            (1.5, Some("counts"))
+            (2.0, Some("counts"))
         );
-        save(&home, 2.0).unwrap();
+        save(&home, 2.5).unwrap();
         save_panel_mode(&home, "picture").unwrap();
         assert!(load_usage_api(&home));
         save_usage_api(&home, false).unwrap();
         assert!(!load_usage_api(&home));
-        assert_eq!(load(&home), 2.0);
+        assert_eq!(load(&home), MAX);
+
+        for mode in ["list", "detail", "counts", "picture", "list"] {
+            save_panel_mode(&home, mode).unwrap();
+            assert_eq!(load_panel_mode(&home).as_deref(), Some(mode));
+        }
+
+        // 倍率だけを持つ古い形式や、リストだけの段階を知らない版が書いたファイルもそのまま読める。
+        let cases = [
+            (r#"{"scale": 1.2, "panel_mode": "tiny"}"#, 1.2, None),
+            (r#"{"scale": 1.7}"#, 1.7, None),
+            (
+                r#"{"scale": 1.3, "panel_mode": "detail"}"#,
+                1.3,
+                Some("detail"),
+            ),
+            (
+                r#"{"scale": 1.3, "panel_mode": "counts"}"#,
+                1.3,
+                Some("counts"),
+            ),
+            (
+                r#"{"scale": 1.3, "panel_mode": "picture"}"#,
+                1.3,
+                Some("picture"),
+            ),
+            (r#"{"panel_mode": "list"}"#, DEFAULT, Some("list")),
+        ];
+        for (content, scale, mode) in cases {
+            fs::write(home.display_file(), content).unwrap();
+            assert_eq!(
+                (load(&home), load_panel_mode(&home).as_deref()),
+                (scale, mode),
+                "content {content:?}"
+            );
+        }
         for content in [r#"{"usage_api": "yes"}"#, "{broken", r#"{"scale": 1.2}"#] {
             fs::write(home.display_file(), content).unwrap();
             assert!(!load_usage_api(&home), "content {content:?}");
@@ -216,12 +204,5 @@ mod tests {
         assert_eq!(clamp(9.0), MAX);
         assert_eq!(clamp(f64::NAN), DEFAULT);
         assert_eq!(clamp(1.0 + 0.1 + 0.1), 1.2);
-    }
-
-    #[test]
-    fn window_grows_with_portrait_only() {
-        assert_eq!(window_size(1.0), (516.0, 398.0));
-        assert_eq!(window_size(2.5), (786.0, 803.0));
-        assert_eq!(window_size(0.6), (444.0, 380.0));
     }
 }

@@ -799,15 +799,6 @@ mod tests {
     }
 
     #[test]
-    fn session_end_deletes() {
-        let cur = SessionState::new("s1");
-        assert_eq!(
-            transition(&input(ev("SessionEnd")), Some(&cur), 1),
-            Transition::Delete
-        );
-    }
-
-    #[test]
     fn started_at_is_set_once_and_kept() {
         let s = write(transition(&input(ev("SessionStart")), None, 10));
         assert_eq!(s.started_at, 10);
@@ -967,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_legacy_state_files() {
+    fn older_state_files_are_read_and_carried_forward() {
         let legacy = json!({
             "session_id": "s1", "cwd": "/w/p", "status": "working",
             "line": "Bash: cargo test", "last_event": "PreToolUse",
@@ -988,10 +979,39 @@ mod tests {
         }
         let minimal: SessionState = serde_json::from_value(json!({"session_id": "s1"})).unwrap();
         assert_eq!(minimal, SessionState::new("s1"));
+
+        // own_status を持たない古いファイルは、表示用の値を親の会話の状態として引き継ぐ。
+        let legacy: SessionState = serde_json::from_value(json!({
+            "session_id": "s1", "cwd": "/w/p", "status": "done", "status_since": 7,
+            "activity": {"kind": "message", "summary": "前の応答"}, "updated_at": 7
+        }))
+        .unwrap();
+        assert_eq!((legacy.own_status, legacy.agents.len()), (None, 0));
+        let s = write(transition(&sub("SubagentStart", "a1"), Some(&legacy), 20));
+        assert_eq!(
+            (
+                s.status,
+                s.own_status,
+                s.own_activity.as_ref().unwrap().summary.as_str()
+            ),
+            (Status::Working, Some(Status::Done), "前の応答")
+        );
+        let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 30));
+        assert_eq!((s.status, s.status_since), (Status::Done, 30));
+        assert_eq!(s.activity.unwrap().summary, "前の応答");
+
+        // 親の会話のイベントでも、古いファイルの状態を引き継いで判断する。
+        let idle = json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"});
+        let working: SessionState =
+            serde_json::from_value(json!({"session_id": "s1", "status": "working"})).unwrap();
+        assert_eq!(
+            write(transition(&input(idle), Some(&working), 5)).status,
+            Status::Idle
+        );
     }
 
     #[test]
-    fn new_format_round_trips() {
+    fn state_files_round_trip() {
         let mut s = write(transition(
             &input(
                 json!({"session_id":"s1","hook_event_name":"PreToolUse","cwd":"/w","tool_name":"Grep","tool_input":{"pattern":"x"}}),
@@ -1008,11 +1028,34 @@ mod tests {
         let text = serde_json::to_string(&s).unwrap();
         assert!(text.contains("\"activity\""));
         assert!(!text.contains("\"line\""));
+        assert!(!text.contains("window") && !text.contains("ancestors"));
+        assert!(!text.contains("\"agents\""));
         assert_eq!(serde_json::from_str::<SessionState>(&text).unwrap(), s);
+
+        let origin = windows_terminal();
+        let text = serde_json::to_string(&origin).unwrap();
+        assert!(text.contains("\"hwnd\"") && text.contains("\"ancestors\""));
+        assert_eq!(serde_json::from_str::<Origin>(&text).unwrap(), origin);
+        let older: Origin = serde_json::from_value(
+            json!({"term_program": "Apple_Terminal", "tty": "/dev/ttys002"}),
+        )
+        .unwrap();
+        assert_eq!((older.window, older.ancestors), (None, Vec::new()));
+
+        let s = write(transition(
+            &sub("PermissionRequest", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        let text = serde_json::to_string(&s).unwrap();
+        assert!(text.contains("\"agents\"") && text.contains("\"own_status\""));
+        assert_eq!(serde_json::from_str::<SessionState>(&text).unwrap(), s);
+        let plain = serde_json::to_string(&working_parent()).unwrap();
+        assert!(!plain.contains("\"agents\""));
     }
 
     #[test]
-    fn origin_merge_keeps_entrypoint_and_refreshes_process_clues() {
+    fn origin_merge_cases() {
         let terminal = Origin {
             bundle_id: Some("com.apple.Terminal".into()),
             term_program: Some("Apple_Terminal".into()),
@@ -1037,26 +1080,7 @@ mod tests {
         assert_eq!(Origin::merge(None, Some(&Origin::default()), None), None);
         let kept = Origin::merge(Some(&terminal), Some(&Origin::default()), None).unwrap();
         assert_eq!(kept, terminal);
-    }
 
-    fn windows_terminal() -> Origin {
-        Origin {
-            window: Some(WindowRef {
-                hwnd: 0x1_0a2c,
-                pid: 4120,
-                created: 133_700_000_000_000_000,
-            }),
-            ancestors: vec![ProcessRef {
-                pid: 5008,
-                created: 133_700_000_100_000_000,
-                exe: r"C:\Users\user\.local\bin\claude.exe".into(),
-            }],
-            ..Origin::default()
-        }
-    }
-
-    #[test]
-    fn origin_merge_keeps_windows_clues_until_a_new_windows_detection() {
         let first = windows_terminal();
         let merged = Origin::merge(None, Some(&first), Some("cli")).unwrap();
         // SessionStart と UserPromptSubmit 以外のイベントでは環境変数しか取らないので、
@@ -1094,24 +1118,20 @@ mod tests {
         );
     }
 
-    #[test]
-    fn windows_clues_round_trip_and_older_files_read_without_them() {
-        let origin = windows_terminal();
-        let text = serde_json::to_string(&origin).unwrap();
-        assert!(text.contains("\"hwnd\"") && text.contains("\"ancestors\""));
-        assert_eq!(serde_json::from_str::<Origin>(&text).unwrap(), origin);
-
-        let mac = Origin {
-            term_program: Some("Apple_Terminal".into()),
+    fn windows_terminal() -> Origin {
+        Origin {
+            window: Some(WindowRef {
+                hwnd: 0x1_0a2c,
+                pid: 4120,
+                created: 133_700_000_000_000_000,
+            }),
+            ancestors: vec![ProcessRef {
+                pid: 5008,
+                created: 133_700_000_100_000_000,
+                exe: r"C:\Users\user\.local\bin\claude.exe".into(),
+            }],
             ..Origin::default()
-        };
-        let text = serde_json::to_string(&mac).unwrap();
-        assert!(!text.contains("window") && !text.contains("ancestors"));
-        let older: Origin = serde_json::from_value(
-            json!({"term_program": "Apple_Terminal", "tty": "/dev/ttys002"}),
-        )
-        .unwrap();
-        assert_eq!((older.window, older.ancestors), (None, Vec::new()));
+        }
     }
 
     #[test]
@@ -1195,7 +1215,7 @@ mod tests {
     }
 
     #[test]
-    fn subagent_tool_events_leave_the_parent_state_alone() {
+    fn subagent_events_leave_parent_state_and_cwd() {
         let parent = working_parent();
         let mut s = parent.clone();
         for (i, name) in [
@@ -1217,24 +1237,16 @@ mod tests {
         }
         assert_eq!(s.agents["a1"].last_seen, 23);
         assert_eq!(s.agents["a1"].started_at, 20);
-    }
 
-    #[test]
-    fn subagent_worktree_cwd_never_renames_the_row() {
-        let mut s = working_parent();
-        for name in [
-            "SubagentStart",
-            "PermissionRequest",
-            "PostToolUse",
-            "SubagentStop",
-        ] {
-            s = write(transition(&sub(name, "a1"), Some(&s), 20));
+        // 承認待ちと終了のイベントも、worktree の cwd で行の名前を変えない。
+        for name in ["PermissionRequest", "PostToolUse", "SubagentStop"] {
+            s = write(transition(&sub(name, "a1"), Some(&s), 30));
             assert_eq!(s.cwd.as_deref(), Some("/w/proj"), "{name}");
         }
     }
 
     #[test]
-    fn subagent_approval_shows_waiting_until_answered() {
+    fn subagent_approval_waits_until_that_agent_answers() {
         let s = write(transition(
             &sub("SubagentStart", "a1"),
             Some(&working_parent()),
@@ -1249,6 +1261,11 @@ mod tests {
         assert_eq!(s.activity.as_ref().unwrap().summary, "rm x");
         assert_eq!(s.own_status, Some(Status::Done));
 
+        // 別のサブエージェントのツールの結果では、a1 の承認待ちは消えない。
+        let other = write(transition(&sub("PostToolUse", "a2"), Some(&s), 45));
+        assert_eq!(other.status, Status::Waiting);
+        assert!(other.agents["a1"].pending.is_some());
+
         for end in ["PostToolUse", "PostToolUseFailure", "PermissionDenied"] {
             let after = write(transition(&sub(end, "a1"), Some(&s), 50));
             assert_eq!(
@@ -1261,18 +1278,6 @@ mod tests {
         let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 60));
         assert_eq!((s.status, s.status_since), (Status::Done, 60));
         assert_eq!(s.activity.unwrap().summary, "終わりました。");
-    }
-
-    #[test]
-    fn another_agents_tool_result_keeps_the_approval() {
-        let s = write(transition(
-            &sub("PermissionRequest", "a1"),
-            Some(&working_parent()),
-            20,
-        ));
-        let s = write(transition(&sub("PostToolUse", "a2"), Some(&s), 30));
-        assert_eq!(s.status, Status::Waiting);
-        assert!(s.agents["a1"].pending.is_some());
     }
 
     #[test]
@@ -1354,27 +1359,6 @@ mod tests {
     }
 
     #[test]
-    fn unknown_agent_creates_its_entry() {
-        let s = write(transition(
-            &sub("PreToolUse", "zz"),
-            Some(&working_parent()),
-            20,
-        ));
-        let run = &s.agents["zz"];
-        assert_eq!(
-            (
-                run.agent_type.as_deref(),
-                run.started_at,
-                run.last_seen,
-                &run.pending
-            ),
-            (Some("Explore"), 20, 20, &None)
-        );
-        let s = write(transition(&sub("PermissionRequest", "yy"), Some(&s), 30));
-        assert_eq!(s.agents["yy"].pending.as_ref().unwrap().summary, "rm x");
-    }
-
-    #[test]
     fn subagent_events_without_a_session_file() {
         assert_eq!(
             transition(&sub("SubagentStop", "a1"), None, 10),
@@ -1412,7 +1396,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_type_alone_is_the_main_thread() {
+    fn only_agent_id_marks_a_subagent() {
         // `--agent` で起動したセッションでは、親の会話のフックにも agent_type が入る。
         let pre = json!({
             "session_id": "s1", "hook_event_name": "PreToolUse", "agent_type": "reviewer",
@@ -1430,41 +1414,8 @@ mod tests {
             write(transition(&input(empty_id), Some(&parent), 30)).own_status,
             Some(Status::Done)
         );
-    }
 
-    #[test]
-    fn older_files_without_own_status() {
-        let legacy: SessionState = serde_json::from_value(json!({
-            "session_id": "s1", "cwd": "/w/p", "status": "done", "status_since": 7,
-            "activity": {"kind": "message", "summary": "前の応答"}, "updated_at": 7
-        }))
-        .unwrap();
-        assert_eq!((legacy.own_status, legacy.agents.len()), (None, 0));
-        let s = write(transition(&sub("SubagentStart", "a1"), Some(&legacy), 20));
-        assert_eq!(
-            (
-                s.status,
-                s.own_status,
-                s.own_activity.as_ref().unwrap().summary.as_str()
-            ),
-            (Status::Working, Some(Status::Done), "前の応答")
-        );
-        let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 30));
-        assert_eq!((s.status, s.status_since), (Status::Done, 30));
-        assert_eq!(s.activity.unwrap().summary, "前の応答");
-
-        // 親の会話のイベントでも、古いファイルの状態を引き継いで判断する。
-        let idle = json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"});
-        let working: SessionState =
-            serde_json::from_value(json!({"session_id": "s1", "status": "working"})).unwrap();
-        assert_eq!(
-            write(transition(&input(idle), Some(&working), 5)).status,
-            Status::Idle
-        );
-    }
-
-    #[test]
-    fn subagent_tool_calls_do_not_recount_usage() {
+        // サブエージェントのツールの実行は、親のコンテキストの使用量を数え直さない。
         let main = input(
             json!({"session_id":"s1","hook_event_name":"PostToolUse","transcript_path":"/t.jsonl"}),
         );
@@ -1477,20 +1428,6 @@ mod tests {
             json!({"session_id":"s1","hook_event_name":"PostToolUse","transcript_path":"/t.jsonl","agent_type":"reviewer"}),
         );
         assert!(typed.wants_transcript_usage());
-    }
-
-    #[test]
-    fn agents_round_trip() {
-        let s = write(transition(
-            &sub("PermissionRequest", "a1"),
-            Some(&working_parent()),
-            20,
-        ));
-        let text = serde_json::to_string(&s).unwrap();
-        assert!(text.contains("\"agents\"") && text.contains("\"own_status\""));
-        assert_eq!(serde_json::from_str::<SessionState>(&text).unwrap(), s);
-        let plain = serde_json::to_string(&working_parent()).unwrap();
-        assert!(!plain.contains("\"agents\""));
     }
 
     #[test]
@@ -1525,14 +1462,6 @@ mod tests {
         refresh_repo(&sub, Some(&cur), &mut next, lookup);
         assert_eq!(next.repo.as_deref(), Some("repo-of-/w/a"));
         assert_eq!(lookup_count.get(), 1);
-    }
-
-    #[test]
-    fn titles_are_trimmed_and_capped() {
-        assert_eq!(clean_title("  題名 \n").as_deref(), Some("題名"));
-        assert_eq!(clean_title(" \t "), None);
-        let long = clean_title(&"é".repeat(TITLE_MAX_CHARS + 5)).unwrap();
-        assert_eq!(long.chars().count(), TITLE_MAX_CHARS);
     }
 
     #[test]

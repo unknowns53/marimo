@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn retires_every_shipped_default() {
+    fn retires_only_unedited_shipped_defaults() {
         for shipped in SHIPPED_DEFAULTS {
             let (_d, home) = home();
             fs::write(home.dialogue_file(), shipped).unwrap();
@@ -79,10 +79,7 @@ mod tests {
             let retired = home.root().join("dialogue.json.unused-default");
             assert_eq!(fs::read_to_string(retired).unwrap(), shipped);
         }
-    }
 
-    #[test]
-    fn keeps_edited_missing_or_broken_files() {
         let (_d, home) = home();
         assert!(!retire_shipped_default(&home).unwrap());
         fs::write(home.dialogue_file(), r#"{"done": ["自分で書いたセリフ"]}"#).unwrap();

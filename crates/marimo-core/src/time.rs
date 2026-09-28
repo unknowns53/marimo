@@ -49,14 +49,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formats_known_instants() {
+    fn utc_formatting_of_known_instants() {
         assert_eq!(rfc3339_utc(0), "1970-01-01T00:00:00.000Z");
         assert_eq!(rfc3339_utc(951_782_400_000), "2000-02-29T00:00:00.000Z");
         assert_eq!(rfc3339_utc(1_790_509_325_123), "2026-09-27T11:42:05.123Z");
-    }
-
-    #[test]
-    fn dates_change_at_utc_midnight() {
         assert_eq!(utc_date(0), "1970-01-01");
         assert_eq!(utc_date(951_782_399_999), "2000-02-28");
         assert_eq!(utc_date(951_782_400_000), "2000-02-29");

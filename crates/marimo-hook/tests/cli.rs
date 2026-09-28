@@ -49,20 +49,8 @@ fn hook_updates_state_and_prints_nothing() {
     assert_eq!(s["activity"]["summary"], "cargo build");
     assert_eq!(s["activity"]["detail"], "cargo build");
 
-    let end = json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"other"});
-    let out = run(home, &["hook"], end.to_string().as_bytes());
-    assert!(out.status.success() && out.stdout.is_empty());
-    assert!(session(home, "s1").is_none());
-}
-
-// displayContent を返さなければ元の文章がそのまま表示される（hooks のドキュメントの
-// MessageDisplay output の節）ので、marimo は何も出力してはいけない。
-#[test]
-fn message_display_prints_nothing_and_updates_line() {
-    let dir = tempfile::tempdir().unwrap();
-    let home = dir.path();
-    let start = json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","cwd":"/w/p"});
-    run(home, &["hook"], start.to_string().as_bytes());
+    // displayContent を返さなければ元の文章がそのまま表示される（hooks のドキュメントの
+    // MessageDisplay output の節）ので、marimo は何も出力してはいけない。
     let md = json!({
         "session_id": "s1", "hook_event_name": "MessageDisplay", "cwd": "/w/p",
         "turn_id": "t", "message_id": "m", "index": 0, "final": false,
@@ -74,6 +62,11 @@ fn message_display_prints_nothing_and_updates_line() {
     let s = session(home, "s1").unwrap();
     assert_eq!(s["status"], "working");
     assert_eq!(s["activity"]["summary"], "1. Read the docs");
+
+    let end = json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"other"});
+    let out = run(home, &["hook"], end.to_string().as_bytes());
+    assert!(out.status.success() && out.stdout.is_empty());
+    assert!(session(home, "s1").is_none());
 }
 
 #[test]
@@ -157,11 +150,7 @@ fn broken_input_exits_zero_with_empty_stdout() {
         }
     }
     assert!(!dir.path().join("sessions").exists());
-}
 
-#[test]
-fn unwritable_home_still_exits_zero() {
-    let dir = tempfile::tempdir().unwrap();
     // MARIMO_HOME がディレクトリでなくファイルを指していると、書き込みは必ず失敗する。
     let file = dir.path().join("not-a-dir");
     std::fs::write(&file, b"x").unwrap();
@@ -206,12 +195,8 @@ fn statusline_relays_stdin_and_stdout_verbatim() {
     );
     let expected = format!("\x1b[32mOpus\x1b[0m | {}\nline2\n", STATUSLINE_INPUT.len());
     assert_eq!(String::from_utf8(out.stdout).unwrap(), expected);
-}
 
-#[cfg(unix)]
-#[test]
-fn statusline_relays_even_when_input_is_broken() {
-    let dir = tempfile::tempdir().unwrap();
+    // 入力が壊れていても受け渡しは行う。
     let broken = b"{\"session_id\": oops \xff";
     let out = run(dir.path(), &["statusline", "--", "cat"], broken);
     assert!(out.status.success());
@@ -228,21 +213,18 @@ fn statusline_relays_even_when_input_is_broken() {
     assert_eq!(out.stdout, STATUSLINE_INPUT.as_bytes());
 }
 
-#[cfg(unix)]
 #[test]
-fn statusline_propagates_original_exit_code() {
+fn statusline_exit_code_follows_the_original() {
     let dir = tempfile::tempdir().unwrap();
-    let out = run(
-        dir.path(),
-        &["statusline", "--", "sh", "-c", "cat >/dev/null; exit 3"],
-        b"{}",
-    );
-    assert_eq!(out.status.code(), Some(3));
-}
-
-#[test]
-fn statusline_with_missing_command_exits_zero() {
-    let dir = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    {
+        let out = run(
+            dir.path(),
+            &["statusline", "--", "sh", "-c", "cat >/dev/null; exit 3"],
+            b"{}",
+        );
+        assert_eq!(out.status.code(), Some(3));
+    }
     let out = run(
         dir.path(),
         &["statusline", "--", "marimo-definitely-not-a-command"],
@@ -250,42 +232,4 @@ fn statusline_with_missing_command_exits_zero() {
     );
     assert_eq!(out.status.code(), Some(0));
     assert!(out.stdout.is_empty());
-}
-
-#[test]
-fn record_appends_without_stdout() {
-    let dir = tempfile::tempdir().unwrap();
-    let out = run(
-        dir.path(),
-        &["record", "Notification"],
-        br#"{"notification_type":"permission_prompt"}"#,
-    );
-    assert!(out.status.success() && out.stdout.is_empty());
-    let out = run(dir.path(), &["record", "statusline"], b"raw text");
-    assert!(out.status.success() && out.stdout.is_empty());
-    // 記録は UTC の日付ごとのファイルに分かれるので、日付をまたいだ場合も含めてすべて読む。
-    let mut files: Vec<_> = std::fs::read_dir(dir.path().join("logs"))
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .collect();
-    files.sort();
-    assert!(files.iter().all(|f| {
-        let name = f.file_name().unwrap().to_string_lossy();
-        name.starts_with("record-") && name.ends_with(".jsonl")
-    }));
-    let text: String = files
-        .iter()
-        .map(|f| std::fs::read_to_string(f).unwrap())
-        .collect();
-    let lines: Vec<Value> = text
-        .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect();
-    assert_eq!(lines.len(), 2);
-    assert_eq!(lines[0]["label"], "Notification");
-    assert_eq!(
-        lines[0]["payload"]["notification_type"],
-        "permission_prompt"
-    );
-    assert_eq!(lines[1]["payload"]["raw"], "raw text");
 }

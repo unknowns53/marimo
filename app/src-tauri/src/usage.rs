@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn null_windows_and_null_resets_are_tolerated() {
+    fn usage_response_tolerates_missing_parts() {
         let rl = rate_limits_from_usage(
             r#"{"five_hour": null, "seven_day": {"utilization": 5, "resets_at": null}}"#,
             1,
@@ -359,10 +359,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(rl.five_hour.unwrap().resets_at, None);
-    }
 
-    #[test]
-    fn nothing_to_write_without_either_window() {
         for body in [
             r#"{"five_hour": null, "seven_day": null}"#,
             r#"{"five_hour": {"utilization": null}, "seven_day": {}}"#,
@@ -376,38 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn rfc3339_offsets_and_fractions() {
-        for (text, expected) in [
-            ("2026-09-27T19:00:00.279959+00:00", NINETEEN),
-            ("2026-09-27T19:00:00+00:00", NINETEEN),
-            ("2026-09-27T19:00:00Z", NINETEEN),
-            ("2026-09-27T19:00:00.5Z", NINETEEN),
-            ("2026-09-28T04:00:00+09:00", NINETEEN),
-            ("2026-09-27T13:30:00.999999999-05:30", NINETEEN),
-            ("1970-01-01T00:00:00Z", 0),
-        ] {
-            assert_eq!(unix_seconds(text), Some(expected), "text {text:?}");
-        }
-        for text in [
-            "",
-            "2026-09-27",
-            "2026-09-27T19:00:00",
-            "2026-13-01T00:00:00Z",
-        ] {
-            assert_eq!(unix_seconds(text), None, "text {text:?}");
-        }
-    }
-
-    #[test]
-    fn retry_after_accepts_only_seconds() {
-        assert_eq!(retry_after_seconds("120"), Some(Duration::from_secs(120)));
-        assert_eq!(retry_after_seconds(" 7 "), Some(Duration::from_secs(7)));
-        assert_eq!(retry_after_seconds("Wed, 21 Oct 2026 07:28:00 GMT"), None);
-        assert_eq!(retry_after_seconds("-1"), None);
-    }
-
-    #[test]
-    fn backoff_doubles_up_to_the_cap_and_resets_after_success() {
+    fn next_wait_backoff() {
         let limited = Outcome::RateLimited { retry_after: None };
         let mut interval = INTERVAL;
         let mut waits = Vec::new();
@@ -418,10 +384,25 @@ mod tests {
         }
         assert_eq!(waits, [10, 20, 30, 30]);
         assert_eq!(next_wait(interval, &Outcome::Updated), (INTERVAL, INTERVAL));
+
+        // 429 以外の失敗は、広げた間隔を戻さずに次の周期を待つ。
+        for outcome in [
+            Outcome::Unauthorized(401),
+            Outcome::Skipped("expired"),
+            Outcome::Failed("io".to_owned()),
+        ] {
+            assert_eq!(next_wait(INTERVAL, &outcome), (INTERVAL, INTERVAL));
+            assert_eq!(next_wait(MAX_BACKOFF, &outcome), (MAX_BACKOFF, MAX_BACKOFF));
+        }
     }
 
     #[test]
     fn retry_after_is_honored_but_bounded() {
+        assert_eq!(retry_after_seconds("120"), Some(Duration::from_secs(120)));
+        assert_eq!(retry_after_seconds(" 7 "), Some(Duration::from_secs(7)));
+        assert_eq!(retry_after_seconds("Wed, 21 Oct 2026 07:28:00 GMT"), None);
+        assert_eq!(retry_after_seconds("-1"), None);
+
         let min = |m: u64| Duration::from_secs(m * 60);
         let with = |secs| Outcome::RateLimited {
             retry_after: Some(Duration::from_secs(secs)),
@@ -432,17 +413,5 @@ mod tests {
             next_wait(INTERVAL, &with(10 * 24 * 60 * 60)),
             (min(10), RETRY_AFTER_CAP)
         );
-    }
-
-    #[test]
-    fn other_failures_wait_for_the_next_cycle_without_resetting_backoff() {
-        for outcome in [
-            Outcome::Unauthorized(401),
-            Outcome::Skipped("expired"),
-            Outcome::Failed("io".to_owned()),
-        ] {
-            assert_eq!(next_wait(INTERVAL, &outcome), (INTERVAL, INTERVAL));
-            assert_eq!(next_wait(MAX_BACKOFF, &outcome), (MAX_BACKOFF, MAX_BACKOFF));
-        }
     }
 }

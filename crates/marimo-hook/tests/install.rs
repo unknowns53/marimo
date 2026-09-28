@@ -271,6 +271,13 @@ fn install_then_uninstall_restores_realistic_settings() {
     #[cfg(windows)]
     assert!(text.contains("「利用制限を API から取得」"), "{text}");
 
+    let once = env.text();
+    let out = env.run(&["install"]);
+    assert!(out.status.success());
+    assert_eq!(env.text(), once);
+    assert_eq!(env.backups().len(), 1, "no backup when nothing changes");
+    assert!(stdout(&out).contains("変更はありません"));
+
     let out = env.run(&["uninstall"]);
     assert!(
         out.status.success(),
@@ -288,26 +295,26 @@ fn install_then_uninstall_restores_realistic_settings() {
 }
 
 #[test]
-fn install_is_idempotent() {
-    let env = Env::with_settings(&realistic());
-    assert!(env.run(&["install"]).status.success());
-    let once = env.text();
-    let out = env.run(&["install"]);
-    assert!(out.status.success());
-    assert_eq!(env.text(), once);
-    assert_eq!(env.backups().len(), 1, "no backup when nothing changes");
-    assert!(stdout(&out).contains("変更はありません"));
-}
-
-#[test]
 fn minimal_settings_round_trip() {
+    // install の前から空だった hooks は、marimo の分を取り除いて空になったものと区別できない。
+    // 空の hooks は無いのと同じ意味なので、消えることを仕様として確かめておく。
     let cases = [
-        json!({}),
-        json!({"model": "sonnet"}),
-        json!({"model": "sonnet", "statusLine": {"type": "command", "command": "echo hi"}}),
-        json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}}),
+        (json!({}), None),
+        (json!({"model": "sonnet"}), None),
+        (
+            json!({"model": "sonnet", "statusLine": {"type": "command", "command": "echo hi"}}),
+            None,
+        ),
+        (
+            json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}}),
+            None,
+        ),
+        (
+            json!({"hooks": {}, "model": "x"}),
+            Some(json!({"model": "x"})),
+        ),
     ];
-    for original in cases {
+    for (original, after_uninstall) in cases {
         let text = pretty(&original);
         let env = Env::with_settings(&text);
         let out = env.run(&["install"]);
@@ -337,18 +344,11 @@ fn minimal_settings_round_trip() {
         assert_eq!(installed.get("statusLine"), original.get("statusLine"));
         let out = env.run(&["uninstall"]);
         assert!(out.status.success());
-        assert_eq!(env.text(), text, "round trip of {original}");
+        let expected = after_uninstall
+            .as_ref()
+            .map_or_else(|| text.clone(), pretty);
+        assert_eq!(env.text(), expected, "round trip of {original}");
     }
-}
-
-// install の前から空だった hooks は、marimo の分を取り除いて空になったものと区別できない。
-// 空の hooks は無いのと同じ意味なので、消えることを仕様として確かめておく。
-#[test]
-fn empty_hooks_object_does_not_survive_round_trip() {
-    let env = Env::with_settings(&pretty(&json!({"hooks": {}, "model": "x"})));
-    assert!(env.run(&["install"]).status.success());
-    assert!(env.run(&["uninstall"]).status.success());
-    assert_eq!(env.json(), json!({"model": "x"}));
 }
 
 #[test]
@@ -392,12 +392,9 @@ fn invalid_settings_are_left_untouched() {
             );
         }
     }
-}
 
-#[test]
-fn unreadable_settings_fail() {
-    let env = Env::new("m");
     // ディレクトリはファイルとして読めないので、読み込みの失敗を確実に起こせる。
+    let env = Env::new("m");
     fs::create_dir_all(&env.settings).unwrap();
     for sub in ["install", "uninstall"] {
         let out = env.run(&[sub]);
@@ -405,6 +402,11 @@ fn unreadable_settings_fail() {
         assert!(!out.stderr.is_empty());
         assert!(env.settings.is_dir());
     }
+
+    let env = Env::with_settings("{}");
+    let out = env.run(&["install", "--force"]);
+    assert!(!out.status.success());
+    assert_eq!(env.text(), "{}");
 }
 
 #[test]
@@ -429,14 +431,6 @@ fn dry_run_changes_nothing() {
 }
 
 #[test]
-fn unknown_arguments_fail() {
-    let env = Env::with_settings("{}");
-    let out = env.run(&["install", "--force"]);
-    assert!(!out.status.success());
-    assert_eq!(env.text(), "{}");
-}
-
-#[test]
 fn claude_config_dir_sets_the_default_settings_path() {
     let env = Env::with_settings("{}");
     let out = Command::new(env!("CARGO_BIN_EXE_marimo-hook"))
@@ -453,21 +447,10 @@ fn claude_config_dir_sets_the_default_settings_path() {
     assert!(stdout(&out).contains(&env.settings.display().to_string()));
 }
 
+// 実行ファイルと名前の先頭だけが同じ他人のコマンドや、command が同じでも args が違うハンドラ、
+// 名前の似た実行ファイルに args: ["hook"] を渡すハンドラを、marimo のものと取り違えない。
 #[test]
-fn uninstall_keeps_user_hooks_sharing_an_event() {
-    let original = pretty(&json!({
-        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}
-    }));
-    let env = Env::with_settings(&original);
-    assert!(env.run(&["install"]).status.success());
-    assert_eq!(env.json()["hooks"]["Stop"].as_array().unwrap().len(), 2);
-    assert!(env.run(&["uninstall"]).status.success());
-    assert_eq!(env.text(), original);
-}
-
-// 実行ファイルと名前の先頭だけが同じ他人のコマンドを、marimo のものと取り違えない。
-#[test]
-fn commands_sharing_the_executable_prefix_are_left_alone() {
+fn look_alike_commands_are_left_alone() {
     let env = Env::new("m");
     let bin = env.home.join("bin");
     let foreign_hook = format!("{}/marimo-hook-backup hook", bin.display());
@@ -512,6 +495,32 @@ fn commands_sharing_the_executable_prefix_are_left_alone() {
     let out = env.run(&["uninstall"]);
     assert!(out.status.success());
     assert_eq!(env.text(), original);
+
+    let env = Env::with_settings("{}");
+    let exe = env.installed_exe().display().to_string();
+    let look_alike = env
+        .installed_exe()
+        .with_file_name("marimo-hook-backup")
+        .display()
+        .to_string();
+    let foreign = json!([
+        {"type": "command", "command": exe, "args": ["record", "Stop"]},
+        {"type": "command", "command": exe, "args": ["hook", "--extra"]},
+        {"type": "command", "command": look_alike, "args": ["hook"]},
+        {"type": "command", "command": env.legacy_hook_command(), "args": []}
+    ]);
+    let original = pretty(&json!({"hooks": {"Stop": [{"hooks": foreign}]}}));
+    fs::write(&env.settings, &original).unwrap();
+
+    assert!(env.run(&["install"]).status.success());
+    let installed = env.json();
+    let stop = installed["hooks"]["Stop"].as_array().unwrap();
+    assert_eq!(stop.len(), 2);
+    assert_eq!(stop[0]["hooks"], foreign);
+    assert_eq!(stop[1], json!({"hooks": [env.exec_handler()]}));
+
+    assert!(env.run(&["uninstall"]).status.success());
+    assert_eq!(env.text(), original);
 }
 
 // 以前の shell form の登録は、同じグループの同じ位置で exec form に置き換わる。
@@ -530,7 +539,7 @@ fn legacy_shell_form_migrates_in_place() {
                 ]}
             ],
             "Notification": [{"matcher": "", "hooks": [
-                {"type": "command", "command": legacy, "timeout": 5}
+                {"type": "command", "command": legacy, "async": true, "timeout": 5}
             ]}]
         }
     });
@@ -564,9 +573,15 @@ fn legacy_shell_form_migrates_in_place() {
             ]}
         ])
     );
+    // 利用者が足した項目とキーの順序は、書き換えた後も残る。
+    let migrated = &installed["hooks"]["Notification"][0]["hooks"][0];
+    let keys: Vec<_> = migrated.as_object().unwrap().keys().cloned().collect();
+    assert_eq!(keys, ["type", "command", "args", "async", "timeout"]);
+    let mut expected = env.exec_handler();
+    expected["async"] = json!(true);
     assert_eq!(
         installed["hooks"]["Notification"],
-        json!([{"matcher": "", "hooks": [env.exec_handler()]}])
+        json!([{"matcher": "", "hooks": [expected]}])
     );
     assert!(!env.text().contains(&legacy));
 
@@ -623,37 +638,6 @@ fn uninstall_removes_legacy_and_exec_forms() {
             "model": "opus"
         })
     );
-}
-
-// command が同じでも args が違うハンドラや、名前の似た実行ファイルに args: ["hook"] を渡す
-// ハンドラは、marimo のものではない。
-#[test]
-fn exec_handlers_that_only_look_like_marimo_are_left_alone() {
-    let env = Env::with_settings("{}");
-    let exe = env.installed_exe().display().to_string();
-    let look_alike = env
-        .installed_exe()
-        .with_file_name("marimo-hook-backup")
-        .display()
-        .to_string();
-    let foreign = json!([
-        {"type": "command", "command": exe, "args": ["record", "Stop"]},
-        {"type": "command", "command": exe, "args": ["hook", "--extra"]},
-        {"type": "command", "command": look_alike, "args": ["hook"]},
-        {"type": "command", "command": env.legacy_hook_command(), "args": []}
-    ]);
-    let original = pretty(&json!({"hooks": {"Stop": [{"hooks": foreign}]}}));
-    fs::write(&env.settings, &original).unwrap();
-
-    assert!(env.run(&["install"]).status.success());
-    let installed = env.json();
-    let stop = installed["hooks"]["Stop"].as_array().unwrap();
-    assert_eq!(stop.len(), 2);
-    assert_eq!(stop[0]["hooks"], foreign);
-    assert_eq!(stop[1], json!({"hooks": [env.exec_handler()]}));
-
-    assert!(env.run(&["uninstall"]).status.success());
-    assert_eq!(env.text(), original);
 }
 
 // ホームフォルダの下に置いた実行ファイルは、Git Bash と PowerShell のどちらでも読める ~/ の形で

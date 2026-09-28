@@ -84,20 +84,25 @@ mod tests {
     }
 
     #[test]
-    fn plain_repo_and_its_subfolders() {
+    fn repo_name_for_plain_folders() {
         let (_d, root) = tree();
         let repo = root.join("marimo");
         mkdir(&repo.join(".git"));
         mkdir(&repo.join("crates/core/src"));
-        assert_eq!(repo_name(&repo).as_deref(), Some("marimo"));
-        assert_eq!(
-            repo_name(&repo.join("crates/core/src")).as_deref(),
-            Some("marimo")
-        );
+        mkdir(&root.join("plain/deeper"));
+        let cases = [
+            (repo.clone(), Some("marimo")),
+            (repo.join("crates/core/src"), Some("marimo")),
+            (root.join("plain/deeper"), None),
+            (root.join("missing/folder"), None),
+        ];
+        for (cwd, expected) in cases {
+            assert_eq!(repo_name(&cwd).as_deref(), expected, "{}", cwd.display());
+        }
     }
 
     #[test]
-    fn linked_worktree_names_the_main_repo() {
+    fn repo_name_through_git_files() {
         let (_d, root) = tree();
         let main = root.join("marimo");
         mkdir(&main.join(".git/worktrees/marimo-title"));
@@ -105,8 +110,6 @@ mod tests {
         mkdir(&wt.join("app/src"));
         let gitdir = main.join(".git/worktrees/marimo-title");
         fs::write(wt.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
-        assert_eq!(repo_name(&wt).as_deref(), Some("marimo"));
-        assert_eq!(repo_name(&wt.join("app/src")).as_deref(), Some("marimo"));
 
         let rel = root.join("marimo-rel");
         mkdir(&rel);
@@ -115,7 +118,6 @@ mod tests {
             "gitdir: ../marimo/.git/worktrees/marimo-rel\n",
         )
         .unwrap();
-        assert_eq!(repo_name(&rel).as_deref(), Some("marimo"));
 
         let inner = main.join(".claude/worktrees/agent-a1");
         mkdir(&inner);
@@ -124,29 +126,32 @@ mod tests {
             "gitdir: ../../../.git/worktrees/agent-a1\n",
         )
         .unwrap();
-        assert_eq!(repo_name(&inner).as_deref(), Some("marimo"));
-    }
 
-    #[test]
-    fn submodule_and_unknown_gitdir_use_the_folder_name() {
-        let (_d, root) = tree();
         let sub = root.join("super/vendor/lib");
         mkdir(&sub);
         mkdir(&root.join("super/.git/modules/lib"));
         fs::write(sub.join(".git"), "gitdir: ../../.git/modules/lib\n").unwrap();
-        assert_eq!(repo_name(&sub).as_deref(), Some("lib"));
 
         let odd = root.join("odd");
         mkdir(&odd);
         fs::write(odd.join(".git"), "not a gitdir line\n").unwrap();
-        assert_eq!(repo_name(&odd).as_deref(), Some("odd"));
-    }
 
-    #[test]
-    fn outside_any_repo() {
-        let (_d, root) = tree();
-        mkdir(&root.join("plain/deeper"));
-        assert_eq!(repo_name(&root.join("plain/deeper")), None);
-        assert_eq!(repo_name(&root.join("missing/folder")), None);
+        // linked worktree は元のリポジトリの名前になり、submodule と読めない .git ファイルはフォルダ名になる。
+        let cases = [
+            (wt.clone(), "marimo"),
+            (wt.join("app/src"), "marimo"),
+            (rel, "marimo"),
+            (inner, "marimo"),
+            (sub, "lib"),
+            (odd, "odd"),
+        ];
+        for (cwd, expected) in cases {
+            assert_eq!(
+                repo_name(&cwd).as_deref(),
+                Some(expected),
+                "{}",
+                cwd.display()
+            );
+        }
     }
 }

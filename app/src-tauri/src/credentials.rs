@@ -182,18 +182,13 @@ mod tests {
     }
 
     #[test]
-    fn parses_the_claude_ai_entry_and_ignores_the_rest() {
+    fn parses_claude_ai_entry_and_redacts_the_token() {
         let c =
             parse(fixture(1_790_550_350_472, r#"["user:inference", "user:profile"]"#).as_bytes())
                 .unwrap();
         assert_eq!(c.access_token.expose(), FAKE);
         assert_eq!(c.expires_at, 1_790_550_350_472);
         assert_eq!(c.scopes, ["user:inference", "user:profile"]);
-    }
-
-    #[test]
-    fn debug_output_never_contains_the_token() {
-        let c = parse(fixture(1_790_550_350_472, r#"["user:profile"]"#).as_bytes()).unwrap();
         assert!(!format!("{c:?}").contains(FAKE));
     }
 

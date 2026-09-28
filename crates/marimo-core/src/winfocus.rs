@@ -318,30 +318,46 @@ mod tests {
     }
 
     #[test]
-    fn walks_up_nearest_first_and_stops_at_system_processes() {
-        assert_eq!(
-            walk(&[(10, 20), (20, 30), (30, 4)], &[(20, 900), (30, 800)]),
-            [20, 30]
-        );
-        assert_eq!(walk(&[(10, 20), (20, 0)], &[(20, 900)]), [20]);
-        assert_eq!(walk(&[], &[]), Vec::<u32>::new());
-    }
-
-    #[test]
-    fn stops_at_reused_pids_cycles_and_unreadable_processes() {
-        // 親の ID が、子より後に作られた別のプロセスに使い回されている。
-        assert_eq!(walk(&[(10, 20), (20, 30)], &[(20, 900), (30, 950)]), [20]);
-        assert_eq!(
-            walk(&[(10, 20), (20, 30), (30, 20)], &[(20, 900), (30, 800)]),
-            [20, 30]
-        );
-        assert_eq!(walk(&[(10, 20), (20, 30)], &[(20, 900)]), [20]);
-    }
-
-    #[test]
-    fn keeps_at_most_eight_ancestors() {
-        let parents: Vec<(u32, u32)> = (10..30).map(|p| (p, p + 1)).collect();
-        let created: Vec<(u32, u64)> = (10..31).map(|p| (p, 1_000 - u64::from(p))).collect();
-        assert_eq!(walk(&parents, &created), (11..19).collect::<Vec<u32>>());
+    fn walk_ancestors_stop_conditions() {
+        let chain: Vec<(u32, u32)> = (10..30).map(|p| (p, p + 1)).collect();
+        let chain_created: Vec<(u32, u64)> = (10..31).map(|p| (p, 1_000 - u64::from(p))).collect();
+        let cases = vec![
+            (
+                "nearest first, stops at System",
+                vec![(10, 20), (20, 30), (30, 4)],
+                vec![(20, 900), (30, 800)],
+                vec![20, 30],
+            ),
+            (
+                "stops at System Idle Process",
+                vec![(10, 20), (20, 0)],
+                vec![(20, 900)],
+                vec![20],
+            ),
+            ("no parent", vec![], vec![], vec![]),
+            // 親の ID が、子より後に作られた別のプロセスに使い回されている。
+            (
+                "reused pid",
+                vec![(10, 20), (20, 30)],
+                vec![(20, 900), (30, 950)],
+                vec![20],
+            ),
+            (
+                "cycle",
+                vec![(10, 20), (20, 30), (30, 20)],
+                vec![(20, 900), (30, 800)],
+                vec![20, 30],
+            ),
+            (
+                "unreadable process",
+                vec![(10, 20), (20, 30)],
+                vec![(20, 900)],
+                vec![20],
+            ),
+            ("at most eight", chain, chain_created, (11..19).collect()),
+        ];
+        for (label, parents, created, expected) in cases {
+            assert_eq!(walk(&parents, &created), expected, "{label}");
+        }
     }
 }

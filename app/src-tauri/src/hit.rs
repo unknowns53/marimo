@@ -270,27 +270,15 @@ mod replay {
 mod tests {
     use super::*;
 
+    // フロントエンドの hitRegions が送る形のまま読み、4×4 の格子で中央の 2×2 だけが不透明な絵を
+    // 100×100 の位置に置く。
     fn regions() -> HitRegions {
-        // 4×4 の格子で、中央の 2×2 だけが不透明な絵を 100×100 の位置に置く。
-        HitRegions {
-            rects: vec![Rect {
-                x: 0.0,
-                y: 300.0,
-                w: 340.0,
-                h: 100.0,
-            }],
-            mask: Some(Mask {
-                rect: Rect {
-                    x: 100.0,
-                    y: 100.0,
-                    w: 80.0,
-                    h: 120.0,
-                },
-                cols: 4,
-                rows: 4,
-                bits: "0000011001100000".into(),
-            }),
-        }
+        serde_json::from_str(
+            r#"{"rects": [{"x": 0, "y": 300, "w": 340, "h": 100}],
+                "mask": {"x": 100, "y": 100, "w": 80, "h": 120,
+                         "cols": 4, "rows": 4, "bits": "0000011001100000"}}"#,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -319,14 +307,5 @@ mod tests {
             !state.over_portrait(10.0, 350.0),
             "the panel is not the portrait"
         );
-    }
-
-    #[test]
-    fn parses_frontend_payload() {
-        let json = r#"{"rects":[{"x":8,"y":430,"w":340,"h":120}],
-                       "mask":{"x":88,"y":160,"w":180,"h":270,"cols":2,"rows":1,"bits":"01"}}"#;
-        let r: HitRegions = serde_json::from_str(json).unwrap();
-        assert!(r.hit(200.0, 200.0));
-        assert!(!r.hit(100.0, 200.0));
     }
 }

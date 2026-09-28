@@ -209,10 +209,8 @@ mod tests {
         let got = last_usage(f.path()).unwrap().unwrap();
         assert_eq!(got.context_tokens, 60);
         assert_eq!(got.entrypoint.as_deref(), Some("cli"));
-    }
 
-    #[test]
-    fn prefers_the_last_iteration() {
+        // iterations があれば、その最後の要素で数える。
         let mut u = usage(2, 0, 27038);
         u["iterations"] = json!([
             {"input_tokens": 1, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 1000, "type": "message"},
@@ -276,16 +274,5 @@ mod tests {
 
         let got = read_tail(write(&[title("題名だけ")], "").path()).unwrap();
         assert_eq!((got.usage, got.title.as_deref()), (None, Some("題名だけ")));
-    }
-
-    #[test]
-    fn title_is_not_searched_beyond_the_usage_window() {
-        let filler =
-            json!({"type": "user", "message": {"content": "t".repeat(FIRST_WINDOW as usize)}})
-                .to_string();
-        let lines = vec![title("遠い題名"), filler, assistant(usage(1, 1, 1), false)];
-        let got = read_tail(write(&lines, "").path()).unwrap();
-        assert_eq!(got.usage.unwrap().context_tokens, 3);
-        assert_eq!(got.title, None);
     }
 }

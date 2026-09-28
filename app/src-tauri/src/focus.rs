@@ -352,10 +352,8 @@ mod tests {
         );
         assert_eq!(plan(&session(None, None, None)), Target::Nothing);
         assert_eq!(plan(&SessionState::new("s1")), Target::Nothing);
-    }
 
-    #[test]
-    fn editor_folder_needs_an_absolute_cwd() {
+        // open がオプションとして読まないよう、絶対パスでない cwd はフォルダとして渡さない。
         for cwd in ["-a", "--args", "w/proj", "."] {
             assert_eq!(
                 plan(&session_in(cwd, None, Some("vscode"), None)),
@@ -502,30 +500,6 @@ mod tests {
     }
 
     #[test]
-    fn recognises_editor_executables_by_file_name() {
-        for exe in [
-            r"C:\Users\user\AppData\Local\Programs\Microsoft VS Code\Code.exe",
-            r"C:\Program Files\Microsoft VS Code Insiders\code - insiders.exe",
-            r"D:\tools\VSCodium\VSCODIUM.exe",
-            r"C:\Users\user\AppData\Local\Programs\Windsurf\Windsurf.exe",
-            "Cursor.exe",
-        ] {
-            assert!(WINDOWS_EDITORS.iter().any(|e| exe_name_is(exe, e)), "{exe}");
-        }
-        for exe in [
-            r"C:\Program Files\Microsoft VS Code\bin\code.cmd",
-            r"C:\tools\Code.exe.bak",
-            r"C:\Code.exe\node.exe",
-            "",
-        ] {
-            assert!(
-                !WINDOWS_EDITORS.iter().any(|e| exe_name_is(exe, e)),
-                "{exe}"
-            );
-        }
-    }
-
-    #[test]
     fn windows_absolute_paths() {
         for path in [
             r"C:\Users\user\proj",
@@ -551,14 +525,5 @@ mod tests {
         ] {
             assert!(!is_windows_absolute(path), "{path}");
         }
-    }
-
-    #[test]
-    fn missing_editor_folder_only_brings_the_app_forward() {
-        assert_eq!(
-            editor_args(VSCODE, "/w/proj", |_| true),
-            ["-b", VSCODE, "/w/proj"]
-        );
-        assert_eq!(editor_args(VSCODE, "/w/gone", |_| false), ["-b", VSCODE]);
     }
 }

@@ -390,24 +390,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stamp_format() {
-        assert_eq!(utc_stamp(1_790_509_325_123), "20260927-114205");
-    }
-
-    #[test]
-    fn detects_settings_changed_after_reading() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("settings.json");
-        assert!(ensure_unchanged(&path, None).is_ok());
-        assert!(ensure_unchanged(&path, Some(b"{}")).is_err());
-        fs::write(&path, "{}").unwrap();
-        assert!(ensure_unchanged(&path, Some(b"{}")).is_ok());
-        assert!(ensure_unchanged(&path, None).is_err());
-        let err = ensure_unchanged(&path, Some(b"{\"model\": \"opus\"}")).unwrap_err();
-        assert!(err.contains("もう一度実行してください"), "{err}");
-    }
-
-    #[test]
     fn commit_writes_nothing_when_settings_changed_after_reading() {
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("settings.json");

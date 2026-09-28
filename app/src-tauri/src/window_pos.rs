@@ -175,7 +175,7 @@ mod tests {
     };
 
     #[test]
-    fn growing_keeps_bottom_right_corner() {
+    fn anchor_bottom_right_cases() {
         let current = Rect {
             x: 2400,
             y: 1000,
@@ -186,55 +186,55 @@ mod tests {
         assert_eq!((x + 964, y + 1690), (2920, 1880));
         let (x, y) = anchor_bottom_right(current, 400, 700, Some(SCREEN));
         assert_eq!((x + 400, y + 700), (2920, 1880));
-    }
 
-    #[test]
-    fn growing_past_the_screen_is_pushed_back_inside() {
-        // 画面の上端近くに置いた窓を大きくすると、上へ広げた分が画面外へ出る。
-        let near_top = Rect {
-            x: 100,
-            y: 60,
+        let rect = |x, y| Rect {
+            x,
+            y,
             w: 520,
             h: 880,
         };
-        assert_eq!(
-            anchor_bottom_right(near_top, 964, 1690, Some(SCREEN)),
-            (0, 50)
-        );
-        let off_right = Rect {
-            x: 2900,
-            y: 1500,
-            w: 520,
-            h: 880,
-        };
-        assert_eq!(
-            anchor_bottom_right(off_right, 964, 1690, Some(SCREEN)),
-            (3000 - 964, 1950 - 1690)
-        );
-    }
-
-    #[test]
-    fn window_larger_than_screen_sticks_to_top_left() {
-        let current = Rect {
-            x: 10,
-            y: 60,
-            w: 520,
-            h: 880,
-        };
-        assert_eq!(
-            anchor_bottom_right(current, 964, 2400, Some(SCREEN)),
-            (0, 50)
-        );
-    }
-
-    #[test]
-    fn without_monitor_info_only_anchors() {
-        let current = Rect {
-            x: -50,
-            y: -50,
-            w: 100,
-            h: 100,
-        };
-        assert_eq!(anchor_bottom_right(current, 200, 300, None), (-150, -250));
+        // 画面の上端近くに置いた窓を大きくすると、上へ広げた分が画面外へ出るので押し戻す。
+        let cases = [
+            (
+                "near top",
+                rect(100, 60),
+                (964, 1690),
+                Some(SCREEN),
+                (0, 50),
+            ),
+            (
+                "off right",
+                rect(2900, 1500),
+                (964, 1690),
+                Some(SCREEN),
+                (3000 - 964, 1950 - 1690),
+            ),
+            (
+                "larger than screen",
+                rect(10, 60),
+                (964, 2400),
+                Some(SCREEN),
+                (0, 50),
+            ),
+            (
+                "no monitor info",
+                Rect {
+                    x: -50,
+                    y: -50,
+                    w: 100,
+                    h: 100,
+                },
+                (200, 300),
+                None,
+                (-150, -250),
+            ),
+        ];
+        for (label, current, (w, h), area, expected) in cases {
+            assert_eq!(
+                anchor_bottom_right(current, w, h, area),
+                expected,
+                "{label}"
+            );
+        }
     }
 }

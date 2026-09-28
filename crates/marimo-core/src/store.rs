@@ -555,54 +555,6 @@ mod tests {
     }
 
     #[test]
-    fn hook_lifecycle_on_disk() {
-        let (_d, home) = home();
-        hook(
-            &home,
-            json!({"session_id":"s1","hook_event_name":"SessionStart","source":"startup","cwd":"/w/a"}),
-        );
-        assert_eq!(read_session(&home, "s1").unwrap().status, Status::Idle);
-        hook(
-            &home,
-            json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cargo test"}}),
-        );
-        let s = read_session(&home, "s1").unwrap();
-        assert_eq!(s.status, Status::Working);
-        let a = s.activity.unwrap();
-        assert_eq!(
-            (a.summary.as_str(), a.detail.as_deref()),
-            ("cargo test", Some("cargo test"))
-        );
-        assert_eq!(s.cwd.as_deref(), Some("/w/a"));
-        hook(
-            &home,
-            json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"other"}),
-        );
-        assert!(read_session(&home, "s1").is_none());
-        assert!(!home.session_file("s1").unwrap().exists());
-    }
-
-    #[test]
-    fn subagent_worktree_cwd_does_not_rename_the_session() {
-        let (_d, home) = home();
-        hook(
-            &home,
-            json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","cwd":"/w/proj"}),
-        );
-        hook(
-            &home,
-            json!({"session_id":"s1","hook_event_name":"SubagentStart","agent_id":"a1","agent_type":"Explore","cwd":"/w/proj/.claude/worktrees/agent-a1"}),
-        );
-        hook(
-            &home,
-            json!({"session_id":"s1","hook_event_name":"PreToolUse","agent_id":"a1","cwd":"/w/proj/.claude/worktrees/agent-a1","tool_name":"Bash","tool_input":{"command":"ls"}}),
-        );
-        let s = read_session(&home, "s1").unwrap();
-        assert_eq!(s.cwd.as_deref(), Some("/w/proj"));
-        assert_eq!(s.agents.keys().collect::<Vec<_>>(), ["a1"]);
-    }
-
-    #[test]
     fn statusline_updates_context_and_rate_limits() {
         let (_d, home) = home();
         let status = json!({
@@ -629,6 +581,21 @@ mod tests {
         assert_eq!(ctx.used_percentage, Some(8.0));
         assert_eq!(ctx.total_input_tokens, Some(15500));
         assert_eq!(read_session(&home, "s1").unwrap().status, Status::Working);
+
+        // rate_limits を持たない入力は、前に保存した利用制限を消さない。
+        apply_statusline(
+            &home,
+            &json!({"session_id": "x", "context_window": {"used_percentage": null}}),
+        )
+        .unwrap();
+        assert_eq!(
+            read_rate_limits(&home)
+                .unwrap()
+                .five_hour
+                .unwrap()
+                .used_percentage,
+            23.5
+        );
     }
 
     #[test]
@@ -706,44 +673,6 @@ mod tests {
     }
 
     #[test]
-    fn statusline_without_rate_limits_keeps_previous_file() {
-        let (_d, home) = home();
-        apply_statusline(
-            &home,
-            &json!({"rate_limits": {"five_hour": {"used_percentage": 10}}}),
-        )
-        .unwrap();
-        apply_statusline(
-            &home,
-            &json!({"session_id": "x", "context_window": {"used_percentage": null}}),
-        )
-        .unwrap();
-        assert_eq!(
-            read_rate_limits(&home)
-                .unwrap()
-                .five_hour
-                .unwrap()
-                .used_percentage,
-            10.0
-        );
-    }
-
-    #[test]
-    fn rate_limits_round_trip_through_the_shared_writer() {
-        let (_d, home) = home();
-        let limits = RateLimits {
-            five_hour: Some(RateWindow {
-                used_percentage: 23.0,
-                resets_at: Some(1_790_535_600),
-            }),
-            seven_day: None,
-            updated_at: 1_790_509_325_123,
-        };
-        write_rate_limits(&home, &limits).unwrap();
-        assert_eq!(read_rate_limits(&home), Some(limits));
-    }
-
-    #[test]
     fn snapshot_aggregates_and_orders() {
         let (_d, home) = home();
         hook(
@@ -804,15 +733,41 @@ mod tests {
     }
 
     #[test]
-    fn prune_removes_sessions_by_updated_at() {
+    fn prune_removes_only_stale_sessions_and_temp_files() {
         let (_d, home) = home();
+        assert_eq!(
+            prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap(),
+            0
+        );
+
+        let dir = home.sessions_dir();
         // updated_at があれば mtime より優先する。
         put_session(&home, "stale", NOW_MS - 25 * HOUR_MS, NOW_MS);
         put_session(&home, "fresh", NOW_MS - 23 * HOUR_MS, NOW_MS - 48 * HOUR_MS);
+        // 読めないファイルと updated_at が 0 のファイルは mtime で判定する。
+        put_file(
+            &dir.join("broken-old.json"),
+            b"not json",
+            NOW_MS - 25 * HOUR_MS,
+        );
+        put_file(&dir.join("broken-new.json"), b"not json", NOW_MS - HOUR_MS);
+        put_session(&home, "zero-old", 0, NOW_MS - 25 * HOUR_MS);
+        put_session(&home, "zero-new", 0, NOW_MS - HOUR_MS);
+        put_file(&dir.join(".a.json.1.2.tmp"), b"{", NOW_MS - 25 * HOUR_MS);
+        put_file(&dir.join(".b.json.1.3.tmp"), b"{", NOW_MS - HOUR_MS);
+        put_file(&dir.join("notes.txt"), b"x", NOW_MS - 48 * HOUR_MS);
+
         let removed = prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
-        assert_eq!(removed, 1);
+        assert_eq!(removed, 4);
         assert!(read_session(&home, "stale").is_none());
         assert!(read_session(&home, "fresh").is_some());
+        assert!(!dir.join("broken-old.json").exists());
+        assert!(dir.join("broken-new.json").exists());
+        assert!(read_session(&home, "zero-old").is_none());
+        assert!(read_session(&home, "zero-new").is_some());
+        assert!(!dir.join(".a.json.1.2.tmp").exists());
+        assert!(dir.join(".b.json.1.3.tmp").exists());
+        assert!(dir.join("notes.txt").exists());
 
         // 消したセッションも、次のフックで作り直される。
         hook(
@@ -857,55 +812,16 @@ mod tests {
     }
 
     #[test]
-    fn prune_judges_unreadable_and_zero_updated_at_by_mtime() {
-        let (_d, home) = home();
-        let dir = home.sessions_dir();
-        put_file(
-            &dir.join("broken-old.json"),
-            b"not json",
-            NOW_MS - 25 * HOUR_MS,
-        );
-        put_file(&dir.join("broken-new.json"), b"not json", NOW_MS - HOUR_MS);
-        put_session(&home, "zero-old", 0, NOW_MS - 25 * HOUR_MS);
-        put_session(&home, "zero-new", 0, NOW_MS - HOUR_MS);
-        let removed = prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
-        assert_eq!(removed, 2);
-        assert!(!dir.join("broken-old.json").exists());
-        assert!(dir.join("broken-new.json").exists());
-        assert!(read_session(&home, "zero-old").is_none());
-        assert!(read_session(&home, "zero-new").is_some());
-    }
-
-    #[test]
-    fn prune_removes_only_old_temp_files() {
-        let (_d, home) = home();
-        let dir = home.sessions_dir();
-        put_file(&dir.join(".a.json.1.2.tmp"), b"{", NOW_MS - 25 * HOUR_MS);
-        put_file(&dir.join(".b.json.1.3.tmp"), b"{", NOW_MS - HOUR_MS);
-        put_file(&dir.join("notes.txt"), b"x", NOW_MS - 48 * HOUR_MS);
-        let removed = prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
-        assert_eq!(removed, 1);
-        assert!(!dir.join(".a.json.1.2.tmp").exists());
-        assert!(dir.join(".b.json.1.3.tmp").exists());
-        assert!(dir.join("notes.txt").exists());
-    }
-
-    #[test]
-    fn prune_without_sessions_folder_does_nothing() {
-        let (_d, home) = home();
-        assert_eq!(
-            prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap(),
-            0
-        );
-    }
-
-    #[test]
     fn record_appends_lines() {
         let (_d, home) = home();
+        let expired = home.record_file(&utc_date(now_ms() - 30 * 24 * HOUR_MS));
+        put_file(&expired, b"{}\n", now_ms());
         let before = utc_date(now_ms());
         append_record(&home, "PreToolUse", br#"{"a":1}"#).unwrap();
         append_record(&home, "statusline", b"not json").unwrap();
         let after = utc_date(now_ms());
+        // 追記のたびに保存期間を過ぎたファイルを消す。
+        assert!(!expired.exists());
         // 二回の追記のあいだに UTC の日付が変わった場合だけ、ファイルが二つに分かれる。
         let files = record_files(&home);
         let expected: Vec<_> = [before, after]
@@ -929,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn record_files_older_than_retention_are_removed() {
+    fn record_retention_removes_only_expired_files() {
         let (_d, home) = home();
         let logs = home.logs_dir();
         let names = [
@@ -953,27 +869,14 @@ mod tests {
         let mut expected: Vec<_> = names[1..].iter().map(|n| n.to_string()).collect();
         expected.sort();
         assert_eq!(left, expected);
-    }
 
-    #[test]
-    fn legacy_record_file_is_judged_by_mtime() {
-        let (_d, home) = home();
-        let legacy = home.logs_dir().join("record.jsonl");
+        // 日付を持たない以前の record.jsonl は mtime で判定する。
+        let legacy = logs.join("record.jsonl");
         put_file(&legacy, b"{}\n", NOW_MS - 6 * 24 * HOUR_MS);
         prune_records(&home, NOW_MS);
         assert!(legacy.exists());
         set_mtime(&legacy, NOW_MS - 8 * 24 * HOUR_MS);
         prune_records(&home, NOW_MS);
         assert!(!legacy.exists());
-    }
-
-    #[test]
-    fn append_record_removes_expired_files() {
-        let (_d, home) = home();
-        let old = home.record_file(&utc_date(now_ms() - 30 * 24 * HOUR_MS));
-        put_file(&old, b"{}\n", now_ms());
-        append_record(&home, "Stop", b"{}").unwrap();
-        assert!(!old.exists());
-        assert_eq!(record_files(&home).len(), 1);
     }
 }

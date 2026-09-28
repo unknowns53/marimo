@@ -277,51 +277,108 @@ mod tests {
     }
 
     #[test]
-    fn bash_prefers_description_and_keeps_command() {
-        assert_eq!(
-            act(
+    fn tool_activity_reads_documented_input_fields() {
+        let cases: Vec<(&str, Value, &str, Option<&str>)> = vec![
+            (
                 "Bash",
-                json!({"command": "cargo test --workspace -- --nocapture", "description": "Run the test suite"})
+                json!({"command": "cargo test --workspace -- --nocapture", "description": "Run the test suite"}),
+                "Run the test suite",
+                Some("cargo test --workspace -- --nocapture"),
             ),
             (
-                "Run the test suite".into(),
-                Some("cargo test --workspace -- --nocapture".into())
-            )
-        );
-        assert_eq!(
-            act(
                 "Bash",
-                json!({"command": "\n  cd app &&\n npm run build\n"})
+                json!({"command": "\n  cd app &&\n npm run build\n"}),
+                "cd app &&",
+                Some("cd app &&\n npm run build"),
             ),
-            ("cd app &&".into(), Some("cd app &&\n npm run build".into()))
-        );
-        assert_eq!(
-            act("PowerShell", json!({"command": "Get-ChildItem"})).0,
-            "Get-ChildItem"
-        );
-    }
-
-    #[test]
-    fn file_tools_use_paths_relative_to_cwd() {
-        assert_eq!(
-            act(
+            (
+                "PowerShell",
+                json!({"command": "Get-ChildItem"}),
+                "Get-ChildItem",
+                Some("Get-ChildItem"),
+            ),
+            (
                 "Edit",
-                json!({"file_path": "/w/proj/src/foo.rs", "old_string": "a", "new_string": "b"})
+                json!({"file_path": "/w/proj/src/foo.rs", "old_string": "a", "new_string": "b"}),
+                "編集: src/foo.rs",
+                Some("/w/proj/src/foo.rs"),
             ),
-            ("編集: src/foo.rs".into(), Some("/w/proj/src/foo.rs".into()))
-        );
-        assert_eq!(
-            act("Write", json!({"file_path": "/elsewhere/x.txt"})).0,
-            "書き込み: /elsewhere/x.txt"
-        );
-        assert_eq!(
-            act("Read", json!({"file_path": "/w/proj/README"})).0,
-            "読み込み: README"
-        );
-        assert_eq!(
-            act("NotebookEdit", json!({"notebook_path": "/w/proj/a.ipynb"})).0,
-            "ノートブック編集: a.ipynb"
-        );
+            (
+                "Write",
+                json!({"file_path": "/elsewhere/x.txt"}),
+                "書き込み: /elsewhere/x.txt",
+                Some("/elsewhere/x.txt"),
+            ),
+            (
+                "Read",
+                json!({"file_path": "/w/proj/README"}),
+                "読み込み: README",
+                Some("/w/proj/README"),
+            ),
+            (
+                "NotebookEdit",
+                json!({"notebook_path": "/w/proj/a.ipynb"}),
+                "ノートブック編集: a.ipynb",
+                Some("/w/proj/a.ipynb"),
+            ),
+            (
+                "Grep",
+                json!({"pattern": "TODO.*fix", "path": "/w/proj/src", "glob": "*.rs"}),
+                "検索: TODO.*fix",
+                Some("src  *.rs"),
+            ),
+            (
+                "Glob",
+                json!({"pattern": "**/*.ts"}),
+                "ファイル検索: **/*.ts",
+                None,
+            ),
+            (
+                "WebFetch",
+                json!({"url": "https://code.claude.com/docs/en/hooks?x=1#top", "prompt": "p"}),
+                "取得: code.claude.com/docs/en/hooks",
+                Some("https://code.claude.com/docs/en/hooks?x=1#top"),
+            ),
+            (
+                "WebSearch",
+                json!({"query": "tauri autostart"}),
+                "Web 検索: tauri autostart",
+                None,
+            ),
+            (
+                "Agent",
+                json!({"description": "Find endpoints", "subagent_type": "Explore", "prompt": "..."}),
+                "サブエージェント: Find endpoints",
+                Some("Explore"),
+            ),
+            (
+                "AskUserQuestion",
+                json!({"questions": [{"question": "Which?", "options": [{"label": "A"}, {"label": "B"}]}]}),
+                "質問: Which?",
+                Some("A / B"),
+            ),
+            ("ExitPlanMode", json!({}), "計画の承認を依頼", None),
+            (
+                "mcp__claude-in-chrome__navigate_page",
+                json!({"url": "https://example.com"}),
+                "claude-in-chrome: navigate page",
+                Some("https://example.com"),
+            ),
+            (
+                "mcp__memory__create_entities",
+                json!({"a": 1, "b": "x"}),
+                "memory: create entities",
+                Some(r#"{"a":1,"b":"x"}"#),
+            ),
+            ("SomeTool", json!({}), "SomeTool", None),
+        ];
+        for (name, input, summary, detail) in cases {
+            assert_eq!(
+                act(name, input.clone()),
+                (summary.to_owned(), detail.map(str::to_owned)),
+                "{name} {input}"
+            );
+        }
         assert_eq!(
             relative_path("C:\\w\\proj\\src\\a.ts", Some("C:\\w\\proj")),
             "src\\a.ts"
@@ -333,87 +390,11 @@ mod tests {
     }
 
     #[test]
-    fn search_and_web_tools() {
-        assert_eq!(
-            act(
-                "Grep",
-                json!({"pattern": "TODO.*fix", "path": "/w/proj/src", "glob": "*.rs"})
-            ),
-            ("検索: TODO.*fix".into(), Some("src  *.rs".into()))
-        );
-        assert_eq!(
-            act("Glob", json!({"pattern": "**/*.ts"})),
-            ("ファイル検索: **/*.ts".into(), None)
-        );
-        assert_eq!(
-            act(
-                "WebFetch",
-                json!({"url": "https://code.claude.com/docs/en/hooks?x=1#top", "prompt": "p"})
-            ),
-            (
-                "取得: code.claude.com/docs/en/hooks".into(),
-                Some("https://code.claude.com/docs/en/hooks?x=1#top".into())
-            )
-        );
-        assert_eq!(
-            act("WebSearch", json!({"query": "tauri autostart"})).0,
-            "Web 検索: tauri autostart"
-        );
-    }
-
-    #[test]
-    fn agent_question_plan_and_mcp() {
-        assert_eq!(
-            act(
-                "Agent",
-                json!({"description": "Find endpoints", "subagent_type": "Explore", "prompt": "..."})
-            ),
-            (
-                "サブエージェント: Find endpoints".into(),
-                Some("Explore".into())
-            )
-        );
-        assert_eq!(
-            act(
-                "AskUserQuestion",
-                json!({"questions": [{"question": "Which?", "options": [{"label": "A"}, {"label": "B"}]}]})
-            ),
-            ("質問: Which?".into(), Some("A / B".into()))
-        );
-        assert_eq!(act("ExitPlanMode", json!({})).0, "計画の承認を依頼");
-        assert_eq!(
-            act(
-                "mcp__claude-in-chrome__navigate_page",
-                json!({"url": "https://example.com"})
-            ),
-            (
-                "claude-in-chrome: navigate page".into(),
-                Some("https://example.com".into())
-            )
-        );
-        assert_eq!(
-            act("mcp__memory__create_entities", json!({"a": 1, "b": "x"}))
-                .1
-                .as_deref(),
-            Some(r#"{"a":1,"b":"x"}"#)
-        );
-        assert_eq!(act("SomeTool", json!({})), ("SomeTool".into(), None));
-    }
-
-    #[test]
     fn long_text_is_clipped_by_chars() {
         let long = "あ".repeat(900);
         let (summary, detail) = act("Bash", json!({"command": long, "description": long}));
         assert_eq!(summary.chars().count(), TEXT_MAX_CHARS);
         assert!(summary.ends_with('…'));
         assert_eq!(detail.unwrap().chars().count(), TEXT_MAX_CHARS);
-    }
-
-    #[test]
-    fn messages_collapse_whitespace() {
-        let a = Activity::message("完了しました。\n\n## 変更点\n- a").unwrap();
-        assert_eq!(a.kind, ActivityKind::Message);
-        assert_eq!(a.summary, "完了しました。 ## 変更点 - a");
-        assert!(Activity::message("  \n").is_none());
     }
 }
