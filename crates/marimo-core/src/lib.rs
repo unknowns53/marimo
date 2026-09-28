@@ -1,4 +1,5 @@
 pub mod activity;
+pub mod appicon;
 pub mod codex;
 pub mod paths;
 pub mod repo;

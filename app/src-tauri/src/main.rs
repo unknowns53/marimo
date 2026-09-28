@@ -6,14 +6,15 @@ mod credentials;
 mod dialogue;
 mod focus;
 mod hit;
+mod icons;
 mod scale;
 mod usage;
 mod watch;
 mod window_pos;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use marimo_core::{MarimoHome, Snapshot, store};
+use marimo_core::{MarimoHome, Provider, Snapshot, store};
 use serde_json::Value;
 use tauri::{AppHandle, LogicalSize, Manager, State, WebviewWindow};
 
@@ -21,6 +22,7 @@ struct AppState {
     home: MarimoHome,
     hits: Arc<hit::HitState>,
     usage: usage::Poller,
+    icons: OnceLock<icons::AppIcons>,
 }
 
 #[tauri::command]
@@ -86,12 +88,17 @@ fn set_acknowledged(state: State<'_, AppState>, keys: Vec<String>) -> Result<(),
 }
 
 #[tauri::command]
-fn focus_session(state: State<'_, AppState>, session_id: String) {
-    if let Some(session) =
-        store::read_session(&state.home, marimo_core::Provider::Claude, &session_id)
-    {
+fn focus_session(state: State<'_, AppState>, provider: Provider, session_id: String) {
+    if let Some(session) = store::read_session(&state.home, provider, &session_id) {
         focus::run(focus::plan(&session));
     }
+}
+
+// 同期コマンドはメインスレッドで動くので、macOS では AppKit で描くのに都合がよい。
+// アイコンは起動している間に変わることがまず無いので、一度だけ読む。
+#[tauri::command]
+fn app_icons(state: State<'_, AppState>) -> icons::AppIcons {
+    state.icons.get_or_init(icons::load).clone()
 }
 
 #[tauri::command]
@@ -133,6 +140,7 @@ fn main() {
             home: home.clone(),
             hits: hits.clone(),
             usage: usage.clone(),
+            icons: OnceLock::new(),
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -146,6 +154,7 @@ fn main() {
             get_acknowledged,
             set_acknowledged,
             focus_session,
+            app_icons,
             set_hit_regions,
             quit
         ])

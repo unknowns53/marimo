@@ -2,6 +2,9 @@
 
 export type Status = "idle" | "working" | "waiting" | "done" | "error";
 
+// 以前の版のファイルは provider を持たず、Claude Code のセッションとして扱う。
+export type Provider = "claude" | "codex";
+
 export interface ContextUsage {
   used_percentage: number | null;
   total_input_tokens: number | null;
@@ -28,6 +31,7 @@ export interface Origin {
 
 export interface SessionState {
   session_id: string;
+  provider?: Provider;
   cwd: string | null;
   repo?: string;
   title?: string;
@@ -65,11 +69,29 @@ export interface RateLimits {
   updated_at: number;
 }
 
+// Codex は窓の長さを分で送ってくるので、5 時間や 7 日に決め打ちしない。
+export interface CodexRateWindow {
+  window_minutes: number | null;
+  used_percentage: number;
+  resets_at: number | null;
+}
+
+export interface CodexRateLimits {
+  windows: CodexRateWindow[];
+  plan_type?: string | null;
+  observed_at: number;
+  updated_at: number;
+}
+
 export interface Snapshot {
   aggregate: Status;
   sessions: SessionState[];
   rate_limits: RateLimits | null;
+  codex_rate_limits?: CodexRateLimits | null;
 }
+
+// app_icons コマンドが返す PNG の data URL。アプリが入っていなければ null になる。
+export type AppIcons = Record<Provider, string | null>;
 
 // 分類名はドット区切りで、細かい分類（waiting.permission など）から親の分類（waiting）へ戻れる。
 export type Dialogue = Record<string, string[]>;

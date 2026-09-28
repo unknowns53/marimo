@@ -13,6 +13,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+base64 = "0.22"
 marimo-core.workspace = true
 notify = "8"
 serde.workspace = true
@@ -37,6 +38,26 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 # Claude Code の資格情報は macOS ではキーチェーンにしかない。
 security-framework = "3"
+# アプリのアイコンを NSWorkspace から読む。版は Tauri が引き込むものに揃える。
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSBitmapImageRep",
+    "NSGraphics",
+    "NSGraphicsContext",
+    "NSImage",
+    "NSImageRep",
+    "NSWorkspace",
+    "objc2-core-foundation",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSData",
+    "NSDictionary",
+    "NSGeometry",
+    "NSString",
+    "NSURL",
+] }
 
 [features]
 # 試験用のビルドで、カーソル位置の列を流し込んで開閉の動きを確かめるときだけ有効にする。

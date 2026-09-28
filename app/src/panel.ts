@@ -1,10 +1,8 @@
+import { sessionKey } from "./acknowledged";
 import { folderName, formatTokens } from "./format";
+import { limitLine, type LimitLine } from "./limits";
 import { hasContent, isEmpty, type PanelPlan, type PanelView } from "./panelModel";
-import type { RateLimits, RateWindow, SessionState, Status } from "./types";
-
-// statusLine はアシスタントの応答ごとに走るので、これより古い値は手元の作業が
-// 止まっている間に実際の値から離れている可能性が高い。
-const RATE_STALE_MS = 30 * 60 * 1000;
+import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
 
 const FALLBACK_SUMMARY: Record<Status, string> = {
   idle: "",
@@ -23,6 +21,22 @@ export interface PanelElements {
   toggle: HTMLElement;
 }
 
+const PROVIDER_NAME: Record<Provider, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+};
+
+// アプリのアイコンは同梱せず利用者のアプリから読むので、読めないときはこの文字で示す。
+const PROVIDER_BADGE: Record<Provider, string> = {
+  claude: "CC",
+  codex: "CX",
+};
+
+export interface PanelLimits {
+  claude: RateLimits | null;
+  codex: CodexRateLimits | null;
+}
+
 const STATUS_LABEL: Record<Status, string> = {
   idle: "待機",
   working: "作業中",
@@ -34,7 +48,8 @@ const STATUS_LABEL: Record<Status, string> = {
 export function renderPanel(
   { panel, rows, limits, toggle }: PanelElements,
   view: PanelView,
-  rateLimits: RateLimits | null,
+  rateLimits: PanelLimits,
+  icons: AppIcons,
   now: number,
   onSelect: (session: SessionState) => void,
 ): void {
@@ -42,12 +57,14 @@ export function renderPanel(
     panel.hidden = true;
     return;
   }
-  const limitText = rateLimits ? renderLimits(limits, rateLimits, now) : false;
+  const line = limitLine(rateLimits.claude, rateLimits.codex, now);
+  if (line) renderLimits(limits, line, icons);
+  const limitText = line !== null;
   let children: HTMLElement[] = [];
   if (hasContent(view)) {
-    if (view.mode === "counts") children = [renderCounts(view, onSelect)];
+    if (view.mode === "counts") children = [renderCounts(view, icons, onSelect)];
     else if (view.mode === "list" && isEmpty(view.plan)) children = [el("div", "empty", EMPTY_LIST_TEXT)];
-    else children = detailChildren(view.plan, onSelect);
+    else children = detailChildren(view.plan, icons, onSelect);
   }
   rows.replaceChildren(...children);
   rows.hidden = children.length === 0;
@@ -63,15 +80,19 @@ export function renderPanel(
   toggle.hidden = children.length === 0;
 }
 
-function detailChildren(plan: PanelPlan, onSelect: (session: SessionState) => void): HTMLElement[] {
-  const children: HTMLElement[] = plan.rows.map((s) => renderRow(s, plan.read.has(s.session_id), onSelect));
+function detailChildren(
+  plan: PanelPlan,
+  icons: AppIcons,
+  onSelect: (session: SessionState) => void,
+): HTMLElement[] {
+  const children: HTMLElement[] = plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, onSelect));
   if (plan.moreRows > 0) children.push(el("div", "more", `ほか ${plan.moreRows} 件`));
   return children;
 }
 
 // 件数だけの段階は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
 // 押したときは、最も優先度の高い要対応のセッションへ移動する。
-function renderCounts(view: PanelView, onSelect: (session: SessionState) => void): HTMLElement {
+function renderCounts(view: PanelView, icons: AppIcons, onSelect: (session: SessionState) => void): HTMLElement {
   const line = () => {
     const node = el("div", "counts-line");
     view.counts.forEach((c, i) => {
@@ -85,7 +106,7 @@ function renderCounts(view: PanelView, onSelect: (session: SessionState) => void
   const wrap = el("div", "counts-group");
   wrap.dataset.expandId = "counts";
   const layer = el("div", "counts-detail hover-layer");
-  layer.append(...detailChildren(view.plan, onSelect), line());
+  layer.append(...detailChildren(view.plan, icons, onSelect), line());
   wrap.append(line(), layer);
   const target = view.target;
   if (target) {
@@ -97,7 +118,13 @@ function renderCounts(view: PanelView, onSelect: (session: SessionState) => void
 
 // 行は 2 段に詰めたまま広げない。広げる層を重ねると、押したときに層の開閉とクリックが競り、
 // 1 回で移動できないことがある。要約の全文とコマンドは title のツールチップで読める。
-function renderRow(s: SessionState, read: boolean, onSelect: (session: SessionState) => void): HTMLElement {
+// どのツールのセッションかの印は、2 段目の左の空いている場所に状態の点と縦に並べ、行の高さを変えない。
+function renderRow(
+  s: SessionState,
+  read: boolean,
+  icons: AppIcons,
+  onSelect: (session: SessionState) => void,
+): HTMLElement {
   const row = el("div", read ? "row read" : "row");
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
   const detail = s.activity?.detail ?? "";
@@ -108,17 +135,31 @@ function renderRow(s: SessionState, read: boolean, onSelect: (session: SessionSt
     onSelect(s);
   });
 
-  row.append(renderHead(s), el("div", "row-summary", summary));
-  return row;
-}
-
-function renderHead(s: SessionState): HTMLElement {
-  const head = el("div", "row-head");
   const names = el("span", "names");
   names.append(el("span", "folder", folderName(s)));
   if (s.title) names.append(el("span", "chat-title", s.title));
-  head.append(el("span", `dot ${s.status}`), names, renderContext(s));
-  return head;
+  row.append(
+    el("span", `dot ${s.status}`),
+    names,
+    renderContext(s),
+    providerMarker(s.provider ?? "claude", icons),
+    el("div", "row-summary", summary),
+  );
+  return row;
+}
+
+function providerMarker(provider: Provider, icons: AppIcons): HTMLElement {
+  const src = icons[provider];
+  if (!src) {
+    const badge = el("span", "provider provider-badge", PROVIDER_BADGE[provider]);
+    badge.setAttribute("aria-label", PROVIDER_NAME[provider]);
+    return badge;
+  }
+  const icon = el("img", "provider provider-icon");
+  icon.src = src;
+  icon.alt = PROVIDER_NAME[provider];
+  icon.draggable = false;
+  return icon;
 }
 
 // % が分かるときはバー、上限が分からずトークン数だけのときは数値だけを出し、見分けられるようにする。
@@ -143,22 +184,23 @@ export function renderContext(s: SessionState): HTMLElement {
   return el("span", "ctx-none");
 }
 
-function renderLimits(container: HTMLElement, rl: RateLimits, now: number): boolean {
-  const parts: string[] = [];
-  const add = (label: string, w: RateWindow | null) => {
-    // リセット時刻を過ぎた窓の値はもう意味を持たないので出さない。
-    if (!w || (w.resets_at != null && w.resets_at * 1000 <= now)) return;
-    parts.push(`${label} ${Math.round(w.used_percentage)}%`);
-  };
-  add("5h", rl.five_hour);
-  add("7d", rl.seven_day);
-  if (parts.length === 0) return false;
-  container.replaceChildren(
-    el("span", "limit-values", parts.join(" · ")),
-    el("span", "limit-time", `${formatClock(rl.updated_at)} 更新`),
-  );
-  container.classList.toggle("stale", now - rl.updated_at > RATE_STALE_MS);
-  return true;
+// 古さは組ごとに示す。全部の組が古いときは、以前の版と同じく行全体を薄くする。
+function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons): void {
+  const allStale = line.groups.every((g) => g.stale);
+  let values: HTMLElement;
+  if (line.marked) {
+    values = el("span", "limit-values marked");
+    for (const g of line.groups) {
+      const group = el("span", !allStale && g.stale ? "limit-group stale" : "limit-group");
+      group.title = `${PROVIDER_NAME[g.provider]} ${formatClock(g.updatedAt)} 更新`;
+      group.append(providerMarker(g.provider, icons), el("span", "", g.text));
+      values.append(group);
+    }
+  } else {
+    values = el("span", "limit-values", line.groups.map((g) => g.text).join(" · "));
+  }
+  container.replaceChildren(values, el("span", "limit-time", `${formatClock(line.updatedAt)} 更新`));
+  container.classList.toggle("stale", allStale);
 }
 
 function formatClock(ms: number): string {

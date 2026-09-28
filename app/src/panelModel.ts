@@ -1,4 +1,4 @@
-import type { Acknowledged } from "./acknowledged";
+import { sessionKey, type Acknowledged } from "./acknowledged";
 import type { SessionState, Snapshot, Status } from "./types";
 
 // 詳細の段階の行数の上限。行はリストの上へ伸びるだけで立ち絵は動かないが、窓の高さに収める。
@@ -9,7 +9,7 @@ export const READ_LINGER_MS = 3 * 60 * 1000;
 export interface PanelPlan {
   rows: SessionState[];
   moreRows: number;
-  /** 見たと示された直後の完了の行の session_id。薄く描く。 */
+  /** 見たと示された直後の完了の行の sessionKey。薄く描く。 */
   read: ReadonlySet<string>;
 }
 
@@ -34,16 +34,16 @@ export function planPanel(snapshot: Snapshot | null, ack: Acknowledged, now: num
     const at = isRead(s) ? ack.seenAt(s) : undefined;
     return at !== undefined && now - at < READ_LINGER_MS;
   });
-  const read = new Set(lingering.map((s) => s.session_id));
+  const read = new Set(lingering.map(sessionKey));
   const candidates = [...active.filter((s) => !isRead(s)), ...lingering];
   const importance = (a: SessionState, b: SessionState) =>
-    Number(read.has(a.session_id)) - Number(read.has(b.session_id)) ||
+    Number(read.has(sessionKey(a))) - Number(read.has(sessionKey(b))) ||
     COUNT_ORDER.indexOf(a.status) - COUNT_ORDER.indexOf(b.status) ||
     b.updated_at - a.updated_at;
   const rows = candidates
     .sort(importance)
     .slice(0, MAX_ROWS)
-    .sort((a, b) => b.started_at - a.started_at || compareIds(a.session_id, b.session_id));
+    .sort((a, b) => b.started_at - a.started_at || compareIds(sessionKey(a), sessionKey(b)));
   return {
     rows,
     moreRows: candidates.length - rows.length,

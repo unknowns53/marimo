@@ -15,7 +15,7 @@ import { PANEL_MODES, panelView, showsCharacter, type PanelMode } from "./panelM
 import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
-import type { Dialogue, SessionState, Snapshot } from "./types";
+import type { AppIcons, Dialogue, SessionState, Snapshot } from "./types";
 
 const CHARACTER_BASE = new URL("/character/default/", window.location.href).href;
 // 以前は行を隠す設定だけをこの名前で localStorage に持っていた。段階の保存先を MARIMO_HOME へ
@@ -65,6 +65,7 @@ let dialogue: Dialogue = {};
 let defaultDialogue: Dialogue = {};
 let speechTimer: number | undefined;
 let panelMode: PanelMode = "detail";
+let appIcons: AppIcons = { claude: null, codex: null };
 let scale: ScaleControl | undefined;
 // スナップショットは続けて届くことがあり、セリフの読み込みを待つ間に順序が入れ替わらないよう直列にする。
 let applying: Promise<void> = Promise.resolve();
@@ -145,7 +146,8 @@ function collectHitRegions(): HitRegions {
 
 function redrawPanel(): void {
   const view = panelView(shown, acknowledged, panelMode, Date.now());
-  renderPanel(panelElements, view, shown?.rate_limits ?? null, Date.now(), selectSession);
+  const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null };
+  renderPanel(panelElements, view, limits, appIcons, Date.now(), selectSession);
   expansion.evaluate();
   hits.schedule();
 }
@@ -153,8 +155,8 @@ function redrawPanel(): void {
 // 行を押してセッションへ移動したら、そのきっかけを見たものとして扱う。完了の行は既読として薄くしてから畳み、
 // 同じきっかけの吹き出しも閉じる。承認待ちとエラーの行は、解決するまで残す。
 function selectSession(session: SessionState): void {
-  void invoke("focus_session", { sessionId: session.session_id }).catch((e) =>
-    console.error("focus", e),
+  void invoke("focus_session", { provider: session.provider ?? "claude", sessionId: session.session_id }).catch(
+    (e) => console.error("focus", e),
   );
   acknowledged.add(triggerKey(session));
   if (bubbleModel.view?.key === triggerKey(session)) bubbleModel.dismiss();
@@ -293,6 +295,10 @@ async function start(): Promise<void> {
   bindWindowControls();
   bindPanelToggle();
   panelMode = await loadPanelMode();
+  appIcons = await invoke<AppIcons>("app_icons").catch((e) => {
+    console.error("app icons", e);
+    return appIcons;
+  });
   applyCharacterVisibility();
   try {
     scale = new ScaleControl(await invoke<number>("get_scale"));

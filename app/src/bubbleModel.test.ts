@@ -40,19 +40,19 @@ describe("BubbleModel", () => {
     expect(other?.text).toBe("b で確認をお願いしたいことがあるの");
     // 一度別の状態を経て再び承認待ちになれば、新しいきっかけとして出す。
     m.update(snap(session("a", "working", 6)), DIALOGUE);
-    expect(m.update(snap(session("a", "waiting", 7)), DIALOGUE)?.sessionId).toBe("a");
+    expect(m.update(snap(session("a", "waiting", 7)), DIALOGUE)?.sessionKey).toBe("a");
   });
 
   it("switches to the next waiting session when the current one resolves", () => {
     const m = model();
     const first = m.update(snap(session("a", "waiting", 2), session("b", "waiting", 3)), DIALOGUE);
-    expect(first?.sessionId).toBe("b");
+    expect(first?.sessionKey).toBe("b");
     // a の更新が新しくなって並びが入れ替わっても、b の吹き出しを保つ。
     expect(
-      m.update(snap(session("a", "waiting", 2, 20), session("b", "waiting", 3)), DIALOGUE)?.sessionId,
+      m.update(snap(session("a", "waiting", 2, 20), session("b", "waiting", 3)), DIALOGUE)?.sessionKey,
     ).toBe("b");
     const next = m.update(snap(session("a", "waiting", 2, 20), session("b", "working", 30)), DIALOGUE);
-    expect(next?.sessionId).toBe("a");
+    expect(next?.sessionKey).toBe("a");
   });
 
   it("follows the aggregate state", () => {
@@ -64,9 +64,9 @@ describe("BubbleModel", () => {
     expect(m.update(snap(session("a", "idle", 80)), DIALOGUE)).toBeNull();
 
     const n = model();
-    expect(n.update(snap(session("a", "done", 1), session("b", "error", 2)), DIALOGUE)?.sessionId).toBe("b");
+    expect(n.update(snap(session("a", "done", 1), session("b", "error", 2)), DIALOGUE)?.sessionKey).toBe("b");
     expect(n.update(snap(session("a", "done", 1), session("b", "working", 3)), DIALOGUE)).toBeNull();
-    expect(n.update(snap(session("a", "done", 1), session("b", "idle", 4)), DIALOGUE)?.sessionId).toBe("a");
+    expect(n.update(snap(session("a", "done", 1), session("b", "idle", 4)), DIALOGUE)?.sessionKey).toBe("a");
 
     // {folder} を持たないセリフはそのまま出し、その状態のセリフが無ければ吹き出しを出さない。
     expect(model().update(snap(session("a", "waiting", 1)), { waiting: ["確認してね"] })?.text).toBe("確認してね");
@@ -78,7 +78,7 @@ describe("Speech", () => {
   it("lets notification bubbles win over the touch reaction", async () => {
     const { Speech } = await import("./speech");
     const s = new Speech();
-    const status = { key: "k", sessionId: "a", status: "waiting" as const, text: "確認してね" };
+    const status = { key: "k", sessionKey: "a", status: "waiting" as const, text: "確認してね" };
     expect(s.react("ふふ", 0, 2500, status)).toBe(false);
     expect(s.current(status, 100)).toBe("確認してね");
     expect(s.react("ふふ", 0, 2500, null)).toBe(true);

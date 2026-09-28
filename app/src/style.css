@@ -184,8 +184,14 @@ body {
   cursor: default;
 }
 
+/* 1 段目は状態の点、名前、コンテキスト使用率、2 段目はどのツールかの印と要約。印は 12px の
+   左の列に点と縦に並べ、2 段目の文字の高さに収めて行を高くしない。 */
 .row {
   position: relative;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  column-gap: 6px;
+  align-items: center;
   padding: 3px 6px;
   margin: 0 -6px;
   border-radius: 6px;
@@ -200,11 +206,10 @@ body {
   opacity: 0.45;
 }
 
-.row-head {
-  display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: center;
+.row > .dot,
+.row > .provider {
+  grid-column: 1;
+  justify-self: center;
 }
 
 .dot {
@@ -261,11 +266,36 @@ body {
 }
 
 .row-summary {
+  grid-column: 2 / 4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-left: 14px;
   opacity: 0.9;
+}
+
+.provider {
+  display: block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.provider-icon {
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+/* アイコンを読めないときの文字の印。12px の四角に 2 文字を詰める。 */
+.provider-badge {
+  box-sizing: border-box;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+  letter-spacing: -0.3px;
+  opacity: 0.85;
 }
 
 /* 件数の行にマウスを載せたときだけ出す層。元の行の下端に揃えて上へ伸ばし、パネルの高さを変えない。 */
@@ -370,7 +400,7 @@ body {
 }
 
 .more {
-  padding: 1px 0 0 14px;
+  padding: 1px 0 0 18px;
   opacity: 0.7;
 }
 
@@ -387,9 +417,28 @@ body {
 #limits {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 8px;
   font-size: 10px;
+  white-space: nowrap;
   opacity: 0.85;
+}
+
+/* Claude Code と Codex の値を、それぞれのアイコンを先頭に付けて同じ行に並べる。 */
+.limit-values.marked {
+  display: flex;
+  gap: 8px;
+}
+
+.limit-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 行の不透明度 0.85 に重なるので、行全体が古いときの 0.4 と同じ濃さになるようにする。 */
+.limit-group.stale {
+  opacity: 0.47;
 }
 
 #rows:not([hidden]) + #limits {

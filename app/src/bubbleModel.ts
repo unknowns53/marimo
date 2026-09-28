@@ -1,4 +1,4 @@
-import { triggerKey, type Acknowledged } from "./acknowledged";
+import { sessionKey, triggerKey, type Acknowledged } from "./acknowledged";
 import { categoryFor, fillTemplate, linesFor } from "./dialogue";
 import type { Dialogue, SessionState, Snapshot, Status } from "./types";
 
@@ -6,7 +6,7 @@ const SPEAKING: ReadonlySet<Status> = new Set(["waiting", "done", "error"]);
 
 export interface BubbleView {
   key: string;
-  sessionId: string;
+  sessionKey: string;
   status: Status;
   text: string;
 }
@@ -48,7 +48,7 @@ export class BubbleModel {
     if (this.current?.key === key) return this.current;
     const template = this.pick(linesFor(dialogue, categoryFor(next)));
     this.current = template
-      ? { key, sessionId: next.session_id, status: next.status, text: fillTemplate(template, next) }
+      ? { key, sessionKey: sessionKey(next), status: next.status, text: fillTemplate(template, next) }
       : null;
     return this.current;
   }

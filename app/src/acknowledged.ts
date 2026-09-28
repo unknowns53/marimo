@@ -3,10 +3,16 @@ import type { SessionState, Snapshot, Status } from "./types";
 // marimo-core の集約と同じ順序。
 const PRIORITY: Status[] = ["waiting", "error", "working", "done", "idle"];
 
+// Claude Code と Codex は session_id を別々に振るので、同じ id が両方にありうる。Claude Code の
+// セッションは以前の版と同じ鍵のままにして、保存してある既読の記録をそのまま使えるようにする。
+export function sessionKey(s: Pick<SessionState, "session_id" | "provider">): string {
+  return s.provider === "codex" ? `codex:${s.session_id}` : s.session_id;
+}
+
 // きっかけは「どのセッションが、いつから、どの状態か」で見分ける。status_since を含めるので、
 // 同じセッションが一度別の状態を経て同じ状態へ戻れば、新しいきっかけになる。
 export function triggerKey(s: SessionState): string {
-  return `${s.session_id}:${s.status}:${s.status_since}`;
+  return `${sessionKey(s)}:${s.status}:${s.status_since}`;
 }
 
 /**

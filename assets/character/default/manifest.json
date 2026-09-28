@@ -80,7 +80,8 @@
           "PowerShell",
           "Edit",
           "Write",
-          "NotebookEdit"
+          "NotebookEdit",
+          "apply_patch"
         ],
         "expression": "working_focus"
       },

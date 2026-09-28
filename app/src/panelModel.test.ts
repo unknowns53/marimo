@@ -109,6 +109,20 @@ describe("acknowledged sessions", () => {
     expect(plan.moreRows).toBe(1);
   });
 
+  it("keeps a Claude Code and a Codex session with the same id apart", () => {
+    const ack = new Acknowledged();
+    const claudeDone = session("same", "done", 10, 10, 1);
+    const codexDone = { ...session("same", "done", 10, 10, 2), provider: "codex" as const };
+    // Claude Code の鍵は以前の版と同じなので、保存してある既読の記録がそのまま効く。
+    expect([triggerKey(claudeDone), triggerKey(codexDone)]).toEqual(["same:done:10", "codex:same:done:10"]);
+    expect(planPanel(snap(claudeDone, codexDone), ack).rows).toHaveLength(2);
+    ack.add(triggerKey(claudeDone), 1000);
+    const plan = planPanel(snap(claudeDone, codexDone), ack, 1001);
+    expect([...plan.read]).toEqual(["same"]);
+    ack.add(triggerKey(codexDone), 1000);
+    expect([...planPanel(snap(claudeDone, codexDone), ack, 1001).read]).toEqual(["same", "codex:same"]);
+  });
+
   it("keeps waiting and error rows even when seen", () => {
     const ack = new Acknowledged();
     const waiting = session("w", "waiting", 1);

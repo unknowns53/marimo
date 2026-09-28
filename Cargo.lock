@@ -2087,8 +2087,12 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 name = "marimo-app"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "marimo-core",
  "notify",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "security-framework",
  "serde",
  "serde_json",
@@ -2108,6 +2112,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "windows",
  "windows-sys 0.61.2",
 ]
 
