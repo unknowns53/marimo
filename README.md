@@ -126,7 +126,7 @@ npm install
 npm run tauri -- build
 ```
 
-macOS では `target/release/bundle/macos/marimo.app` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
+macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<版>_x64-setup.exe` と `target/release/bundle/msi/marimo_<版>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
 
 ### ad-hoc 署名について
 
@@ -194,7 +194,7 @@ marimo を新しくビルドし直したときも、同じ `install` を実行�
 
 ### 2. アプリを置いて起動する
 
-`marimo.app` を `/Applications` へコピーします。
+macOS では、`marimo.app` を `/Applications` へコピーします。
 
 ```bash
 cp -R target/release/bundle/macos/marimo.app /Applications/
@@ -206,19 +206,33 @@ Finder から開くか、次のコマンドで起動します。
 open /Applications/marimo.app
 ```
 
-起動すると、画面の右下に立ち絵が現れます。marimo は Dock にもアプリの切り替え（Cmd+Tab）にも出ず、常に他のウィンドウより手前に表示されます。すでに起動しているときにもう一度起動しても、二つ目は何もせずに終わります。
+Windows では、NSIS のインストーラで入れます。利用者ごとのインストールなので、管理者の権限は要りません。
+
+```powershell
+.\target\release\bundle\nsis\marimo_0.1.0_x64-setup.exe
+```
+
+`%LOCALAPPDATA%\marimo\marimo.exe` に入り、スタートメニューにショートカットができるので、そこから起動します。新しい版にするときは、ビルドし直してからもう一度インストーラを実行します。インストーラを使った導入は、まだ確かめていません。
+
+`target\release\marimo.exe` を直接起動しても動きますが、ふだん使いには向きません。起動している間は実行ファイルが使用中になり、ビルドし直すと上書きに失敗するためです。MSI のインストーラはすべての利用者向けに Program Files へ入れるもので、管理者の権限が要ります。
+
+起動すると、画面の右下に立ち絵が現れます。marimo は macOS では Dock にもアプリの切り替え（Cmd+Tab）にも出ず、Windows ではタスクバーに出ません。常に他のウィンドウより手前に表示されます。すでに起動しているときにもう一度起動しても、二つ目は何もせずに終わります。
 
 登録より前から開いていたセッションの状態が出ない場合は、そのセッションを開き直してみてください。
 
 ### 3. ログイン時に起動する
 
-ログインのたびに手で起動しなくて済むよう、自動起動を有効にできます。`/Applications` に置いた `marimo.app` を起動してから、立ち絵を右クリックして「ログイン時に起動」を選びます。
+ログインのたびに手で起動しなくて済むよう、自動起動を有効にできます。macOS では `/Applications` に置いた `marimo.app` を、Windows ではインストーラで入れた `%LOCALAPPDATA%\marimo\marimo.exe` を起動してから、立ち絵を右クリックして「ログイン時に起動」を選びます。
 
-macOS では、`~/Library/LaunchAgents/com.marimo.desktop.plist` に LaunchAgent（ログイン時に macOS がプログラムを起動するための設定ファイル）を置きます。この plist は、有効にした時点で動いている実行ファイルのパスを指します。このため、`marimo.app` を別の場所へ移したときは、一度無効にしてから有効にし直してください。既定では無効で、marimo が勝手にログイン項目を増やすことはありません。
+macOS では、`~/Library/LaunchAgents/com.marimo.desktop.plist` に LaunchAgent（ログイン時に macOS がプログラムを起動するための設定ファイル）を置きます。この plist は、有効にした時点で動いている実行ファイルのパスを指します。このため、`marimo.app` を別の場所へ移したときは、一度無効にしてから有効にし直してください。
+
+Windows では、レジストリの `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` に、有効にした時点で動いている `marimo.exe` のパスを登録します。`target\release\marimo.exe` から起動したまま有効にすると、ビルド用のフォルダの実行ファイルが登録されてしまうので、インストーラで入れた方から起動してください。
+
+どちらの OS でも既定では無効で、marimo が勝手にログイン項目を増やすことはありません。
 
 ## アンインストール
 
-1. 立ち絵を右クリックして「ログイン時に起動」を有効にしていたら、先に無効にします。これで LaunchAgent の plist が取り除かれます。
+1. 立ち絵を右クリックして「ログイン時に起動」を有効にしていたら、先に無効にします。これで macOS では LaunchAgent の plist が、Windows ではレジストリの登録が取り除かれます。
 2. 右クリックメニューの「終了」で marimo を終了します。
 3. フックと statusLine の登録を解除します。
 
@@ -228,7 +242,7 @@ macOS では、`~/Library/LaunchAgents/com.marimo.desktop.plist` に LaunchAgent
 
    `uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。取り除くのは marimo が足したものだけで、以前のシェルを通す形で登録したフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
 
-4. `/Applications/marimo.app` を削除します。
+4. macOS では `/Applications/marimo.app` を削除します。Windows では、設定の「アプリ」から marimo をアンインストールします。
 5. `uninstall` は実行ファイルとデータを残すので、不要なら `~/.marimo` フォルダを手で削除します。`uninstall` の最後に、消してよいパスが表示されます。settings.json のバックアップ（`settings.json.marimo-backup-*`）も、不要になったら手で削除してください。
 
 ## 毎日の使い方
