@@ -173,8 +173,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\update.ps1
 
 コードは、[MIT License](LICENSE-MIT) と [Apache License 2.0](LICENSE-APACHE) のどちらかを、利用する人が選んで使えます。
 
-立ち絵などの画像とセリフは、[クリエイティブ・コモンズ 表示 4.0 国際ライセンス（CC BY 4.0）](https://creativecommons.org/licenses/by/4.0/deed.ja)で公開しています。対象は `assets/`、`art/`、`docs/images/`、`app/src-tauri/icons/`、`app/src-tauri/shipped-dialogue/` です。詳しくは [LICENSE-ASSETS](LICENSE-ASSETS) を見てください。
+立ち絵などの画像とセリフは、[クリエイティブ・コモンズ 表示 4.0 国際ライセンス（CC BY 4.0）](https://creativecommons.org/licenses/by/4.0/deed.ja)で公開しています。対象は `assets/`（`assets/character/clawd/` を除きます）、`art/`、`docs/images/`、`app/src-tauri/icons/`、`app/src-tauri/shipped-dialogue/` です。詳しくは [LICENSE-ASSETS](LICENSE-ASSETS) を見てください。
 
 小春の立ち絵は OpenAI の画像生成モデルで作った画像を元に、`tools/character/build.py` で顔の差分の合成と背景の除去をして仕上げています。`art/` の元の画像には、生成したサービスが埋め込んだメタデータがそのまま残っています。
 
-Clawd のドット絵は、Claude Code の起動時のロゴの形に従って `tools/character/clawd.py` が描いたものです。Clawd の意匠は Anthropic のものなので、CC BY 4.0 はその意匠や商標の権利を与えません。メニューバーと通知領域のアイコンは、`tools/tray_icon.py` で描いた marimo 独自のまりもの絵です。
+`assets/character/clawd/` の Clawd のドット絵は、Anthropic の Claude Code のマスコットを非公式に描いたファンアートで、Claude Code の起動時のロゴの形に従って `tools/character/clawd.py` が描いています。このフォルダは CC BY 4.0 の対象に含めません。marimo は Anthropic の意匠や商標についての権利を何も与えず、この絵は Anthropic による承認や提携を意味しません。`tools/character/clawd.py` そのものはコードなので、ほかのコードと同じライセンスで使えます。
+
+メニューバーと通知領域のアイコンは `tools/tray_icon.py` が、アプリのアイコンは `tools/app_icon.py` が描いた、marimo 独自のまりもの絵です。
