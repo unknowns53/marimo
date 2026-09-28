@@ -8,10 +8,10 @@ marimo は、Claude Code の作業状況を画面の隅で知らせるデスク�
 
 上の画面は、架空のセッションを四つ動かしたときの様子です。gaussian-scan がコマンドの実行許可を待っているので、立ち絵が手を振って吹き出しで知らせています。パネルには、承認待ち（橙）、作業中（青）、完了（緑）のセッションが 1 行ずつ並び、それぞれのコンテキスト使用率と今の作業の要約が出ています。いちばん下の行は、アカウント全体の利用制限です。
 
-別の作業をしていても、Claude Code のウィンドウを見に行かずに状況が分かるようにすることが marimo の目的です。情報源は Claude Code のフック（hook。特定の出来事が起きたときに Claude Code が呼び出す外部コマンド）と statusLine（CLI の画面下部に一行を表示するための外部コマンド）で、どちらも Claude Code の公式の仕組みです。
+別の作業をしていても、Claude Code のウィンドウを見に行かずに状況が分かるようにすることが marimo の目的です。情報源は Claude Code のフック（hook。特定の出来事が起きたときに Claude Code が呼び出す外部コマンド）と statusLine（端末で動かすコマンドラインインターフェース、つまり CLI の画面下部に一行を表示するための外部コマンド）で、どちらも Claude Code の公式の仕組みです。
 
 > [!NOTE]
-> marimo は有志が作った非公式のツールで、Anthropic とは関係がなく、Anthropic が承認したものでもありません。Claude と Claude Code は Anthropic の商標です。利用制限の取得に使う API は Anthropic が公開していないもので、予告なく使えなくなる可能性があります（[利用制限の表示](docs/usage.md#利用制限の表示)を参照）。
+> marimo は有志が作った非公式のツールで、Anthropic とは関係がなく、Anthropic が承認したものでもありません。Claude と Claude Code は Anthropic の商標です。利用制限の取得に使う API（アプリが外部のサービスを呼び出すための窓口）は Anthropic が公開していないもので、予告なく使えなくなる可能性があります（[利用制限の表示](docs/usage.md#利用制限の表示)を参照）。
 
 ## ドキュメント
 
@@ -65,10 +65,10 @@ Claude Code は 2.1.139 以降が必要です。marimo は、この版で加わ�
 
 | Claude Code の使い方 | 確認の状況 | 使える機能 |
 | --- | --- | --- |
-| macOS の端末で動かす CLI（コマンドラインインターフェース） | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます |
-| macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限を出すには[利用制限を API から取得](docs/usage.md#利用制限の表示)を有効にします |
+| macOS の端末で動かす CLI | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます。更新用のスクリプトによる更新も確かめています。行を押してセッションへ移動する機能は Terminal.app で確かめており、iTerm2 と VS Code の統合ターミナルでの見分け方は、それぞれのアプリの文書に基づいています |
+| macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限を出すには[利用制限を API から取得](docs/usage.md#利用制限の表示)を有効にします。API から取った値が statusLine の値と揃うかどうかと、キーチェーンの確認の画面に marimo の名前が出るかどうかは、確かめていません |
 | VS Code の拡張機能の画面 | 未確認 | statusLine が動くかどうかを確かめていません |
-| Windows | 一部確認済み | Windows 11 で、ビルド、NSIS のインストーラによる導入、更新用のスクリプトによる更新、`install`、フックの発火、自動起動、クリック透過、通知領域のアイコンから窓を隠して出し直す操作を確かめています。statusLine が無い場合の `install` による登録が Git Bash と PowerShell のどちらでも動くことと、既存の statusLine を `install` が包んでも元の表示が変わらず、CLI のセッションでコンテキスト使用率がパーセントで出ることも確かめています（[statusLine の包み方](docs/development.md#statusline-の包み方)を参照）。包めない statusLine を使っている場合も、利用制限は「利用制限を API から取得」で出せ、`~/.claude/.credentials.json` のトークンで取得できることを確かめています。行を押してセッションへ移動する機能は、デスクトップアプリの Code タブ、Windows Terminal、conhost、VS Code の統合ターミナルのどれでも確かめています（[セッションへ移動する](docs/usage.md#セッションへ移動する)を参照） |
+| Windows | 一部確認済み | Windows 11 で、ビルド、NSIS（Windows 向けのインストーラを作る仕組み）のインストーラによる導入、更新用のスクリプトによる更新、`install`、フックの発火、自動起動、クリック透過、通知領域のアイコンから窓を隠して出し直す操作を確かめています。statusLine が無い場合の `install` による登録が Git Bash と PowerShell のどちらでも動くことと、既存の statusLine を `install` が包んでも元の表示が変わらず、CLI のセッションでコンテキスト使用率がパーセントで出ることも確かめています（[statusLine の包み方](docs/development.md#statusline-の包み方)を参照）。包めない statusLine を使っている場合も、利用制限は「利用制限を API から取得」で出せ、`~/.claude/.credentials.json` のトークンで取得できることを確かめています。行を押してセッションへ移動する機能は、デスクトップアプリの Code タブ、Windows Terminal、conhost、VS Code の統合ターミナルのどれでも確かめています（[セッションへ移動する](docs/usage.md#セッションへ移動する)を参照） |
 | Linux | 未確認 | 動作を確かめていません |
 | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | 手元の `~/.claude/settings.json` を読まないので、フックが届きません |
 | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
