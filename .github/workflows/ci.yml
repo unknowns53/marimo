@@ -1,7 +1,7 @@
 name: CI
 
 # 文書だけを変えたコミットでは、検査の結果もビルドも変わらないので走らせない。
-# この一覧を変えるときは、下の公開のジョブと tools/update.sh、tools/update.ps1 の同じ一覧も直す。
+# 検査はするがビルドはしないファイルの一覧は、下の target ジョブが持つ。
 on:
   push:
     branches: [main]
@@ -86,12 +86,46 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "$exe で tools/update.ps1 の構文の誤りが見つかりました" }
           }
 
-  # 更新用のスクリプトは main の各コミットのビルドを取りに来るので、ビルドと公開は main への push でだけ行う。
+  # 更新用のスクリプトは、アプリに入るファイルを変えた最後のコミットのビルドを取りに来る。
+  # 文書、tools/ の中のスクリプト、art/ の元絵、.gitignore はアプリに入らないので、
+  # それらだけを変えた push では、そのコミットのビルドがすでにあればビルドしない。
+  # 同じ push の中でそれらだけのコミットが後に続いたときにも見つかるよう、タグもそのコミットの名前で付ける。
+  # この一覧を変えるときは、tools/update.sh と tools/update.ps1 の同じ一覧も直す。
+  target:
+    name: find the build to publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.find.outputs.sha }}
+      needed: ${{ steps.find.outputs.needed }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Find the commit the update scripts look for
+        id: find
+        run: |
+          sha="$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore')"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if gh release view "build-${sha::12}" >/dev/null 2>&1; then
+            echo "build-${sha::12} はすでにあるので、ビルドしません"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # 利用者の Mac は arm64 なので、arm64 のランナーである macos-latest でビルドする。
   build-macos:
     name: build (macOS arm64)
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, target]
+    if: needs.target.outputs.needed == 'true'
     runs-on: macos-latest
     # 新しいコミットのビルドが始まったら、古いコミットのビルドは要らなくなるので止める。
     concurrency:
@@ -140,8 +174,8 @@ jobs:
 
   build-windows:
     name: build (Windows x64)
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, target]
+    if: needs.target.outputs.needed == 'true'
     runs-on: windows-latest
     concurrency:
       group: build-windows-${{ github.ref }}
@@ -190,8 +224,7 @@ jobs:
   # リリースを書き換えられる権限は、このジョブにだけ渡す。
   publish:
     name: publish
-    needs: [build-macos, build-windows]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [target, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -207,16 +240,6 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      # 文書だけのコミットはビルドしないので、更新用のスクリプトは文書以外を変えた最後のコミットの名前でビルドを探す。
-      # 同じ push の中で文書だけのコミットが後に続いたときにも見つかるよう、タグもそのコミットの名前で付ける。
-      - name: Find the commit the update scripts look for
-        id: target
-        run: echo "sha=$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*')" >> "$GITHUB_OUTPUT"
-
       - uses: actions/download-artifact@v8
         with:
           pattern: marimo-*
@@ -234,7 +257,7 @@ jobs:
       - name: Publish the prerelease
         working-directory: dist
         env:
-          SHA: ${{ steps.target.outputs.sha }}
+          SHA: ${{ needs.target.outputs.sha }}
         run: |
           tag="build-${SHA::12}"
           files=(marimo-macos-arm64.tar.gz marimo-windows-x64.zip SHA256SUMS)
