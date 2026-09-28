@@ -15,13 +15,11 @@ export class PanelExpansion {
   private cursor: Point | null = null;
   private timer: number | undefined;
   private opening = new Set<HTMLElement>();
-  // 開いて見せている行の印。描き直しで作り直された行は、登録を待たずにそのまま開いて見せる。
-  private shownIds = new Set<string>();
 
   constructor(
     private readonly panel: HTMLElement,
     private readonly registerRegions: () => Promise<void>,
-    // 層を閉じたときや、描き直しの後にそのまま開き直したときに、領域を送り直してもらう。
+    // 層を閉じたときに、領域を送り直してもらう。
     private readonly onLayoutChange: () => void,
   ) {}
 
@@ -30,7 +28,8 @@ export class PanelExpansion {
     this.evaluate();
   }
 
-  // パネルを描き直すと DOM が作り直されるので、開いている行の印もここで付け直す。
+  // パネルを描き直すと DOM が作り直される。開いていた行は panel.ts が開いたまま作り直すので、
+  // ここでは今のカーソル位置で開閉を決め直す。
   evaluate(): void {
     window.clearTimeout(this.timer);
     const now = performance.now();
@@ -72,7 +71,6 @@ export class PanelExpansion {
       container = layerOf(el);
     }
     for (const el of all) this.show(el, openEls.has(el));
-    this.shownIds = new Set(Array.from(openEls, (el) => el.getAttribute(EXPAND_ATTR) ?? ""));
 
     const deadlines = this.levels.map((l) => l.nextDeadline()).filter((d): d is number => d !== null);
     if (deadlines.length > 0) {
@@ -88,11 +86,6 @@ export class PanelExpansion {
       return;
     }
     if (el.classList.contains("open") || this.opening.has(el)) return;
-    if (this.shownIds.has(el.getAttribute(EXPAND_ATTR) ?? "")) {
-      el.classList.add("open");
-      this.onLayoutChange();
-      return;
-    }
     this.opening.add(el);
     el.classList.add("measuring");
     void this.registerRegions().finally(() => {

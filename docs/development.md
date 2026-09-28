@@ -128,7 +128,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine と API からの取得の両方がここへ書きます |
 | `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
-| `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、API からの取得を使うかどうかの `usage_api`、選んだキャラクターの名前の `character` を持ちます。以前の版が書いた `panel_mode` は、表示を切り替えて新しい二つの鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
+| `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、API からの取得を使うかどうかの `usage_api`、選んだキャラクターの名前の `character` を持ちます。以前の版が書いた `panel_mode` は、表示を切り替えて新しい鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
 | `window.json` | 窓の位置です |
 | `acknowledged.json` | 既読にした完了などのきっかけの記録です |
 | `dialogue.json` | 利用者が書くセリフの上書きです。marimo はこのファイルを作りません |

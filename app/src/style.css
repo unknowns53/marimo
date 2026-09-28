@@ -13,6 +13,8 @@
   --scale: 1;
   /* 立ち絵の枠の縦横比（高さ ÷ 幅）。選んだキャラクターの素材の比を main.ts が入れる。 */
   --stage-aspect: 1.5;
+  /* パネルの上辺の外に付ける切り替えのタブの高さ。パネルの高さの上限からこの分を引く。 */
+  --panel-tab-h: 20px;
 }
 
 html,
@@ -137,12 +139,16 @@ body {
 }
 
 /* 画面の隅で場所を取りすぎないよう、立ち絵の倍率とは別に幅を決める。 */
-/* パネルは立ち絵の左に、下端を揃えて置く。行が増えるとパネルだけが上へ伸びる。 */
+/* パネルは立ち絵の左に、下端を揃えて置く。行が増えるとパネルだけが上へ伸びる。上辺の外のタブと
+   合わせて窓の上端から 8px 下までで止め、それより多い行は #rows の中でスクロールさせる。 */
 #panel {
   position: absolute;
   right: calc(8px + 180px * var(--scale) + 8px);
   bottom: 8px;
+  display: flex;
+  flex-direction: column;
   width: 312px;
+  max-height: calc(100% - 8px - var(--panel-tab-h) - 8px);
   padding: 5px 8px;
   box-sizing: border-box;
   border-radius: 10px;
@@ -157,21 +163,40 @@ body {
   display: none;
 }
 
+#rows {
+  min-height: 0;
+}
+
+#limits {
+  flex: none;
+}
+
 /* パネルの右上の外に付ける切り替え。行と重ならず、パネルが上へ伸びても一緒に動く。
    文字一つだと「今の表示」と「押すとなる表示」のどちらか読み分けられないので、
-   二つの表示を並べて今の方だけを明るくする。 */
-#panel-toggle {
+   二つの表示を並べて今の方だけを明るくする。並べ方の切り替えも同じ形で左上に付ける。 */
+#panel-toggle,
+#row-order {
   position: absolute;
-  right: 8px;
   bottom: 100%;
   display: flex;
   gap: 2px;
+  height: var(--panel-tab-h);
+  box-sizing: border-box;
   padding: 2px 2px 0;
   border-radius: 6px 6px 0 0;
   background: var(--panel-bg);
 }
 
-#panel-toggle button {
+#panel-toggle {
+  right: 8px;
+}
+
+#row-order {
+  left: 8px;
+}
+
+#panel-toggle button,
+#row-order button {
   padding: 1px 7px;
   border: none;
   border-radius: 4px 4px 0 0;
@@ -184,11 +209,13 @@ body {
   cursor: pointer;
 }
 
-#panel-toggle button:hover {
+#panel-toggle button:hover,
+#row-order button:hover {
   opacity: 0.8;
 }
 
-#panel-toggle button.active {
+#panel-toggle button.active,
+#row-order button.active {
   background: rgba(255, 255, 255, 0.16);
   opacity: 1;
   cursor: default;
@@ -316,14 +343,48 @@ body {
   opacity: 0.85;
 }
 
-/* 件数の行にマウスを載せたときだけ出す層。元の行の下端に揃えて上へ伸ばし、パネルの高さを変えない。 */
+/* 行を縦に並べてスクロールさせる枠。行は角丸の地のために左右へ 6px はみ出すので、枠も左右へ 6px
+   広げて左は内側の余白で受ける。右ではみ出す分は行の右の余白で、スクロールバーの下に隠れるだけなので
+   行の中身の位置は変わらない。スクロールバーは行が溢れていないときも場所を取らせ、溢れた瞬間に行の幅が
+   変わらないようにする。 */
+.row-scroll {
+  margin: 0 -6px;
+  padding-left: 6px;
+  overflow-x: hidden;
+  overflow-y: scroll;
+}
+
+.row-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.row-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.row-scroll::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22) padding-box;
+}
+
+.row-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+
+/* 件数の行にマウスを載せたときだけ出す層。元の行の下端に揃えて上へ伸ばし、パネルの高さを変えない。
+   窓の上端から 8px 下までで止め、それより多い行は層の中でスクロールさせる。--layer-below は、層の
+   下端から窓の下端までの距離で、panel.ts が入れる。 */
 .hover-layer {
   display: none;
+  flex-direction: column;
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 5;
+  box-sizing: border-box;
+  max-height: calc(100vh - 8px - var(--layer-below, 0px));
   padding: 3px 6px;
   border-radius: 6px;
   background: var(--layer-bg);
@@ -334,7 +395,7 @@ body {
    measuring は、見せる前に大きさを測ってクリックを受け取る領域へ登録する間の状態。 */
 .open > .hover-layer,
 .measuring > .hover-layer {
-  display: block;
+  display: flex;
 }
 
 .measuring > .hover-layer {
@@ -373,7 +434,12 @@ body {
   padding: 3px 6px;
 }
 
+.layer-rows {
+  min-height: 0;
+}
+
 .counts-detail .counts-line {
+  flex: none;
   margin-top: 2px;
 }
 
@@ -415,11 +481,6 @@ body {
   font-size: 10px;
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
-}
-
-.more {
-  padding: 1px 0 0 18px;
-  opacity: 0.7;
 }
 
 .empty {

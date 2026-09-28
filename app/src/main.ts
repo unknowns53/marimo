@@ -10,9 +10,17 @@ import { BubbleModel } from "./bubbleModel";
 import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
 import { characterCandidates, characterInfo, type CharacterInfo } from "./manifest";
-import { renderPanel } from "./panel";
+import { onScrollbar, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
-import { DEFAULT_PANEL_DISPLAY, PANEL_STYLES, panelView, type PanelDisplay, type PanelStyle } from "./panelModel";
+import {
+  DEFAULT_PANEL_DISPLAY,
+  PANEL_STYLES,
+  panelView,
+  ROW_ORDERS,
+  type PanelDisplay,
+  type PanelStyle,
+  type RowOrder,
+} from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer, type Manifest } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
@@ -38,6 +46,7 @@ const panelElements = {
   rows: $("rows"),
   limits: $("limits"),
   toggle: $("panel-toggle"),
+  order: $("row-order"),
 };
 const bubbleNode = $("bubble");
 const acknowledged = new Acknowledged((keys) =>
@@ -133,7 +142,7 @@ function placeBubble(): void {
   const box = stage.getBoundingClientRect();
   const bottom = box.top - BUBBLE_GAP_PX;
   const left = box.right - bubbleNode.offsetWidth;
-  const tops = [rectOf(panelElements.panel), rectOf(panelElements.toggle)]
+  const tops = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)]
     .filter((r): r is Rect => r !== null && r.x + r.w > left)
     .map((r) => r.y - BUBBLE_GAP_PX);
   const lift = Math.max(0, Math.min(bottom - Math.min(bottom, ...tops), bottom - bubbleNode.offsetHeight));
@@ -156,8 +165,8 @@ async function reactToTouch(): Promise<void> {
 }
 
 function collectHitRegions(): HitRegions {
-  // 切り替えのボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
-  const rects = [rectOf(panelElements.panel), rectOf(panelElements.toggle)];
+  // 切り替えと並べ方のボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
+  const rects = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)];
   // 広げた層はパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
@@ -167,7 +176,7 @@ function collectHitRegions(): HitRegions {
 }
 
 function redrawPanel(): void {
-  const view = panelView(shown, acknowledged, panelDisplay.panel_style, Date.now());
+  const view = panelView(shown, acknowledged, panelDisplay.panel_style, panelDisplay.row_order, Date.now());
   const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null, usage: usageStatus };
   renderPanel(panelElements, view, limits, appIcons, Date.now(), selectSession);
   placeBubble();
@@ -256,7 +265,7 @@ async function loadPanelDisplay(): Promise<PanelDisplay> {
   }
   if (!legacyHidden) return DEFAULT_PANEL_DISPLAY;
   // 行を隠す設定は、行を出さない表示が無くなったので、立ち絵を残して最も場所を取らない件数だけへ読み替える。
-  const display: PanelDisplay = { show_character: true, panel_style: "counts" };
+  const display: PanelDisplay = { ...DEFAULT_PANEL_DISPLAY, panel_style: "counts" };
   void invoke("set_panel_display", { display }).catch(() => {});
   return display;
 }
@@ -277,6 +286,10 @@ function setPanelStyle(style: PanelStyle): void {
   setPanelDisplay({ ...panelDisplay, panel_style: style });
 }
 
+function setRowOrder(order: RowOrder): void {
+  setPanelDisplay({ ...panelDisplay, row_order: order });
+}
+
 // 立ち絵は隠している間も描き続け、瞬きや表情の切り替えの時計も止めない。戻したときに今の状態の
 // 表情がすぐ出るようにするためである。
 function applyCharacterVisibility(): void {
@@ -286,6 +299,12 @@ function applyCharacterVisibility(): void {
 const PANEL_STYLE_LABEL: Record<PanelStyle, string> = {
   detail: "詳細を表示",
   counts: "件数だけ表示",
+};
+
+const ROW_ORDER_LABEL: Record<RowOrder, string> = {
+  started: "始まった順に並べる",
+  status: "状態の順に並べる",
+  updated: "更新の新しい順に並べる",
 };
 
 async function openMenu(): Promise<void> {
@@ -335,6 +354,16 @@ async function openMenu(): Promise<void> {
         ),
       )),
       await PredefinedMenuItem.new({ item: "Separator" }),
+      ...(await Promise.all(
+        ROW_ORDERS.map((order) =>
+          CheckMenuItem.new({
+            text: ROW_ORDER_LABEL[order],
+            checked: order === panelDisplay.row_order,
+            action: () => setRowOrder(order),
+          }),
+        ),
+      )),
+      await PredefinedMenuItem.new({ item: "Separator" }),
       ...sizeItems,
       await PredefinedMenuItem.new({ item: "Separator" }),
       await Submenu.new({ text: "キャラクター", enabled: characterItems.length > 0, items: characterItems }),
@@ -359,23 +388,29 @@ async function openMenu(): Promise<void> {
   await menu.popup();
 }
 
-function bindPanelToggle(): void {
+function bindPanelTabs(): void {
+  const pressed = (e: MouseEvent, key: string) =>
+    (e.target as HTMLElement | null)?.closest<HTMLElement>(`button[data-${key}]`)?.dataset[key];
   panelElements.toggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    const style = (e.target as HTMLElement | null)?.closest<HTMLElement>("button[data-style]")?.dataset.style;
-    const known = PANEL_STYLES.find((s) => s === style);
-    if (known && known !== panelDisplay.panel_style) setPanelStyle(known);
+    const style = PANEL_STYLES.find((s) => s === pressed(e, "style"));
+    if (style && style !== panelDisplay.panel_style) setPanelStyle(style);
+  });
+  panelElements.order.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const order = ROW_ORDERS.find((o) => o === pressed(e, "order"));
+    if (order && order !== panelDisplay.row_order) setRowOrder(order);
   });
 }
 
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
   // ドラッグはすぐには始めず、押したまま少し動いてから始める。動かずに離したら、立ち絵を押した
-  // ことになる。行と吹き出しは押して操作するので、そこからはドラッグを始めない。
+  // ことになる。行と吹き出しとボタンとスクロールバーは押して操作するので、そこからはドラッグを始めない。
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.button !== 0 || target?.closest(".row, .counts-group, #panel-toggle, #bubble")) {
+    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .counts-group, #panel-toggle, #row-order, #bubble")) {
       press = null;
       return;
     }
@@ -400,7 +435,7 @@ function bindWindowControls(): void {
 
 async function start(): Promise<void> {
   bindWindowControls();
-  bindPanelToggle();
+  bindPanelTabs();
   panelDisplay = await loadPanelDisplay();
   // トレイのメニューで選んだ表示も、右クリックメニューと同じ関数で反映して保存する。保存のコマンドが
   // トレイの印を付け直す。

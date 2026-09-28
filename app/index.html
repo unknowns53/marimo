@@ -15,6 +15,9 @@
         <div id="panel-toggle" role="group" aria-label="表示の切り替え">
           <button type="button" data-style="detail">詳細</button><button type="button" data-style="counts">件数</button>
         </div>
+        <div id="row-order" role="group" aria-label="行の並べ方">
+          <button type="button" data-order="started" title="始まった時刻の新しい順に並べます">開始順</button><button type="button" data-order="status" title="承認待ち、エラー、作業中、完了の順に並べます">状態順</button><button type="button" data-order="updated" title="最後に更新された時刻の新しい順に並べます">更新順</button>
+        </div>
         <div id="rows"></div>
         <div id="limits" hidden></div>
       </section>
