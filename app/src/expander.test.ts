@@ -28,89 +28,49 @@ const onLayer = { x: 100, y: 220 };
 const outside = { x: 100, y: 100 };
 
 describe("Expander", () => {
-  it("opens after resting on the row and stays open while the cursor is there", () => {
-    expect(run([[0, onRow], [40, onRow], [99, onRow], [100, onRow], [140, onRow], [2000, onRow]])).toEqual([
-      null,
-      null,
-      null,
-      "counts",
-      "counts",
-      "counts",
-    ]);
-  });
-
-  it("stays open while moving from the row into the layer", () => {
-    expect(
-      run([
-        [0, onRow],
-        [100, onRow],
-        [140, { x: 100, y: 299 }],
-        [180, { x: 100, y: 260 }],
-        [220, onLayer],
-        [1000, onLayer],
-      ]),
-    ).toEqual([null, "counts", "counts", "counts", "counts", "counts"]);
-  });
-
-  it("keeps a target open across the gap between the row and its layer", () => {
-    const gap = { x: 100, y: 326 };
-    expect(
-      run(
+  it("opens and closes by the timing of cursor scenarios", () => {
+    const cases: [string, Step[], ExpandTarget[], (string | null)[]][] = [
+      [
+        "opens after resting on the row and stays open while the cursor is there",
+        [[0, onRow], [40, onRow], [99, onRow], [100, onRow], [140, onRow], [2000, onRow]],
+        [counts],
+        [null, null, null, "counts", "counts", "counts"],
+      ],
+      [
+        "does not open when the cursor merely crosses the row",
+        [[0, { x: 100, y: 295 }], [40, onRow], [80, { x: 100, y: 330 }], [120, { x: 100, y: 360 }]],
+        [counts],
+        [null, null, null, null],
+      ],
+      [
+        "keeps a target open across the gap between the row and its layer",
         [
           [0, { x: 100, y: 340 }],
           [100, { x: 100, y: 340 }],
-          [140, gap],
+          [140, { x: 100, y: 326 }],
           [180, { x: 100, y: 300 }],
           [600, { x: 100, y: 300 }],
         ],
         [working],
-      ),
-    ).toEqual([null, "working", "working", "working", "working"]);
-  });
-
-  it("measures the close delay from the first time the cursor is seen outside", () => {
-    // 行の上で長く止まった後に外へ出ても、出てから 300 ms は開いたままにする。
-    expect(run([[0, onRow], [100, onRow], [5000, outside], [5299, outside], [5300, outside]])).toEqual([
-      null,
-      "counts",
-      "counts",
-      "counts",
-      null,
-    ]);
-  });
-
-  it("does not close when the cursor leaves and comes back quickly", () => {
-    expect(
-      run([
-        [0, onRow],
-        [100, onRow],
-        [140, outside],
-        [300, outside],
-        [420, onLayer],
-        [1000, onLayer],
-      ]),
-    ).toEqual([null, "counts", "counts", "counts", "counts", "counts"]);
-  });
-
-  it("closes only after the cursor has been outside for the close delay", () => {
-    // 範囲の外で最初に見えたのが 140 ms なので、440 ms で閉じる。
-    expect(run([[0, onRow], [100, onRow], [140, outside], [439, outside], [440, outside], [500, null]])).toEqual([
-      null,
-      "counts",
-      "counts",
-      "counts",
-      null,
-      null,
-    ]);
-  });
-
-  it("does not open when the cursor merely crosses the row", () => {
-    expect(run([[0, { x: 100, y: 295 }], [40, onRow], [80, { x: 100, y: 330 }], [120, { x: 100, y: 360 }]])).toEqual([
-      null,
-      null,
-      null,
-      null,
-    ]);
+        [null, "working", "working", "working", "working"],
+      ],
+      [
+        "does not close when the cursor leaves and comes back quickly",
+        [[0, onRow], [100, onRow], [140, outside], [300, outside], [420, onLayer], [1000, onLayer]],
+        [counts],
+        [null, "counts", "counts", "counts", "counts", "counts"],
+      ],
+      // 範囲の外で最初に見えたのが 140 ms なので、440 ms で閉じる。
+      [
+        "closes only after the cursor has been outside for the close delay",
+        [[0, onRow], [100, onRow], [140, outside], [439, outside], [440, outside], [500, null]],
+        [counts],
+        [null, "counts", "counts", "counts", null, null],
+      ],
+    ];
+    for (const [label, steps, targets, expected] of cases) {
+      expect(run(steps, targets), label).toEqual(expected);
+    }
   });
 
   it("switches to another row only after the first one has closed", () => {

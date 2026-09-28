@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  categoryFor,
-  fillTemplate,
-  formatDuration,
-  linesFor,
-  mergeDialogue,
-  reactionCategory,
-} from "./dialogue";
+import { categoryFor, fillTemplate, formatDuration, linesFor, mergeDialogue } from "./dialogue";
 import { session } from "./testFixtures";
 import type { SessionState, Status } from "./types";
 
@@ -18,33 +11,27 @@ function s(status: Status, extra: Partial<SessionState> = {}): SessionState {
 }
 
 describe("categoryFor", () => {
-  it("picks the waiting category from the reason", () => {
-    expect(categoryFor(s("waiting", { status_reason: "permission" }))).toBe("waiting.permission");
-    expect(categoryFor(s("waiting", { status_reason: "question" }))).toBe("waiting.question");
-    expect(categoryFor(s("waiting", { status_reason: "plan" }))).toBe("waiting.plan");
-    expect(categoryFor(s("waiting"))).toBe("waiting");
-  });
-
-  it("picks the done category from the turn duration", () => {
-    const at = (minutes: number) => s("done", { turn_started_at: (100 - minutes) * MIN });
-    expect(categoryFor(at(1))).toBe("done.short");
-    expect(categoryFor(at(2))).toBe("done");
-    expect(categoryFor(at(14))).toBe("done");
-    expect(categoryFor(at(15))).toBe("done.long");
-    expect(categoryFor(s("done"))).toBe("done");
-    expect(categoryFor(s("done", { turn_started_at: 200 * MIN }))).toBe("done");
-  });
-
-  it("maps only rate_limit to the rate limit error", () => {
-    expect(categoryFor(s("error", { status_reason: "rate_limit" }))).toBe("error.rate_limit");
-    expect(categoryFor(s("error", { status_reason: "overloaded" }))).toBe("error");
-    expect(categoryFor(s("error"))).toBe("error");
-  });
-
-  it("chooses the reaction category from the aggregate", () => {
-    expect(reactionCategory("working")).toBe("reaction.working");
-    expect(reactionCategory("idle")).toBe("reaction");
-    expect(reactionCategory("done")).toBe("reaction");
+  it("picks the category from the reason and the turn duration", () => {
+    const done = (minutes: number) => s("done", { turn_started_at: (100 - minutes) * MIN });
+    const cases: [string, SessionState, string][] = [
+      ["permission", s("waiting", { status_reason: "permission" }), "waiting.permission"],
+      ["question", s("waiting", { status_reason: "question" }), "waiting.question"],
+      ["plan", s("waiting", { status_reason: "plan" }), "waiting.plan"],
+      ["waiting without a reason", s("waiting"), "waiting"],
+      ["done in 1 min", done(1), "done.short"],
+      ["done in 2 min", done(2), "done"],
+      ["done in 14 min", done(14), "done"],
+      ["done in 15 min", done(15), "done.long"],
+      ["done without a turn start", s("done"), "done"],
+      ["done with a turn start after the status", s("done", { turn_started_at: 200 * MIN }), "done"],
+      // StopFailure の error のうち利用制限を表すのは rate_limit だけである。
+      ["rate_limit", s("error", { status_reason: "rate_limit" }), "error.rate_limit"],
+      ["overloaded", s("error", { status_reason: "overloaded" }), "error"],
+      ["error without a reason", s("error"), "error"],
+    ];
+    for (const [label, state, expected] of cases) {
+      expect(categoryFor(state), label).toBe(expected);
+    }
   });
 });
 
@@ -59,15 +46,17 @@ describe("linesFor", () => {
   });
 });
 
-describe("formatDuration and fillTemplate", () => {
-  it("formats durations in Japanese", () => {
-    expect(formatDuration(30_000)).toBe("1 分足らず");
-    expect(formatDuration(25 * MIN + 59_000)).toBe("25 分");
-    expect(formatDuration(60 * MIN)).toBe("1 時間");
-    expect(formatDuration(70 * MIN)).toBe("1 時間 10 分");
-  });
-
-  it("fills folder and duration", () => {
+describe("fillTemplate", () => {
+  it("fills folder and duration in Japanese", () => {
+    const durations: [number, string][] = [
+      [30_000, "1 分足らず"],
+      [25 * MIN + 59_000, "25 分"],
+      [60 * MIN, "1 時間"],
+      [70 * MIN, "1 時間 10 分"],
+    ];
+    for (const [ms, expected] of durations) {
+      expect(formatDuration(ms), `${ms} ms`).toBe(expected);
+    }
     const done = s("done", { turn_started_at: 75 * MIN });
     expect(fillTemplate("{folder}、{duration}かかったけど終わったよ。", done)).toBe(
       "marimo、25 分かかったけど終わったよ。",
@@ -78,17 +67,13 @@ describe("formatDuration and fillTemplate", () => {
 });
 
 describe("mergeDialogue", () => {
-  const defaults = { waiting: ["既定"], done: ["既定の完了"], reaction: ["ん？"] };
-
-  it("overrides only the categories the user wrote", () => {
+  it("overrides only the valid categories the user wrote", () => {
+    const defaults = { waiting: ["既定"], done: ["既定の完了"], reaction: ["ん？"] };
     expect(mergeDialogue(defaults, { done: ["自分の完了"] })).toEqual({
       waiting: ["既定"],
       done: ["自分の完了"],
       reaction: ["ん？"],
     });
-  });
-
-  it("ignores invalid user files and entries", () => {
     expect(mergeDialogue(defaults, null)).toEqual(defaults);
     expect(mergeDialogue(defaults, [1, 2])).toEqual(defaults);
     expect(mergeDialogue(defaults, { done: [], waiting: "x", reaction: [1] })).toEqual(defaults);

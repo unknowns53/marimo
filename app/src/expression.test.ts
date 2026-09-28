@@ -88,6 +88,9 @@ describe("ExpressionDirector", () => {
     expect(d.current(23_000)).toBe("idle"); // 3 秒で戻り、次は約 60 秒後
     expect(d.current(82_000)).toBe("idle");
     expect(d.current(83_000)).toBe("idle_hair");
+    // 待機から離れたら、仕草の途中でも止める。
+    d.setInput({ status: "working", tool: "Bash" });
+    expect(d.current(83_001)).toBe("working_focus");
   });
 
   it("does not repeat the same gesture twice in a row", () => {
@@ -102,16 +105,7 @@ describe("ExpressionDirector", () => {
     expect(d.current(66_000)).toBe("idle_look_away");
   });
 
-  it("stops gestures when leaving idle", () => {
-    const d = director();
-    d.setInput({ status: "idle", tool: null });
-    d.current(0);
-    expect(d.current(20_000)).toBe("idle_look_away");
-    d.setInput({ status: "working", tool: "Bash" });
-    expect(d.current(20_001)).toBe("working_focus");
-  });
-
-  it("reaction overrides hover and gestures for its duration", () => {
+  it("reaction and hover override the base expression for their durations", () => {
     const d = director();
     d.setInput({ status: "working", tool: "Bash" });
     d.setHover(true, 0);
@@ -120,16 +114,15 @@ describe("ExpressionDirector", () => {
     expect(d.current(200)).toBe("react_shy");
     expect(d.current(2599)).toBe("react_shy");
     expect(d.current(2600)).toBe("idle");
-  });
 
-  it("returns to the base expression shortly after the cursor leaves", () => {
-    const d = director();
-    d.setInput({ status: "working", tool: "Bash" });
-    d.setHover(true, 0);
-    expect(d.current(0)).toBe("idle");
-    d.setHover(false, 1000);
-    expect(d.current(1500)).toBe("idle");
-    expect(d.current(1600)).toBe("working_focus");
+    // カーソルが離れても、hover_release_ms の間はマウスを載せたときの表情を保つ。
+    const e = director();
+    e.setInput({ status: "working", tool: "Bash" });
+    e.setHover(true, 0);
+    expect(e.current(0)).toBe("idle");
+    e.setHover(false, 1000);
+    expect(e.current(1500)).toBe("idle");
+    expect(e.current(1600)).toBe("working_focus");
   });
 
   it("falls back to the status expression when assets are missing", () => {

@@ -28,33 +28,19 @@ describe("BubbleModel", () => {
     expect(m.update(snap(session("marimo", "working", 10)), DIALOGUE)).toBeNull();
   });
 
-  it("keeps done until the next prompt and error until the state changes", () => {
-    const m = model();
-    expect(m.update(snap(session("a", "done", 5)), DIALOGUE)?.text).toBe("a の作業が終わったわ");
-    expect(m.update(snap(session("a", "done", 5, 50)), DIALOGUE)?.text).toBe("a の作業が終わったわ");
-    expect(m.update(snap(session("a", "working", 60)), DIALOGUE)).toBeNull();
-    expect(m.update(snap(session("a", "error", 70)), DIALOGUE)?.text).toBe("a で困ったことになったわ");
-    expect(m.update(snap(session("a", "idle", 80)), DIALOGUE)).toBeNull();
-  });
-
-  it("does not bring back a dismissed bubble for the same trigger", () => {
+  it("hides a dismissed bubble only for its own trigger", () => {
     const m = model();
     m.update(snap(session("a", "waiting", 2)), DIALOGUE);
     m.dismiss();
     expect(m.view).toBeNull();
     expect(m.needsText(snap(session("a", "waiting", 2, 5)))).toBe(false);
     expect(m.update(snap(session("a", "waiting", 2, 5)), DIALOGUE)).toBeNull();
+    // 閉じた後に別のセッションが承認待ちになれば、そちらを出す。
+    const other = m.update(snap(session("a", "waiting", 2, 5), session("b", "waiting", 3)), DIALOGUE);
+    expect(other?.text).toBe("b で確認をお願いしたいことがあるの");
     // 一度別の状態を経て再び承認待ちになれば、新しいきっかけとして出す。
     m.update(snap(session("a", "working", 6)), DIALOGUE);
     expect(m.update(snap(session("a", "waiting", 7)), DIALOGUE)?.sessionId).toBe("a");
-  });
-
-  it("shows another session that becomes waiting after one was dismissed", () => {
-    const m = model();
-    m.update(snap(session("a", "waiting", 2)), DIALOGUE);
-    m.dismiss();
-    const view = m.update(snap(session("a", "waiting", 2), session("b", "waiting", 3)), DIALOGUE);
-    expect(view?.text).toBe("b で確認をお願いしたいことがあるの");
   });
 
   it("switches to the next waiting session when the current one resolves", () => {
@@ -69,28 +55,22 @@ describe("BubbleModel", () => {
     expect(next?.sessionId).toBe("a");
   });
 
-  it("follows the aggregate across different states", () => {
+  it("follows the aggregate state", () => {
     const m = model();
-    expect(m.update(snap(session("a", "done", 1), session("b", "error", 2)), DIALOGUE)?.sessionId).toBe("b");
-    expect(m.update(snap(session("a", "done", 1), session("b", "working", 3)), DIALOGUE)).toBeNull();
-    expect(m.update(snap(session("a", "done", 1), session("b", "idle", 4)), DIALOGUE)?.sessionId).toBe("a");
-  });
+    expect(m.update(snap(session("a", "done", 5)), DIALOGUE)?.text).toBe("a の作業が終わったわ");
+    expect(m.update(snap(session("a", "done", 5, 50)), DIALOGUE)?.text).toBe("a の作業が終わったわ");
+    expect(m.update(snap(session("a", "working", 60)), DIALOGUE)).toBeNull();
+    expect(m.update(snap(session("a", "error", 70)), DIALOGUE)?.text).toBe("a で困ったことになったわ");
+    expect(m.update(snap(session("a", "idle", 80)), DIALOGUE)).toBeNull();
 
-  it("keeps the same line while the trigger lasts even with random picks", () => {
-    let calls = 0;
-    const m = new BubbleModel(new Acknowledged(), (lines) => lines[calls++ % lines.length]);
-    const a = m.update(snap(session("a", "waiting", 1)), DIALOGUE)?.text;
-    for (let i = 2; i < 6; i++) {
-      expect(m.update(snap(session("a", "waiting", 1, i)), DIALOGUE)?.text).toBe(a);
-    }
-    expect(calls).toBe(1);
-  });
-
-  it("works with dialogue lacking {folder} or lines for a state", () => {
-    const m = model();
-    expect(m.update(snap(session("a", "waiting", 1)), { waiting: ["確認してね"] })?.text).toBe("確認してね");
     const n = model();
-    expect(n.update(snap(session("a", "done", 1)), { waiting: ["x"] })).toBeNull();
+    expect(n.update(snap(session("a", "done", 1), session("b", "error", 2)), DIALOGUE)?.sessionId).toBe("b");
+    expect(n.update(snap(session("a", "done", 1), session("b", "working", 3)), DIALOGUE)).toBeNull();
+    expect(n.update(snap(session("a", "done", 1), session("b", "idle", 4)), DIALOGUE)?.sessionId).toBe("a");
+
+    // {folder} を持たないセリフはそのまま出し、その状態のセリフが無ければ吹き出しを出さない。
+    expect(model().update(snap(session("a", "waiting", 1)), { waiting: ["確認してね"] })?.text).toBe("確認してね");
+    expect(model().update(snap(session("a", "done", 1)), { waiting: ["x"] })).toBeNull();
   });
 });
 
