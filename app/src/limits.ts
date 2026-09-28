@@ -16,7 +16,7 @@ export interface LimitLine {
   groups: LimitGroup[];
   /** Codex の値があるときだけ、どちらのツールの値かをアイコンで示す。無ければ以前の版と同じ見た目にする。 */
   marked: boolean;
-  /** 出す組のうち最も古い更新の時刻。 */
+  /** 出す組のうち最も新しい更新の時刻。古い組は組ごとに薄く示すので、行の時刻は最後に値が届いた時刻にする。 */
   updatedAt: number;
 }
 
@@ -66,5 +66,5 @@ export function limitLine(rl: RateLimits | null, codex: CodexRateLimits | null, 
     );
   }
   if (groups.length === 0) return null;
-  return { groups, marked: codex != null, updatedAt: Math.min(...groups.map((g) => g.updatedAt)) };
+  return { groups, marked: codex != null, updatedAt: Math.max(...groups.map((g) => g.updatedAt)) };
 }

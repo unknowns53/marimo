@@ -59,7 +59,7 @@ describe("limitLine", () => {
       ["claude", "5h 12% · 7d 30%", false],
       ["codex", "7d 13% · 4%", true],
     ]);
-    expect(both?.updatedAt).toBe(NOW - RATE_STALE_MS - 1);
+    expect(both?.updatedAt).toBe(NOW);
 
     // Codex の窓がどれも出せなくても、Codex の値がある以上は印を付けたまま Claude Code の組だけを出す。
     const expired = codex([{ window_minutes: 300, used_percentage: 50, resets_at: past }]);
