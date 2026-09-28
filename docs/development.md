@@ -222,6 +222,8 @@ npm test
 npm run build
 ```
 
+GitHub Actions の CI（`.github/workflows/ci.yml`）は、main への push と pull request のたびに、macOS と Windows の両方で上の検査を走らせます。画面部分のビルドとテスト、clippy、`cargo test --workspace` を実行し、`cargo fmt --check` は macOS だけで実行します。clippy は警告も失敗として扱います。Windows 向けのコードも Windows の上でビルドしてテストするので、上の型検査だけでは分からない食い違いもここで見つかります。
+
 開発中にアプリを動かすときは、`app/` で `npm run tauri -- dev` を使うと、画面部分の開発用サーバー（ポート 1420）を立ち上げてアプリを起動します。本来の `~/.marimo` に触れずに試したいときは、`MARIMO_HOME` を別のフォルダに向けておきます（[ファイルとデータ](#ファイルとデータ)を参照）。
 
 ## アイコンを描き直す
