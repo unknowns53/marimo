@@ -21,3 +21,13 @@ export function folderName(session: Named): string {
 export function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k` : String(n);
 }
+
+// パネルは 30 秒ごとにしか描き直さないので、1 分より細かくは出さない。
+export function formatAge(updatedAt: number, now: number): string {
+  const minutes = Math.floor(Math.max(0, now - updatedAt) / 60_000);
+  if (minutes < 1) return "今";
+  if (minutes < 60) return `${minutes}分前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}時間前`;
+  return `${Math.floor(hours / 24)}日前`;
+}

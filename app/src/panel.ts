@@ -1,5 +1,5 @@
 import { sessionKey } from "./acknowledged";
-import { folderName, formatTokens, isCodexScratch } from "./format";
+import { folderName, formatAge, formatTokens, isCodexScratch } from "./format";
 import { limitLine, type LimitLine } from "./limits";
 import { hasContent, isEmpty, type PanelPlan, type PanelView } from "./panelModel";
 import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
@@ -62,9 +62,9 @@ export function renderPanel(
   const limitText = line !== null;
   let children: HTMLElement[] = [];
   if (hasContent(view)) {
-    if (view.mode === "counts") children = [renderCounts(view, icons, onSelect)];
+    if (view.mode === "counts") children = [renderCounts(view, icons, now, onSelect)];
     else if (view.mode === "list" && isEmpty(view.plan)) children = [el("div", "empty", EMPTY_LIST_TEXT)];
-    else children = detailChildren(view.plan, icons, onSelect);
+    else children = detailChildren(view.plan, icons, now, onSelect);
   }
   rows.replaceChildren(...children);
   rows.hidden = children.length === 0;
@@ -83,16 +83,24 @@ export function renderPanel(
 function detailChildren(
   plan: PanelPlan,
   icons: AppIcons,
+  now: number,
   onSelect: (session: SessionState) => void,
 ): HTMLElement[] {
-  const children: HTMLElement[] = plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, onSelect));
+  const children: HTMLElement[] = plan.rows.map((s) =>
+    renderRow(s, plan.read.has(sessionKey(s)), icons, now, onSelect),
+  );
   if (plan.moreRows > 0) children.push(el("div", "more", `ほか ${plan.moreRows} 件`));
   return children;
 }
 
 // 件数だけの段階は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
 // 押したときは、最も優先度の高い要対応のセッションへ移動する。
-function renderCounts(view: PanelView, icons: AppIcons, onSelect: (session: SessionState) => void): HTMLElement {
+function renderCounts(
+  view: PanelView,
+  icons: AppIcons,
+  now: number,
+  onSelect: (session: SessionState) => void,
+): HTMLElement {
   const line = () => {
     const node = el("div", "counts-line");
     view.counts.forEach((c, i) => {
@@ -106,7 +114,7 @@ function renderCounts(view: PanelView, icons: AppIcons, onSelect: (session: Sess
   const wrap = el("div", "counts-group");
   wrap.dataset.expandId = "counts";
   const layer = el("div", "counts-detail hover-layer");
-  layer.append(...detailChildren(view.plan, icons, onSelect), line());
+  layer.append(...detailChildren(view.plan, icons, now, onSelect), line());
   wrap.append(line(), layer);
   const target = view.target;
   if (target) {
@@ -119,10 +127,12 @@ function renderCounts(view: PanelView, icons: AppIcons, onSelect: (session: Sess
 // 行は 2 段に詰めたまま広げない。広げる層を重ねると、押したときに層の開閉とクリックが競り、
 // 1 回で移動できないことがある。要約の全文とコマンドは title のツールチップで読める。
 // どのツールのセッションかの印は、2 段目の左の空いている場所に状態の点と縦に並べ、行の高さを変えない。
+// 最後にフックが届いてからの時間は、2 段目の右のコンテキスト使用率の下に置く。
 function renderRow(
   s: SessionState,
   read: boolean,
   icons: AppIcons,
+  now: number,
   onSelect: (session: SessionState) => void,
 ): HTMLElement {
   const row = el("div", read ? "row read" : "row");
@@ -144,8 +154,15 @@ function renderRow(
     renderContext(s),
     providerMarker(s.provider ?? "claude", icons),
     el("div", "row-summary", summary),
+    renderAge(s.updated_at, now),
   );
   return row;
+}
+
+function renderAge(updatedAt: number, now: number): HTMLElement {
+  const age = el("span", "row-age", formatAge(updatedAt, now));
+  age.title = `${formatClock(updatedAt)} 更新`;
+  return age;
 }
 
 function providerMarker(provider: Provider, icons: AppIcons): HTMLElement {

@@ -184,8 +184,8 @@ body {
   cursor: default;
 }
 
-/* 1 段目は状態の点、名前、コンテキスト使用率、2 段目はどのツールかの印と要約。印は 12px の
-   左の列に点と縦に並べ、2 段目の文字の高さに収めて行を高くしない。 */
+/* 1 段目は状態の点、名前、コンテキスト使用率、2 段目はどのツールかの印、要約、最後の更新からの時間。
+   印は 12px の左の列に点と縦に並べ、2 段目の文字の高さに収めて行を高くしない。 */
 .row {
   position: relative;
   display: grid;
@@ -266,11 +266,19 @@ body {
 }
 
 .row-summary {
-  grid-column: 2 / 4;
+  grid-column: 2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0.9;
+}
+
+.row-age {
+  grid-column: 3;
+  justify-self: end;
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: 0.5;
 }
 
 .provider {

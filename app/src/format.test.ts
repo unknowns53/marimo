@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { folderName } from "./format";
+import { folderName, formatAge } from "./format";
 
 describe("folderName", () => {
   it("prefers the repository, then the cwd folder, then the session id", () => {
@@ -24,5 +24,22 @@ describe("folderName", () => {
     expect(folderName({ ...scratch, repo: "marimo" })).toBe("marimo");
     expect(folderName({ ...scratch, provider: "claude" })).toBe("touch-test-txt");
     expect(folderName({ ...scratch, cwd: "/Users/u/Documents/Codex/notes" })).toBe("notes");
+  });
+});
+
+describe("formatAge", () => {
+  it("counts whole minutes, hours and days since the update", () => {
+    const now = 10 * 86_400_000;
+    const cases: [number, string][] = [
+      [0, "今"],
+      [59_999, "今"],
+      [60_000, "1分前"],
+      [59 * 60_000, "59分前"],
+      [3_600_000, "1時間前"],
+      [86_400_000 - 1, "23時間前"],
+      [3 * 86_400_000, "3日前"],
+      [-5_000, "今"],
+    ];
+    for (const [elapsed, want] of cases) expect(formatAge(now - elapsed, now), String(elapsed)).toBe(want);
   });
 });
