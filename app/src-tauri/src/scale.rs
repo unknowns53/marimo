@@ -12,7 +12,7 @@ pub const DEFAULT: f64 = 1.0;
 // 掛けたもの）を窓の右下に固定し、パネル（幅 312）をその左に下端を揃えて置く。倍率 1.0 で
 // 既定のキャラクターのときの窓の大きさは tauri.conf.json にも書く。
 const STAGE_W: f64 = 180.0;
-/// 立ち絵の縦横比（高さ ÷ 幅）。既定のキャラクターの素材 800×1200 の比で、窓を最初に開くときに使う。
+/// 立ち絵の縦横比（高さ ÷ 幅）。既定のキャラクターの素材 800×1200 の比で、比がまだ保存されていないときに窓を開くのに使う。
 pub const DEFAULT_ASPECT: f64 = 1.5;
 // 手で書き換えた manifest の極端な縦横比で、窓が画面を覆うほど大きくならないようにする。
 const MIN_ASPECT: f64 = 0.25;
@@ -115,8 +115,8 @@ fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
 const CHARACTER_INDEX: &str = include_str!("../../../assets/character/index.json");
 const FALLBACK_CHARACTER: &str = "koharu";
 
-// display.json には倍率とパネルの表示と利用制限の取得元とキャラクターを一緒に置く。一つを保存するときに
-// ほかを消さないよう、読んでから書き戻す。
+// display.json には倍率とパネルの表示と利用制限の取得元とキャラクターと立ち絵の縦横比を一緒に置く。
+// 一つを保存するときにほかを消さないよう、読んでから書き戻す。
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Display {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -134,6 +134,8 @@ struct Display {
     usage_api: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stage_aspect: Option<f64>,
 }
 
 fn read_display(home: &MarimoHome) -> Display {
@@ -233,6 +235,21 @@ pub fn save_character(home: &MarimoHome, id: &str) -> io::Result<()> {
     store::write_json_atomic(&home.display_file(), &d)
 }
 
+// 縦横比は選んだキャラクターの manifest にあり、読めるのはフロントエンドだけである。起動のたびに
+// 既定の比で窓を開いてから右下を保って縮めると、保存した左上がその差だけずれていくので、前回知らされた比を
+// 残しておき、窓を最初からその大きさで開く。
+pub fn load_aspect(home: &MarimoHome) -> f64 {
+    read_display(home)
+        .stage_aspect
+        .map_or(DEFAULT_ASPECT, clamp_aspect)
+}
+
+pub fn save_aspect(home: &MarimoHome, aspect: f64) -> io::Result<()> {
+    let mut d = read_display(home);
+    d.stage_aspect = Some(clamp_aspect(aspect));
+    store::write_json_atomic(&home.display_file(), &d)
+}
+
 pub fn clamp_aspect(aspect: f64) -> f64 {
     if !aspect.is_finite() || aspect <= 0.0 {
         return DEFAULT_ASPECT;
@@ -278,9 +295,15 @@ mod tests {
             r#"{"scale": 3.0}"#,
             r#"{"scale": -1}"#,
             r#"{"other": 1.5}"#,
+            r#"{"stage_aspect": 0}"#,
+            r#"{"stage_aspect": -1.5}"#,
         ] {
             fs::write(home.display_file(), content).unwrap();
-            assert_eq!(load(&home), DEFAULT, "content {content:?}");
+            assert_eq!(
+                (load(&home), load_aspect(&home)),
+                (DEFAULT, DEFAULT_ASPECT),
+                "content {content:?}"
+            );
         }
     }
 
@@ -309,10 +332,11 @@ mod tests {
         assert_eq!(load_panel_display(&home), Some(counts));
 
         save_usage_api(&home, true).unwrap();
+        save_aspect(&home, 1.0).unwrap();
         assert!(load_usage_api(&home));
         assert_eq!(
-            (load(&home), load_panel_display(&home)),
-            (2.0, Some(counts))
+            (load(&home), load_panel_display(&home), load_aspect(&home)),
+            (2.0, Some(counts), 1.0)
         );
         save(&home, 2.5).unwrap();
         save_panel_display(&home, display(false, PanelStyle::Detail)).unwrap();
