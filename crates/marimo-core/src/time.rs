@@ -29,6 +29,8 @@ pub fn utc_date(ms: u64) -> String {
 
 // Howard Hinnant の civil_from_days アルゴリズム。日付だけのために chrono を
 // 依存に加えると、フックの起動時間とバイナリサイズが増えるので自前で持つ。
+// 出典の https://howardhinnant.github.io/date_algorithms.html で、著者はこれらの
+// アルゴリズムをパブリックドメインに供すると明記している。
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);
