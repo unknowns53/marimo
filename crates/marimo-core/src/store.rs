@@ -103,6 +103,24 @@ fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
 
 static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
+// Windows では、別のプロセスやスレッドが rename でファイルを差し替えている瞬間に開くと、アクセス拒否で
+// 失敗する。読めなかったファイルは飛ばすので、そのままでは行が一回分消えたり、全体の状態がちらついたり
+// する。書く側の rename_with_retry と同じく、ごく短く数回だけ読み直す。
+pub fn read_file(path: &Path) -> io::Result<Vec<u8>> {
+    let mut attempt = 0;
+    loop {
+        match fs::read(path) {
+            Err(e)
+                if attempt < 20 && cfg!(windows) && e.kind() == io::ErrorKind::PermissionDenied =>
+            {
+                attempt += 1;
+                thread::sleep(Duration::from_millis(2));
+            }
+            result => return result,
+        }
+    }
+}
+
 pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     let bytes = serde_json::to_vec_pretty(value).map_err(io::Error::other)?;
     write_atomic(path, &bytes)
@@ -150,7 +168,7 @@ pub fn read_session(
     session_id: &str,
 ) -> Option<SessionState> {
     let path = home.session_file(provider, session_id)?;
-    let bytes = fs::read(path).ok()?;
+    let bytes = read_file(&path).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 
@@ -299,7 +317,7 @@ pub fn write_rate_limits(home: &MarimoHome, limits: &RateLimits) -> io::Result<(
 }
 
 pub fn read_rate_limits(home: &MarimoHome) -> Option<RateLimits> {
-    let bytes = fs::read(home.rate_limits_file()).ok()?;
+    let bytes = read_file(&home.rate_limits_file()).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 
@@ -315,7 +333,7 @@ pub fn write_codex_rate_limits(home: &MarimoHome, limits: &CodexRateLimits) -> i
 }
 
 pub fn read_codex_rate_limits(home: &MarimoHome) -> Option<CodexRateLimits> {
-    let bytes = fs::read(home.codex_rate_limits_file()).ok()?;
+    let bytes = read_file(&home.codex_rate_limits_file()).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 
@@ -325,7 +343,7 @@ pub fn load_snapshot(home: &MarimoHome) -> Snapshot {
         .flatten()
         .flatten()
         .filter(|entry| is_session_file_name(&entry.file_name().to_string_lossy()))
-        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|entry| read_file(&entry.path()).ok())
         .filter_map(|bytes| serde_json::from_slice::<SessionState>(&bytes).ok())
         .collect();
     sessions.sort_by(|a, b| {
@@ -386,7 +404,7 @@ pub fn prune_stale_sessions(
         let name = name.to_string_lossy();
         let path = entry.path();
         let stale = if is_session_file_name(&name) {
-            let session = fs::read(&path)
+            let session = read_file(&path)
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<SessionState>(&bytes).ok());
             // updated_at が 0 のファイルは、この項目を持たない古い形式で書かれたものなので、
@@ -635,7 +653,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_millis(700);
         let mut reads = 0;
         while Instant::now() < deadline {
-            let bytes = fs::read(&path).unwrap();
+            let bytes = read_file(&path).unwrap();
             let parsed: Result<Value, _> = serde_json::from_slice(&bytes);
             assert!(
                 parsed.is_ok(),
