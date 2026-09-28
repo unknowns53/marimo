@@ -19,8 +19,8 @@ const BUBBLE_ROOM: f64 = 120.0;
 // パネルは行の増減や、件数の行に詳細を重ねたときに上へ伸びる。その最大の高さ。
 const PANEL_COLUMN_H: f64 = 380.0;
 
-/// パネルの表示の段階。詳細、件数だけ、絵だけ、の三つ。
-pub const PANEL_MODES: [&str; 3] = ["detail", "counts", "picture"];
+/// パネルの表示の段階。詳細、件数だけ、リストだけ、絵だけ、の四つ。
+pub const PANEL_MODES: [&str; 4] = ["detail", "counts", "list", "picture"];
 
 // display.json には倍率とパネルの段階と利用制限の取得元を一緒に置く。一つを保存するときに
 // ほかを消さないよう、読んでから書き戻す。
@@ -161,6 +161,29 @@ mod tests {
         // 倍率だけを持つ古い形式もそのまま読める。
         fs::write(home.display_file(), r#"{"scale": 1.7}"#).unwrap();
         assert_eq!((load(&home), load_panel_mode(&home)), (1.7, None));
+    }
+
+    #[test]
+    fn every_panel_mode_round_trips_including_list() {
+        let (_d, home) = home();
+        for mode in ["list", "detail", "counts", "picture", "list"] {
+            save_panel_mode(&home, mode).unwrap();
+            assert_eq!(load_panel_mode(&home).as_deref(), Some(mode));
+        }
+        // リストだけの段階を知らない版が書いたファイルも、そのまま読める。
+        for mode in ["detail", "counts", "picture"] {
+            fs::write(
+                home.display_file(),
+                format!(r#"{{"scale": 1.3, "panel_mode": "{mode}"}}"#),
+            )
+            .unwrap();
+            assert_eq!(
+                (load(&home), load_panel_mode(&home).as_deref()),
+                (1.3, Some(mode))
+            );
+        }
+        fs::write(home.display_file(), r#"{"panel_mode": "list"}"#).unwrap();
+        assert_eq!(load_panel_mode(&home).as_deref(), Some("list"));
     }
 
     #[test]

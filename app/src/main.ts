@@ -8,10 +8,10 @@ import { Bubble } from "./bubble";
 import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
 import { BubbleModel } from "./bubbleModel";
 import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
-import { HitReporter, rectOf, type HitRegions, type Rect } from "./hitArea";
+import { HitReporter, hitRegions, rectOf, type HitRegions } from "./hitArea";
 import { renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
-import { PANEL_MODES, panelView, type PanelMode } from "./panelModel";
+import { PANEL_MODES, panelView, showsCharacter, type PanelMode } from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
@@ -28,6 +28,7 @@ const REACTION_SPEECH_MS = 2500;
 const DRAG_THRESHOLD_PX = 4;
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
+const app = $("app");
 const stage = $("stage");
 const panelElements = {
   panel: $("panel"),
@@ -107,8 +108,10 @@ async function reloadDialogue(): Promise<void> {
   dialogue = mergeDialogue(defaultDialogue, user);
 }
 
+// リストだけの段階では吹き出しを出さない。知らせの吹き出しはきっかけが続く間 bubbleModel に残るので、
+// 段階を戻したときにまだ続いていれば、そのとき出る。
 function showSpeech(): void {
-  const text = speech.current(bubbleModel.view, performance.now());
+  const text = showsCharacter(panelMode) ? speech.current(bubbleModel.view, performance.now()) : null;
   if (text) bubble.show(text);
   else bubble.hide();
   hits.schedule();
@@ -135,12 +138,9 @@ function collectHitRegions(): HitRegions {
   // 広げた層はパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
+  if (!showsCharacter(panelMode)) return hitRegions(rects, null);
   const area = renderer?.hitArea();
-  const box = rectOf(area?.element ?? stage);
-  let mask: HitRegions["mask"] = null;
-  if (area?.mask && box) mask = { ...box, ...area.mask };
-  else rects.push(box);
-  return { rects: rects.filter((r): r is Rect => r !== null), mask };
+  return hitRegions(rects, { box: rectOf(area?.element ?? stage), mask: area?.mask ?? null });
 }
 
 function redrawPanel(): void {
@@ -178,12 +178,21 @@ async function loadPanelMode(): Promise<PanelMode> {
 function setPanelMode(mode: PanelMode): void {
   panelMode = mode;
   void invoke("set_panel_mode", { mode }).catch((e) => console.error("panel mode", e));
+  applyCharacterVisibility();
+  showSpeech();
   redrawPanel();
+}
+
+// 立ち絵は隠している間も描き続け、瞬きや表情の切り替えの時計も止めない。戻したときに今の状態の
+// 表情がすぐ出るようにするためである。
+function applyCharacterVisibility(): void {
+  app.classList.toggle("character-hidden", !showsCharacter(panelMode));
 }
 
 const PANEL_MODE_LABEL: Record<PanelMode, string> = {
   detail: "詳細を表示",
   counts: "件数だけ表示",
+  list: "リストだけ表示",
   picture: "絵だけ表示",
 };
 
@@ -261,7 +270,8 @@ function bindWindowControls(): void {
       press = null;
       return;
     }
-    press = { x: e.screenX, y: e.screenY, onStage: !!target?.closest("#stage"), dragging: false };
+    const onStage = showsCharacter(panelMode) && !!target?.closest("#stage");
+    press = { x: e.screenX, y: e.screenY, onStage, dragging: false };
   });
   document.addEventListener("mousemove", (e) => {
     if (!press || press.dragging || !(e.buttons & 1)) return;
@@ -283,6 +293,7 @@ async function start(): Promise<void> {
   bindWindowControls();
   bindPanelToggle();
   panelMode = await loadPanelMode();
+  applyCharacterVisibility();
   try {
     scale = new ScaleControl(await invoke<number>("get_scale"));
     scale.bindWheel(stage);

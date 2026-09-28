@@ -59,9 +59,14 @@ export function isEmpty(plan: PanelPlan): boolean {
   return plan.rows.length === 0;
 }
 
-export type PanelMode = "detail" | "counts" | "picture";
+export type PanelMode = "detail" | "counts" | "list" | "picture";
 
-export const PANEL_MODES: readonly PanelMode[] = ["detail", "counts", "picture"];
+export const PANEL_MODES: readonly PanelMode[] = ["detail", "counts", "list", "picture"];
+
+/** リストだけの段階では立ち絵と吹き出しを隠し、その場所のクリックも下のウィンドウへ通す。 */
+export function showsCharacter(mode: PanelMode): boolean {
+  return mode !== "list";
+}
 
 export interface StatusCount {
   status: Status;
@@ -80,7 +85,7 @@ const ATTENTION: ReadonlySet<Status> = new Set(["waiting", "error", "done"]);
 
 /**
  * 段階ごとに何を出すかを決める。件数だけの段階でも数え方は詳細と同じにし、見たと示された完了は
- * 数えない。どの段階でも吹き出しや表情の扱いは変えない。
+ * 数えない。吹き出しや表情を決める仕組みは段階によらず同じで、リストだけの段階ではそれを見せないだけにする。
  */
 export function panelView(
   snapshot: Snapshot | null,
@@ -105,6 +110,10 @@ export function hasContent(view: PanelView): boolean {
       return !isEmpty(view.plan);
     case "counts":
       return view.counts.length > 0;
+    // 立ち絵を隠しているので、パネルまで消えると右クリックもドラッグもできる場所が無くなる。
+    // 行が無いときも、無いことを示す 1 行を出してパネルを残す。
+    case "list":
+      return true;
     case "picture":
       return false;
   }

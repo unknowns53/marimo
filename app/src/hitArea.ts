@@ -67,6 +67,24 @@ export function rectOf(el: Element | null): Rect | null {
   return { x: r.x, y: r.y, w: r.width, h: r.height };
 }
 
+export interface Portrait {
+  box: Rect | null;
+  mask: HitMask | null;
+}
+
+/**
+ * パネルなどの矩形と立ち絵の形を、Rust へ送る領域にまとめる。立ち絵を隠しているときは portrait に
+ * null を渡す。格子も矩形も送らなければ、その場所のクリックは下へ通り、立ち絵の上にいるという
+ * 知らせも Rust から来なくなる。格子が無い立ち絵は矩形全体を不透明とみなす。
+ */
+export function hitRegions(rects: (Rect | null)[], portrait: Portrait | null): HitRegions {
+  const all = [...rects];
+  let mask: HitRegions["mask"] = null;
+  if (portrait?.mask && portrait.box) mask = { ...portrait.box, ...portrait.mask };
+  else if (portrait) all.push(portrait.box);
+  return { rects: all.filter((r): r is Rect => r !== null), mask };
+}
+
 /**
  * クリックを受け取る領域を Rust へ知らせる。窓は透明な部分のクリックを下のウィンドウへ通すので、
  * 見た目が変わるたびに領域を送り直す。同じ内容なら送らない。

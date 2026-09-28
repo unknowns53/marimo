@@ -1,5 +1,5 @@
 import { folderName, formatTokens } from "./format";
-import { hasContent, type PanelPlan, type PanelView } from "./panelModel";
+import { hasContent, isEmpty, type PanelPlan, type PanelView } from "./panelModel";
 import type { RateLimits, RateWindow, SessionState, Status } from "./types";
 
 // statusLine はアシスタントの応答ごとに走るので、これより古い値は手元の作業が
@@ -13,6 +13,8 @@ const FALLBACK_SUMMARY: Record<Status, string> = {
   done: "完了",
   error: "エラー",
 };
+
+const EMPTY_LIST_TEXT = "動いているセッションはありません";
 
 export interface PanelElements {
   panel: HTMLElement;
@@ -43,14 +45,16 @@ export function renderPanel(
   const limitText = rateLimits ? renderLimits(limits, rateLimits, now) : false;
   let children: HTMLElement[] = [];
   if (hasContent(view)) {
-    children =
-      view.mode === "detail" ? detailChildren(view.plan, onSelect) : [renderCounts(view, onSelect)];
+    if (view.mode === "counts") children = [renderCounts(view, onSelect)];
+    else if (view.mode === "list" && isEmpty(view.plan)) children = [el("div", "empty", EMPTY_LIST_TEXT)];
+    else children = detailChildren(view.plan, onSelect);
   }
   rows.replaceChildren(...children);
   rows.hidden = children.length === 0;
   limits.hidden = !limitText;
   panel.hidden = children.length === 0 && !limitText;
-  // 今の段階を短い文字で示し、押すと詳細と件数だけを行き来する。
+  // 今の段階を短い文字で示し、押すと詳細と件数だけを行き来する。リストだけの段階ではどちらも明るくせず、
+  // 押せば押した方の段階へ移る。
   for (const button of toggle.querySelectorAll<HTMLElement>("button[data-mode]")) {
     const active = button.dataset.mode === view.mode;
     button.classList.toggle("active", active);

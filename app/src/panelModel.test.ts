@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { Acknowledged, triggerKey } from "./acknowledged";
-import { hasContent, isEmpty, panelView, planPanel, READ_LINGER_MS } from "./panelModel";
+import { hasContent, isEmpty, PANEL_MODES, panelView, planPanel, READ_LINGER_MS, showsCharacter } from "./panelModel";
 import { session, snap } from "./testFixtures";
 
 const ids = (list: { session_id: string }[]) => list.map((s) => s.session_id);
@@ -211,6 +211,26 @@ describe("panelView", () => {
     );
     expect(ids(v.plan.rows)).toEqual(["w", "d", "e", "ask"]);
     expect(v.target?.session_id).toBe("ask");
+  });
+
+  it("shows the same rows in list mode as in detail mode", () => {
+    const detail = panelView(sessions(), new Acknowledged(), "detail");
+    const list = panelView(sessions(), new Acknowledged(), "list");
+    expect(ids(list.plan.rows)).toEqual(ids(detail.plan.rows));
+    expect(list.plan.moreRows).toBe(detail.plan.moreRows);
+    expect(hasContent(list)).toBe(true);
+  });
+
+  it("keeps the panel in list mode when there are no rows so it can still be dragged and right-clicked", () => {
+    const list = panelView(snap(session("i", "idle", 1)), new Acknowledged(), "list");
+    expect(isEmpty(list.plan)).toBe(true);
+    expect(hasContent(list)).toBe(true);
+    expect(hasContent(panelView(null, new Acknowledged(), "list"))).toBe(true);
+  });
+
+  it("hides the character only in list mode, which sits between counts and picture", () => {
+    expect(PANEL_MODES).toEqual(["detail", "counts", "list", "picture"]);
+    expect(PANEL_MODES.filter((m) => !showsCharacter(m))).toEqual(["list"]);
   });
 
   it("has no click target when nothing needs attention", () => {
