@@ -17,6 +17,7 @@ marimo は、Claude Code の作業状況を画面の隅で知らせるデスク�
 
 - [marimo が見せるもの](#marimo-が見せるもの)
 - [動作環境](#動作環境)
+- [Codex への対応](#codex-への対応)
 - [ソースからビルドする](#ソースからビルドする)
 - [インストール](#インストール)
 - [アンインストール](#アンインストール)
@@ -80,10 +81,26 @@ marimo は macOS で動作を確かめており、Windows 11 でも大半の機�
 | Linux | 未確認 | 動作を確かめていません |
 | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | 手元の `~/.claude/settings.json` を読まないので、フックが届きません |
 | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
+| macOS の Codex CLI | 未確認 | フックの登録と、状態、コンテキスト使用率、題名、利用制限の記録を実装しています。実際の Codex で動くかどうかは確かめていません（[Codex への対応](#codex-への対応)を参照） |
+| Windows の Codex CLI | 未確認 | 実行ファイルのパスに空白などが無い場合だけフックを登録します。実際の Codex で動くかどうかは確かめていません |
 
 デスクトップアプリの Code タブでは statusLine が動かないため、marimo はコンテキスト使用率を会話ログ（transcript。Claude Code がセッションごとに書く JSON Lines 形式の記録）から数えます。このときモデルのコンテキストの上限が分からないので、パーセントではなくトークン数を出します。同じ会話を CLI で開いて statusLine から上限が一度届くと、それ以降はパーセントで出せるようになります。
 
 利用制限の API から取った値が statusLine の値と揃うかどうかは、確かめていません。
+
+## Codex への対応
+
+marimo は、OpenAI の Codex CLI のセッションも記録できます。情報源は Codex のフックで、Claude Code と同じ名前のイベントを受け取り、同じ規則で状態を決めます。Codex のセッションの状態はアプリの画面にはまだ出ず、表示は今後の版で対応します。
+
+Codex のフックから記録するものは次のとおりです。
+
+- **状態** セッションの開始、プロンプトの送信、ツールの実行の前後、実行許可の確認（PermissionRequest）、応答の終了（Stop）、サブエージェントの開始と終了を、Claude Code と同じ状態に対応させます。Codex の質問のツール `request_user_input` は、Claude Code の AskUserQuestion と同じく承認待ちにします。利用者がターンを中断したときに届く Interrupt では、作業中や承認待ちから待機へ戻します。
+- **作業の要約** シェルのコマンド（Codex はツール名 `Bash` で送ります）、ファイルの編集（`apply_patch`。パッチに書かれたファイルの名前を出します）、MCP のツール、サブエージェントの起動（`spawn_agent`）、画像の表示（`view_image`）、質問（`request_user_input`）を要約します。それ以外のツールは、ツール名と引数をそのまま短く出します。
+- **コンテキスト使用率** Codex が会話ごとに書く記録（rollout。`~/.codex/sessions/` の下の JSON Lines 形式のファイル）の末尾から最後の `token_count` を読み、Codex の画面の下に出る残りの割合と同じ式で計算します。Codex は、システムプロンプトなどで常に使われる 12000 トークンをコンテキストの上限と使用量の両方から引いて割合を出すので、marimo も同じように引き、100 からその残りの割合を引いた値を使用率として記録します。読むのはセッションの開始、PostToolUse、Stop のときだけです。
+- **題名** セッションの開始、プロンプトの送信、Stop のときに、`~/.codex/session_index.jsonl` の末尾からそのセッションの最後の `thread_name` を読みます。
+- **利用制限** rollout の同じ `token_count` にある利用制限を、`~/.marimo/codex_rate_limits.json` に書きます。Codex の利用制限の窓は、プランによって 5 時間と 7 日の二つだったり 7 日の一つだけだったりするので、窓の長さを分単位のまま記録します。複数のセッションの rollout はそれぞれ別の時点の値を持つので、すでに記録した値より新しい時点の値だけで書き換えます。
+
+`CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
 
 ## ソースからビルドする
 
@@ -186,11 +203,33 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。Windows 
 - 何度実行しても結果は同じです。すでに登録されていれば「変更はありません（すでにインストール済みです）」と表示し、settings.json にもバックアップにも手を付けません。
 - settings.json が JSON として読めないときなどは、何も変更せずに理由を表示し、0 以外の終了コードで終わります。
 
-`marimo-hook` のサブコマンドは `hook`、`statusline`、`record`、`install`、`uninstall` の五つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code から呼ばれるか、調査のためのものです。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
+`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`statusline`、`record`、`install`、`uninstall` の六つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code や Codex から呼ばれるか、調査のためのものです。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
 
 対象の設定ファイルは `--settings <パス>` で指定できます。省略すると、環境変数 `CLAUDE_CONFIG_DIR` が設定されていればその下の `settings.json` を、なければ `~/.claude/settings.json` を使います。
 
 marimo を新しくビルドし直したときも、同じ `install` を実行すれば `~/.marimo/bin/marimo-hook` だけが新しいものに差し替わります。settings.json はすでに登録済みなので変わりません。以前の形のフックが残っていた場合だけ、exec form へ書き換えます。
+
+#### Codex のフック
+
+`CODEX_HOME` が指すフォルダ（設定していなければ `~/.codex`）があると、`install` は Codex のフックの設定ファイル `hooks.json` にも登録します。フォルダが無ければ Codex は入っていないものとみなし、Codex については何も表示しません。登録するイベントは次の 10 個で、タイムアウトは 5 秒です。
+
+SessionStart、UserPromptSubmit、PreToolUse、PermissionRequest、PostToolUse、Stop、Interrupt、SessionEnd、SubagentStart、SubagentStop
+
+Codex のフックには exec form が無く、コマンドは常に利用者のシェルを通して実行されます。このため、macOS では次のように、実行ファイルのパスを必要に応じて単一引用符で囲み、`codex-hook` を続けた文字列で登録します。
+
+```json
+{
+  "type": "command",
+  "command": "/Users/<ユーザー名>/.marimo/bin/marimo-hook codex-hook",
+  "timeout": 5
+}
+```
+
+Windows の Codex は、利用者の設定によって PowerShell かコマンドプロンプトでフックを実行し、両者で引用の規則が違います。そこで、実行ファイルのパスに空白や記号が無く、引用符なしでどちらでも同じように読める場合だけ、`\` 区切りのパスのまま登録します。そう書けない場合は、Codex のフックを登録せずにその旨を表示します。
+
+Codex は、管理者が配ったもの以外のフックを、利用者が Codex CLI の `/hooks` で内容を確かめて信頼するまで実行しません。信頼はフックの定義から計算した値で記録されるので、登録した後に Codex CLI で `/hooks` を開き、marimo のフックを信頼してください。marimo は Codex の信頼の記録がある `config.toml` を書き換えず、信頼を省く起動のオプションも使いません。`install` を同じ場所の実行ファイルでやり直しても `hooks.json` は変わらないので、信頼し直す必要はありません。`MARIMO_HOME` を変えるなどして実行ファイルの場所が変わったときは、もう一度 `/hooks` で信頼します。
+
+`hooks.json` の書き換えでも、settings.json と同じように、書き換える前に `hooks.json.marimo-backup-<日時>` という名前でバックアップを取り、既存のフックや項目はキーの順序も含めてそのまま残します。ファイルが無ければ新しく作ります。
 
 ### 2. アプリを置いて起動する
 
@@ -240,7 +279,7 @@ Windows では、レジストリの `HKEY_CURRENT_USER\Software\Microsoft\Window
    ~/.marimo/bin/marimo-hook uninstall
    ```
 
-   `uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。取り除くのは marimo が足したものだけで、以前のシェルを通す形で登録したフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
+   `uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。Codex のフォルダがあれば、Codex の `hooks.json` からも marimo のフックだけを取り除きます。取り除くのは marimo が足したものだけで、以前のシェルを通す形で登録したフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
 
 4. macOS では `/Applications/marimo.app` を削除します。Windows では、設定の「アプリ」から marimo をアンインストールします。
 5. `uninstall` は実行ファイルとデータを残すので、不要なら `~/.marimo` フォルダを手で削除します。`uninstall` の最後に、消してよいパスが表示されます。settings.json のバックアップ（`settings.json.marimo-backup-*`）も、不要になったら手で削除してください。
@@ -509,7 +548,9 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | パス | 用途 |
 | --- | --- |
 | `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。24 時間更新のないファイルは、アプリが消します |
+| `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。書き方と消し方は Claude Code のセッションと同じです |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine と API からの取得の両方がここへ書きます |
+| `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
 | `display.json` | 立ち絵の倍率、パネルの表示、API からの取得を使うかどうかの設定です |
 | `window.json` | 窓の位置です |
 | `acknowledged.json` | 既読にした完了などのきっかけの記録です |
@@ -518,6 +559,17 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `bin/marimo-hook` | `install` がコピーしたフックのコマンドです。settings.json はこのパスを指しています |
 | `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。以前の版が書いた `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
+
+セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude` か `codex` です。この項目を持たない以前の版のファイルは、Claude Code のセッションとして読みます。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。
+
+`codex_rate_limits.json` は次の項目を持ちます。
+
+| 項目 | 意味 |
+| --- | --- |
+| `windows` | 利用制限の窓の配列です。各要素は、窓の長さ（分）の `window_minutes`、使った割合（%）の `used_percentage`、次に戻る時刻（Unix 秒）の `resets_at` を持ちます。Codex が値を送らなかった窓は含めません |
+| `plan_type` | Codex が送ってきたプランの種類です |
+| `observed_at` | 値を読んだ rollout の行の時刻（Unix ミリ秒）です。これより古い時点の値では書き換えません |
+| `updated_at` | marimo がこのファイルを書いた時刻（Unix ミリ秒）です |
 
 状態ファイルは、一時ファイルに書いてから名前を変える方法で書き換えます。この方法だと、読む側が書きかけのファイルを読むことがありません（atomic write、原子的な書き込みと呼ばれます）。書き込みの途中には、`.` で始まり `.tmp` で終わる一時ファイルが一瞬だけ現れます。
 
@@ -533,13 +585,14 @@ marimo は Claude Code の作業を一切妨げないことを最優先にして
 - **フックの環境** どのアプリから起動されたかを知るための環境変数 `__CFBundleIdentifier` と `TERM_PROGRAM`、そして祖先のプロセスの端末の装置名です。Windows では、これに加えて、Claude Code が動いているコンソールのウィンドウのハンドルと、祖先のプロセスのプロセス ID、起動した時刻、実行ファイルのパスを状態ファイルに記録します。どれも行を押してセッションへ移動するときに使います。
 - **作業フォルダの `.git`** 作業フォルダから上へたどって `.git` を探し、リポジトリの名前を決めます。`.git` がファイルのとき（git worktree など）は、その中の `gitdir:` の行だけを読みます。git のコマンドは実行しません。作業フォルダが変わったときと、まだリポジトリ名が分かっていないときだけ調べます。
 - **会話ログ** PostToolUse と Stop のときに、会話ログの末尾から最大 4 MB を読み、最後の応答のトークン数と、読んだ範囲にあるチャットの題名だけを取り出します。コンテキスト使用率と題名を出すためです。
+- **Codex の rollout と session_index.jsonl** Codex のセッションでは、rollout の末尾から最大 4 MB を読んで最後の `token_count` のトークン数と利用制限だけを取り出し、`session_index.jsonl` の末尾から最大 512 KB を読んでそのセッションの題名だけを取り出します。Codex の `auth.json` と `config.toml` は読みません。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。
 - **OAuth のアクセストークン** 「利用制限を API から取得」を有効にしたときだけ読みます。扱いは[トークンの扱い](#トークンの扱い)のとおりです。
 
 ### marimo が書くもの
 
 - `~/.marimo` の中のファイル（[ファイルとデータ](#ファイルとデータ)を参照）。状態ファイルには、実行したコマンド、ファイルのパス、応答の冒頭などの要約が最大 500 文字まで入ります。リポジトリ名と、チャットの題名も最大 200 文字まで入ります。
-- `install` と `uninstall` を実行したときの Claude Code の settings.json と、そのバックアップ。
+- `install` と `uninstall` を実行したときの Claude Code の settings.json と、そのバックアップ。Codex のフォルダがあれば、Codex の `hooks.json` と、そのバックアップ。
 - 「ログイン時に起動」を有効にしたときの `~/Library/LaunchAgents/com.marimo.desktop.plist`。
 
 ### marimo が送るもの
@@ -602,8 +655,8 @@ marimo を終了してから、次のファイルを必要に応じて削除し�
 
 | パス | 内容 |
 | --- | --- |
-| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
-| `crates/marimo-hook` | Claude Code から呼ばれるコマンド。`hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます |
+| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
+| `crates/marimo-hook` | Claude Code と Codex から呼ばれるコマンド。`hook`、`codex-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます |
 | `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、窓の制御、クリックの透過、セッションへの移動、利用量の API の取得を受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
 | `assets/character/default` | 既定のキャラクターの素材。18 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` |
@@ -652,7 +705,7 @@ npm run build
 
 データは次の順に流れます。
 
-1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
+1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。Codex のフックからは `marimo-hook codex-hook` が呼ばれ、同じ規則で `sessions/codex-<session_id>.json` に書き、利用制限を `codex_rate_limits.json` へ書きます。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
 2. アプリはファイルの監視（file watcher。フォルダの中のファイルが変わると OS から知らせを受け取る仕組み）で `sessions/` と `rate_limits.json` の変化を受け取ります。並列のツール呼び出しで書き込みが重なるので、120 ミリ秒静かになるまで待ち、遅くとも 500 ミリ秒で、全セッションをまとめたスナップショットを読みます。
 3. Rust 側は、スナップショットを `snapshot` という名前のイベントで画面部分へ送ります。
 4. 画面部分は、既読の記録を加味して全体の状態を決め直し、表情、吹き出し、パネルを描き直します。
@@ -662,7 +715,7 @@ npm run build
 ## 今後の予定
 
 - **Windows への対応** Windows でのビルド、フック、statusLine の動作を確かめ、macOS と同じ機能で使えるようにすることを目指しています。
-- **Anthropic 以外のツールへの対応** Codex など、Claude Code 以外のコーディングエージェントの作業状況も表示できるようにすることを考えています。
+- **Codex のセッションの表示** Codex のセッションの状態と利用制限はすでに記録しているので（[Codex への対応](#codex-への対応)を参照）、アプリの画面にも出せるようにすることを目指しています。
 
 ## 不具合の報告と貢献
 
