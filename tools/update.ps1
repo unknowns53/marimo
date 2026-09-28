@@ -84,13 +84,20 @@ function Get-RepoSlug {
 }
 
 function Save-Url([string]$Url, [string]$Path) {
-    try {
-        Invoke-WebRequest -Uri $Url -OutFile $Path -UseBasicParsing
-        return 200
-    } catch {
-        $response = $_.Exception.Response
-        if ($response) { return [int]$response.StatusCode }
-        Fail "$Url を取得できませんでした。ネットワークにつながっているかを確かめてください。つながらないときは -Build で手元でビルドできます。（$($_.Exception.Message)）"
+    # 回線が不安定だと、応答を受け取る前に接続が切れることがあるので、3 回までやり直す。
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $Path -UseBasicParsing
+            return 200
+        } catch {
+            $response = $_.Exception.Response
+            if ($response) { return [int]$response.StatusCode }
+            if ($attempt -gt 3) {
+                Fail "$Url を取得できませんでした。ネットワークにつながっているかを確かめてください。つながらないときは -Build で手元でビルドできます。（$($_.Exception.Message)）"
+            }
+            Write-Host "取得できなかったので、5 秒後にやり直します（$attempt / 3 回目、$($_.Exception.Message)）"
+            Start-Sleep -Seconds 5
+        }
     }
 }
 
