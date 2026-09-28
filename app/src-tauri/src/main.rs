@@ -8,6 +8,7 @@ mod focus;
 mod hit;
 mod icons;
 mod scale;
+mod tray;
 mod usage;
 mod watch;
 mod window_pos;
@@ -26,6 +27,7 @@ struct AppState {
     // 立ち絵の縦横比は選んだキャラクターの manifest にあり、読むのはフロントエンドなので、
     // 知らされるまでは既定のキャラクターの比で窓を開く。
     aspect: Mutex<f64>,
+    tray: OnceLock<tray::Tray>,
 }
 
 impl AppState {
@@ -69,13 +71,22 @@ fn set_scale(window: WebviewWindow, state: State<'_, AppState>, scale: f64) -> f
 }
 
 #[tauri::command]
-fn get_panel_mode(state: State<'_, AppState>) -> Option<String> {
-    scale::load_panel_mode(&state.home)
+fn get_panel_display(state: State<'_, AppState>) -> Option<scale::PanelDisplay> {
+    scale::load_panel_display(&state.home)
 }
 
 #[tauri::command]
-fn set_panel_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
-    scale::save_panel_mode(&state.home, &mode).map_err(|e| e.to_string())
+fn set_panel_display(
+    state: State<'_, AppState>,
+    display: scale::PanelDisplay,
+) -> Result<(), String> {
+    scale::save_panel_display(&state.home, display).map_err(|e| e.to_string())?;
+    // 表示はトレイのメニューからも、右クリックメニューやパネルの切り替えからも変わるので、
+    // どれで変えても必ず通るここでトレイの印を付け直す。
+    if let Some(tray) = state.tray.get() {
+        tray.reflect(display);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -163,8 +174,10 @@ fn main() {
 
     tauri::Builder::default()
         // 二つ目の起動は、他のプラグインが動き出す前に止める必要があるので最初に登録する。
-        // 何もしないコールバックにしてあり、二つ目のプロセスはそのまま終わる。
-        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
+        // 二つ目のプロセスはそのまま終わり、一つ目はトレイから隠していた窓を出し直す。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::set_visible(app, true);
+        }))
         .plugin(autostart.build())
         .manage(AppState {
             home: home.clone(),
@@ -172,14 +185,15 @@ fn main() {
             usage: usage.clone(),
             icons: OnceLock::new(),
             aspect: Mutex::new(scale::DEFAULT_ASPECT),
+            tray: OnceLock::new(),
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             get_dialogue,
             get_scale,
             set_scale,
-            get_panel_mode,
-            set_panel_mode,
+            get_panel_display,
+            set_panel_display,
             get_character,
             set_character,
             set_stage_aspect,
@@ -205,12 +219,24 @@ fn main() {
             window_pos::restore(&window, &home, LogicalSize::new(w, h));
             window.show()?;
             window_pos::track(&window, home.clone());
+            let display = scale::load_panel_display(&home).unwrap_or_default();
+            let tray = tray::build(app.handle(), display)?;
+            let _ = app.state::<AppState>().tray.set(tray);
+            tray::show_status(app.handle(), store::load_snapshot(&home).aggregate);
             watch::spawn(app.handle().clone(), home.clone());
             watch::spawn_pruner(home.clone());
             usage.spawn(home.clone());
             hit::spawn(app.handle().clone(), window, hits.clone());
             Ok(())
         })
-        .run(context)
-        .expect("error while running marimo");
+        .build(context)
+        .expect("error while building marimo")
+        .run(|_app, _event| {
+            // 起動している .app を Finder などから開き直すと、macOS は二つ目のプロセスを作らずに
+            // 一つ目へ再度開く要求を送るので、single-instance の代わりにここで窓を出し直す。
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                tray::set_visible(_app, true);
+            }
+        });
 }

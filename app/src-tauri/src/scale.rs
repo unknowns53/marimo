@@ -24,20 +24,72 @@ const BUBBLE_ROOM: f64 = 120.0;
 // パネルは行の増減や、件数の行に詳細を重ねたときに上へ伸びる。その最大の高さ。
 const PANEL_COLUMN_H: f64 = 380.0;
 
-/// パネルの表示の段階。詳細、件数だけ、リストだけ、絵だけ、の四つ。
-pub const PANEL_MODES: [&str; 4] = ["detail", "counts", "list", "picture"];
+/// パネルの行の出し方。行を 1 セッションずつ並べる詳細か、状態ごとの件数の 1 行に畳むか。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PanelStyle {
+    #[default]
+    Detail,
+    Counts,
+}
+
+impl PanelStyle {
+    fn parse(s: &str) -> Option<Self> {
+        match s {
+            "detail" => Some(Self::Detail),
+            "counts" => Some(Self::Counts),
+            _ => None,
+        }
+    }
+}
+
+/// 立ち絵を出すかどうかと、パネルの行の出し方。二つは独立に選べ、パネルはどちらでも常に出る。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PanelDisplay {
+    pub show_character: bool,
+    pub panel_style: PanelStyle,
+}
+
+impl Default for PanelDisplay {
+    fn default() -> Self {
+        Self {
+            show_character: true,
+            panel_style: PanelStyle::Detail,
+        }
+    }
+}
+
+// 以前の版は、立ち絵の有無と行の出し方を混ぜた四つの段階を panel_mode に一つだけ持っていた。
+// 行を出さない「絵だけ」は選べなくなったので、立ち絵を残して最も場所を取らない件数だけへ読み替える。
+fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
+    let (show_character, panel_style) = match mode {
+        "detail" => (true, PanelStyle::Detail),
+        "counts" | "picture" => (true, PanelStyle::Counts),
+        "list" => (false, PanelStyle::Detail),
+        _ => return None,
+    };
+    Some(PanelDisplay {
+        show_character,
+        panel_style,
+    })
+}
 
 // 組み込みのキャラクターの一覧。フロントエンドもビルド時に写された同じファイルをメニューに使うので、
 // ここへ埋め込めば、保存してよい名前の一覧が両者でずれない。先頭が既定のキャラクターになる。
 const CHARACTER_INDEX: &str = include_str!("../../../assets/character/index.json");
 const FALLBACK_CHARACTER: &str = "koharu";
 
-// display.json には倍率とパネルの段階と利用制限の取得元とキャラクターを一緒に置く。一つを保存するときに
+// display.json には倍率とパネルの表示と利用制限の取得元とキャラクターを一緒に置く。一つを保存するときに
 // ほかを消さないよう、読んでから書き戻す。
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Display {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scale: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    show_character: Option<bool>,
+    // 知らない値が書かれていてもファイル全体を読み損ねないよう、文字列のまま読んでから解釈する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    panel_style: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     panel_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -67,22 +119,33 @@ pub fn save(home: &MarimoHome, scale: f64) -> io::Result<()> {
     store::write_json_atomic(&home.display_file(), &d)
 }
 
-/// 保存されていない、または知らない値なら None を返し、フロントエンドに既定を決めさせる。
-pub fn load_panel_mode(home: &MarimoHome) -> Option<String> {
-    read_display(home)
-        .panel_mode
-        .filter(|m| PANEL_MODES.contains(&m.as_str()))
+/// 新しい鍵も以前の panel_mode も保存されていなければ None を返し、フロントエンドに既定を決めさせる。
+/// 新しい鍵が片方だけのときは、残りを panel_mode の読み替えか既定で補う。
+pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
+    let d = read_display(home);
+    let style = d.panel_style.as_deref().and_then(PanelStyle::parse);
+    let legacy = d.panel_mode.as_deref().and_then(legacy_panel_mode);
+    if d.show_character.is_none() && style.is_none() && legacy.is_none() {
+        return None;
+    }
+    let fallback = legacy.unwrap_or_default();
+    Some(PanelDisplay {
+        show_character: d.show_character.unwrap_or(fallback.show_character),
+        panel_style: style.unwrap_or(fallback.panel_style),
+    })
 }
 
-pub fn save_panel_mode(home: &MarimoHome, mode: &str) -> io::Result<()> {
-    if !PANEL_MODES.contains(&mode) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "unknown panel mode",
-        ));
-    }
+pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Result<()> {
     let mut d = read_display(home);
-    d.panel_mode = Some(mode.to_owned());
+    d.show_character = Some(display.show_character);
+    d.panel_style = Some(
+        match display.panel_style {
+            PanelStyle::Detail => "detail",
+            PanelStyle::Counts => "counts",
+        }
+        .to_owned(),
+    );
+    d.panel_mode = None;
     store::write_json_atomic(&home.display_file(), &d)
 }
 
@@ -179,73 +242,114 @@ mod tests {
         }
     }
 
+    fn display(show_character: bool, panel_style: PanelStyle) -> PanelDisplay {
+        PanelDisplay {
+            show_character,
+            panel_style,
+        }
+    }
+
     #[test]
     fn display_settings_share_one_file() {
         let (_d, home) = home();
         assert_eq!(load(&home), DEFAULT);
-        assert_eq!(load_panel_mode(&home), None);
+        assert_eq!(load_panel_display(&home), None);
         assert!(!load_usage_api(&home));
+        let counts = display(true, PanelStyle::Counts);
         save(&home, 1.5).unwrap();
-        save_panel_mode(&home, "counts").unwrap();
+        save_panel_display(&home, counts).unwrap();
         assert_eq!(
-            (load(&home), load_panel_mode(&home).as_deref()),
-            (1.5, Some("counts"))
+            (load(&home), load_panel_display(&home)),
+            (1.5, Some(counts))
         );
         save(&home, 2.0).unwrap();
-        assert_eq!(load_panel_mode(&home).as_deref(), Some("counts"));
-        assert!(save_panel_mode(&home, "bogus").is_err());
+        assert_eq!(load_panel_display(&home), Some(counts));
 
         save_usage_api(&home, true).unwrap();
         assert!(load_usage_api(&home));
         assert_eq!(
-            (load(&home), load_panel_mode(&home).as_deref()),
-            (2.0, Some("counts"))
+            (load(&home), load_panel_display(&home)),
+            (2.0, Some(counts))
         );
         save(&home, 2.5).unwrap();
-        save_panel_mode(&home, "picture").unwrap();
+        save_panel_display(&home, display(false, PanelStyle::Detail)).unwrap();
         assert!(load_usage_api(&home));
         save_usage_api(&home, false).unwrap();
         assert!(!load_usage_api(&home));
         assert_eq!(load(&home), MAX);
+        assert_eq!(
+            load_panel_display(&home),
+            Some(display(false, PanelStyle::Detail))
+        );
 
-        for mode in ["list", "detail", "counts", "picture", "list"] {
-            save_panel_mode(&home, mode).unwrap();
-            assert_eq!(load_panel_mode(&home).as_deref(), Some(mode));
-        }
-
-        // 倍率だけを持つ古い形式や、リストだけの段階を知らない版が書いたファイルもそのまま読める。
-        let cases = [
-            (r#"{"scale": 1.2, "panel_mode": "tiny"}"#, 1.2, None),
-            (r#"{"scale": 1.7}"#, 1.7, None),
-            (
-                r#"{"scale": 1.3, "panel_mode": "detail"}"#,
-                1.3,
-                Some("detail"),
-            ),
-            (
-                r#"{"scale": 1.3, "panel_mode": "counts"}"#,
-                1.3,
-                Some("counts"),
-            ),
-            (
-                r#"{"scale": 1.3, "panel_mode": "picture"}"#,
-                1.3,
-                Some("picture"),
-            ),
-            (r#"{"panel_mode": "list"}"#, DEFAULT, Some("list")),
-        ];
-        for (content, scale, mode) in cases {
-            fs::write(home.display_file(), content).unwrap();
-            assert_eq!(
-                (load(&home), load_panel_mode(&home).as_deref()),
-                (scale, mode),
-                "content {content:?}"
-            );
-        }
         for content in [r#"{"usage_api": "yes"}"#, "{broken", r#"{"scale": 1.2}"#] {
             fs::write(home.display_file(), content).unwrap();
             assert!(!load_usage_api(&home), "content {content:?}");
         }
+    }
+
+    #[test]
+    fn panel_display_reads_legacy_panel_mode_until_saved() {
+        let (_d, home) = home();
+        let cases = [
+            (
+                r#"{"panel_mode": "detail"}"#,
+                Some((true, PanelStyle::Detail)),
+            ),
+            (
+                r#"{"panel_mode": "counts"}"#,
+                Some((true, PanelStyle::Counts)),
+            ),
+            (
+                r#"{"panel_mode": "list"}"#,
+                Some((false, PanelStyle::Detail)),
+            ),
+            (
+                r#"{"panel_mode": "picture"}"#,
+                Some((true, PanelStyle::Counts)),
+            ),
+            (r#"{"scale": 1.2, "panel_mode": "tiny"}"#, None),
+            (r#"{"scale": 1.7}"#, None),
+            (r#"{"panel_style": "bogus"}"#, None),
+            // 新しい鍵は panel_mode より優先し、無い方だけを panel_mode の読み替えで補う。
+            (
+                r#"{"panel_mode": "list", "show_character": true, "panel_style": "counts"}"#,
+                Some((true, PanelStyle::Counts)),
+            ),
+            (
+                r#"{"panel_mode": "list", "panel_style": "counts"}"#,
+                Some((false, PanelStyle::Counts)),
+            ),
+            (
+                r#"{"show_character": false}"#,
+                Some((false, PanelStyle::Detail)),
+            ),
+            (
+                r#"{"panel_mode": "picture", "panel_style": "bogus"}"#,
+                Some((true, PanelStyle::Counts)),
+            ),
+        ];
+        for (content, expected) in cases {
+            fs::write(home.display_file(), content).unwrap();
+            assert_eq!(
+                load_panel_display(&home),
+                expected.map(|(c, s)| display(c, s)),
+                "content {content:?}"
+            );
+        }
+
+        fs::write(
+            home.display_file(),
+            r#"{"scale": 1.3, "panel_mode": "list"}"#,
+        )
+        .unwrap();
+        save_panel_display(&home, display(true, PanelStyle::Detail)).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&fs::read(home.display_file()).unwrap()).unwrap();
+        assert_eq!(
+            saved,
+            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail"})
+        );
     }
 
     #[test]
@@ -255,7 +359,7 @@ mod tests {
         assert_eq!(load_character(&home), "koharu");
         save(&home, 1.5).unwrap();
         save_character(&home, "clawd").unwrap();
-        save_panel_mode(&home, "list").unwrap();
+        save_panel_display(&home, display(false, PanelStyle::Counts)).unwrap();
         assert_eq!(
             (load_character(&home).as_str(), load(&home)),
             ("clawd", 1.5)

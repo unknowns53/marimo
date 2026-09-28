@@ -21,5 +21,8 @@ tools/character/clawd.py after the Claude Code startup logo. Clawd is
 Anthropic's mascot, and this license grants no rights to Anthropic's design or
 trademarks.
 
+The tray icons app/src-tauri/icons/tray-*.png are an original drawing of a
+marimo moss ball made by tools/tray_icon.py.
+
 All other files in this repository are licensed under either of
 LICENSE-APACHE or LICENSE-MIT, at your option.

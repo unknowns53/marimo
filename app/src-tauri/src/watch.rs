@@ -8,6 +8,8 @@ use marimo_core::{MarimoHome, store};
 use notify::{Event, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter};
 
+use crate::tray;
+
 pub const SNAPSHOT_EVENT: &str = "snapshot";
 
 // 並列のツール呼び出しでは同じ瞬間にフックがいくつも書くので、静かになるまで待って
@@ -51,7 +53,9 @@ pub fn spawn(app: AppHandle, home: MarimoHome) {
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
-            let _ = app.emit(SNAPSHOT_EVENT, store::load_snapshot(&home));
+            let snapshot = store::load_snapshot(&home);
+            tray::show_status(&app, snapshot.aggregate);
+            let _ = app.emit(SNAPSHOT_EVENT, snapshot);
         }
     });
 }

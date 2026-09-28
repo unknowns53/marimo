@@ -119,8 +119,12 @@ pub fn track(window: &WebviewWindow, home: MarimoHome) {
             }
         }
     });
+    // 隠している窓の位置は画面上のどこでもないので、仮に届いても覚えない。
+    let tracked = window.clone();
     window.on_window_event(move |event| {
-        if let WindowEvent::Moved(pos) = event {
+        if let WindowEvent::Moved(pos) = event
+            && tracked.is_visible().unwrap_or(true)
+        {
             let _ = tx.send(*pos);
         }
     });

@@ -12,15 +12,15 @@ import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./h
 import { characterCandidates, characterInfo, type CharacterInfo } from "./manifest";
 import { renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
-import { PANEL_MODES, panelView, showsCharacter, type PanelMode } from "./panelModel";
+import { DEFAULT_PANEL_DISPLAY, PANEL_STYLES, panelView, type PanelDisplay, type PanelStyle } from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer, type Manifest } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
 import type { AppIcons, Dialogue, SessionState, Snapshot } from "./types";
 
 const CHARACTER_ROOT = new URL("/character/", window.location.href).href;
-// 以前は行を隠す設定だけをこの名前で localStorage に持っていた。段階の保存先を MARIMO_HOME へ
-// 移したので、初回だけ読み替えて引き継ぐ。
+// 以前は行を隠す設定だけをこの名前で localStorage に持っていた。表示の保存先を MARIMO_HOME へ
+// 移したので、display.json に何も無いときだけ読み替えて引き継ぐ。
 const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";
 // 利用制限の「古い」「リセット済み」と既読の行を畳む時期は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
@@ -70,7 +70,7 @@ let dialogue: Dialogue = {};
 // 組み込みの既定のセリフ。利用者の dialogue.json は上書きしたい分類だけを持ち、分類ごとに重ねる。
 let defaultDialogue: Dialogue = {};
 let speechTimer: number | undefined;
-let panelMode: PanelMode = "detail";
+let panelDisplay: PanelDisplay = DEFAULT_PANEL_DISPLAY;
 let appIcons: AppIcons = { claude: null, codex: null };
 let scale: ScaleControl | undefined;
 // スナップショットは続けて届くことがあり、セリフの読み込みを待つ間に順序が入れ替わらないよう直列にする。
@@ -115,10 +115,10 @@ async function reloadDialogue(): Promise<void> {
   dialogue = mergeDialogue(defaultDialogue, user);
 }
 
-// リストだけの段階では吹き出しを出さない。知らせの吹き出しはきっかけが続く間 bubbleModel に残るので、
-// 段階を戻したときにまだ続いていれば、そのとき出る。
+// 立ち絵を隠している間は吹き出しを出さない。知らせの吹き出しはきっかけが続く間 bubbleModel に残るので、
+// 立ち絵を戻したときにまだ続いていれば、そのとき出る。
 function showSpeech(): void {
-  const text = showsCharacter(panelMode) ? speech.current(bubbleModel.view, performance.now()) : null;
+  const text = panelDisplay.show_character ? speech.current(bubbleModel.view, performance.now()) : null;
   if (text) bubble.show(text);
   else bubble.hide();
   placeBubble();
@@ -160,13 +160,13 @@ function collectHitRegions(): HitRegions {
   // 広げた層はパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
-  if (!showsCharacter(panelMode)) return hitRegions(rects, null);
+  if (!panelDisplay.show_character) return hitRegions(rects, null);
   const area = renderer?.hitArea();
   return hitRegions(rects, { box: rectOf(area?.element ?? stage), mask: area?.mask ?? null });
 }
 
 function redrawPanel(): void {
-  const view = panelView(shown, acknowledged, panelMode, Date.now());
+  const view = panelView(shown, acknowledged, panelDisplay.panel_style, Date.now());
   const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null };
   renderPanel(panelElements, view, limits, appIcons, Date.now(), selectSession);
   placeBubble();
@@ -244,39 +244,47 @@ async function switchCharacter(id: string): Promise<void> {
   void invoke("set_character", { id }).catch((e) => console.error("character", e));
 }
 
-async function loadPanelMode(): Promise<PanelMode> {
-  const saved = await invoke<string | null>("get_panel_mode").catch(() => null);
-  if (saved && (PANEL_MODES as readonly string[]).includes(saved)) return saved as PanelMode;
+async function loadPanelDisplay(): Promise<PanelDisplay> {
+  const saved = await invoke<PanelDisplay | null>("get_panel_display").catch(() => null);
+  if (saved) return saved;
   let legacyHidden = false;
   try {
     legacyHidden = localStorage.getItem(LEGACY_SHOW_ROWS_KEY) === "false";
   } catch {
     // 読めなければ引き継ぐものは無いとみなす。
   }
-  const mode: PanelMode = legacyHidden ? "picture" : "detail";
-  if (legacyHidden) void invoke("set_panel_mode", { mode }).catch(() => {});
-  return mode;
+  if (!legacyHidden) return DEFAULT_PANEL_DISPLAY;
+  // 行を隠す設定は、行を出さない表示が無くなったので、立ち絵を残して最も場所を取らない件数だけへ読み替える。
+  const display: PanelDisplay = { show_character: true, panel_style: "counts" };
+  void invoke("set_panel_display", { display }).catch(() => {});
+  return display;
 }
 
-function setPanelMode(mode: PanelMode): void {
-  panelMode = mode;
-  void invoke("set_panel_mode", { mode }).catch((e) => console.error("panel mode", e));
+function setPanelDisplay(display: PanelDisplay): void {
+  panelDisplay = display;
+  void invoke("set_panel_display", { display }).catch((e) => console.error("panel display", e));
   applyCharacterVisibility();
   showSpeech();
   redrawPanel();
 }
 
+function setShowCharacter(show: boolean): void {
+  setPanelDisplay({ ...panelDisplay, show_character: show });
+}
+
+function setPanelStyle(style: PanelStyle): void {
+  setPanelDisplay({ ...panelDisplay, panel_style: style });
+}
+
 // 立ち絵は隠している間も描き続け、瞬きや表情の切り替えの時計も止めない。戻したときに今の状態の
 // 表情がすぐ出るようにするためである。
 function applyCharacterVisibility(): void {
-  app.classList.toggle("character-hidden", !showsCharacter(panelMode));
+  app.classList.toggle("character-hidden", !panelDisplay.show_character);
 }
 
-const PANEL_MODE_LABEL: Record<PanelMode, string> = {
+const PANEL_STYLE_LABEL: Record<PanelStyle, string> = {
   detail: "詳細を表示",
   counts: "件数だけ表示",
-  list: "リストだけ表示",
-  picture: "絵だけ表示",
 };
 
 async function openMenu(): Promise<void> {
@@ -311,12 +319,17 @@ async function openMenu(): Promise<void> {
   );
   const menu = await Menu.new({
     items: [
+      await CheckMenuItem.new({
+        text: "絵を表示",
+        checked: panelDisplay.show_character,
+        action: () => setShowCharacter(!panelDisplay.show_character),
+      }),
       ...(await Promise.all(
-        PANEL_MODES.map((mode) =>
+        PANEL_STYLES.map((style) =>
           CheckMenuItem.new({
-            text: PANEL_MODE_LABEL[mode],
-            checked: mode === panelMode,
-            action: () => setPanelMode(mode),
+            text: PANEL_STYLE_LABEL[style],
+            checked: style === panelDisplay.panel_style,
+            action: () => setPanelStyle(style),
           }),
         ),
       )),
@@ -348,8 +361,9 @@ async function openMenu(): Promise<void> {
 function bindPanelToggle(): void {
   panelElements.toggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    const mode = (e.target as HTMLElement | null)?.closest<HTMLElement>("button[data-mode]")?.dataset.mode;
-    if ((mode === "detail" || mode === "counts") && mode !== panelMode) setPanelMode(mode);
+    const style = (e.target as HTMLElement | null)?.closest<HTMLElement>("button[data-style]")?.dataset.style;
+    const known = PANEL_STYLES.find((s) => s === style);
+    if (known && known !== panelDisplay.panel_style) setPanelStyle(known);
   });
 }
 
@@ -364,7 +378,7 @@ function bindWindowControls(): void {
       press = null;
       return;
     }
-    const onStage = showsCharacter(panelMode) && !!target?.closest("#stage");
+    const onStage = panelDisplay.show_character && !!target?.closest("#stage");
     press = { x: e.screenX, y: e.screenY, onStage, dragging: false };
   });
   document.addEventListener("mousemove", (e) => {
@@ -386,7 +400,13 @@ function bindWindowControls(): void {
 async function start(): Promise<void> {
   bindWindowControls();
   bindPanelToggle();
-  panelMode = await loadPanelMode();
+  panelDisplay = await loadPanelDisplay();
+  // トレイのメニューで選んだ表示も、右クリックメニューと同じ関数で反映して保存する。保存のコマンドが
+  // トレイの印を付け直す。
+  await listen<{ show_character: boolean | null; panel_style: PanelStyle | null }>("tray-panel-display", (e) => {
+    if (e.payload.show_character !== null) setShowCharacter(e.payload.show_character);
+    if (e.payload.panel_style !== null) setPanelStyle(e.payload.panel_style);
+  });
   appIcons = await invoke<AppIcons>("app_icons").catch((e) => {
     console.error("app icons", e);
     return appIcons;

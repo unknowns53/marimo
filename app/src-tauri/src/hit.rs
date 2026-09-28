@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -9,6 +10,8 @@ use tauri::{AppHandle, Emitter, PhysicalPosition, PhysicalSize, WebviewWindow, W
 // 窓の外では判定を急ぐ必要がないので、周期を延ばして常駐の負担を減らす。
 const INSIDE_INTERVAL: Duration = Duration::from_millis(40);
 const OUTSIDE_INTERVAL: Duration = Duration::from_millis(150);
+// 窓を隠している間はカーソルを追う理由が無いので、表示に戻ったことに気づけるだけの周期で待つ。
+const HIDDEN_INTERVAL: Duration = Duration::from_millis(500);
 
 pub const PORTRAIT_HOVER_EVENT: &str = "portrait-hover";
 pub const WINDOW_CURSOR_EVENT: &str = "window-cursor";
@@ -79,9 +82,14 @@ struct Geometry {
 #[derive(Default)]
 pub struct HitState {
     regions: Mutex<Option<HitRegions>>,
+    hidden: AtomicBool,
 }
 
 impl HitState {
+    pub fn set_hidden(&self, hidden: bool) {
+        self.hidden.store(hidden, Ordering::Relaxed);
+    }
+
     pub fn set(&self, regions: HitRegions) {
         #[cfg(feature = "cursor-replay")]
         replay::log_regions(&regions);
@@ -147,6 +155,19 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
         #[cfg(feature = "cursor-replay")]
         let replay = replay::Script::from_env();
         loop {
+            // 隠した窓は元の場所にカーソルがあっても何も受け取らないので、載っている扱いを解いて待つ。
+            if state.hidden.load(Ordering::Relaxed) {
+                if hovering && app.emit(PORTRAIT_HOVER_EVENT, false).is_ok() {
+                    hovering = false;
+                }
+                if last_cursor.is_some()
+                    && app.emit(WINDOW_CURSOR_EVENT, None::<CursorPoint>).is_ok()
+                {
+                    last_cursor = None;
+                }
+                thread::sleep(HIDDEN_INTERVAL);
+                continue;
+            }
             let g = match geometry.lock() {
                 Ok(g) => *g,
                 Err(_) => return,
