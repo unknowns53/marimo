@@ -75,10 +75,11 @@ pub struct Marimo {
 enum StatusLinePolicy {
     Wrap,
     // Windows の statusLine は Git Bash があれば Git Bash、なければ PowerShell で動く。
-    // 両者で引用の規則が違い、既存のコマンドを包む方法も確かめていないので、statusLine が
-    // 無いときだけ、どちらのシェルでも同じように読める一語のパスで登録する。
-    // plain はその一語で、そう書けないときは None になる。
-    AddOnly { plain: Option<String> },
+    // 両者で引用の規則が違うので、どちらのシェルでも同じように読める引用なしの語だけで書く。
+    // plain は marimo-hook のパスをそう書いた一語で、そう書けないときは None になる。
+    // 既存のコマンドも、同じように読める語を空白一つずつで並べたものに限って、sh -c を介さず
+    // そのまま -- の後ろに続けて包む。
+    ShellAgnostic { plain: Option<String> },
 }
 
 impl Marimo {
@@ -100,7 +101,7 @@ impl Marimo {
         Self {
             exe: exe_path.to_owned(),
             quoted: shell_quote(&raw),
-            status_line: StatusLinePolicy::AddOnly {
+            status_line: StatusLinePolicy::ShellAgnostic {
                 plain: shell_agnostic_path(exe_path, home),
             },
             raw,
@@ -147,18 +148,42 @@ impl Marimo {
     fn statusline_command(&self) -> Option<String> {
         match &self.status_line {
             StatusLinePolicy::Wrap => Some(format!("{} statusline", self.quoted)),
-            StatusLinePolicy::AddOnly { plain } => {
+            StatusLinePolicy::ShellAgnostic { plain } => {
                 plain.as_ref().map(|p| format!("{p} statusline"))
             }
         }
     }
 
-    fn wrapped_statusline(&self, original: &str) -> String {
-        format!(
-            "{} statusline -- sh -c {}",
-            self.quoted,
-            quote_always(original)
-        )
+    fn wrapped_statusline(&self, original: &str) -> Result<String, String> {
+        match &self.status_line {
+            StatusLinePolicy::Wrap => Ok(format!(
+                "{} statusline -- sh -c {}",
+                self.quoted,
+                quote_always(original)
+            )),
+            StatusLinePolicy::ShellAgnostic { plain: None } => Err(format!(
+                "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、既存の statusLine を書き換えませんでした。{API_HINT}"
+            )),
+            StatusLinePolicy::ShellAgnostic { plain: Some(p) } => {
+                if plain_words(original) {
+                    Ok(format!("{p} statusline -- {original}"))
+                } else {
+                    Err(format!(
+                        "既存の statusLine に Git Bash と PowerShell で読み方の違う引用符や記号が含まれるため、書き換えませんでした。{API_HINT}"
+                    ))
+                }
+            }
+        }
+    }
+
+    // wrapped_statusline が包む前の元のコマンドを返す。Windows でも、以前の版は sh -c の形で
+    // 包んでいたので、その形も読む。
+    fn unwrapped_statusline(&self, rest: &str) -> Option<String> {
+        let tail = rest.strip_prefix(" -- ")?;
+        if matches!(self.status_line, StatusLinePolicy::ShellAgnostic { .. }) && plain_words(tail) {
+            return Some(tail.to_owned());
+        }
+        tail.strip_prefix("sh -c ").and_then(unquote_single_word)
     }
 
     fn is_legacy_hook_command(&self, command: &str) -> bool {
@@ -177,7 +202,7 @@ impl Marimo {
 
     fn statusline_rest<'a>(&self, command: &'a str) -> Option<&'a str> {
         let mut spellings = vec![self.quoted.as_str(), self.raw.as_str()];
-        if let StatusLinePolicy::AddOnly { plain: Some(p) } = &self.status_line {
+        if let StatusLinePolicy::ShellAgnostic { plain: Some(p) } = &self.status_line {
             spellings.push(p);
         }
         let rest = self
@@ -220,6 +245,12 @@ fn plain_word(s: &str) -> bool {
                 !c.is_whitespace()
             }
         })
+}
+
+// 空白一つずつで区切った plain_word の並びなら、どちらのシェルも同じ語に分けて同じ引数を渡す。
+// 先頭や末尾の空白と続いた空白は、分けたときに空の語になるので受け付けない。
+fn plain_words(s: &str) -> bool {
+    s.split(' ').all(plain_word)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -444,14 +475,10 @@ fn install_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> Status
     if marimo.statusline_rest(&command).is_some() {
         return StatusLineChange::AlreadyMarimo { current: command };
     }
-    if let StatusLinePolicy::AddOnly { .. } = marimo.status_line {
-        return StatusLineChange::Untouched {
-            reason: format!(
-                "Windows では既存の statusLine を包む方法を検証していないため、書き換えませんでした。{API_HINT}"
-            ),
-        };
-    }
-    let after = marimo.wrapped_statusline(&command);
+    let after = match marimo.wrapped_statusline(&command) {
+        Ok(after) => after,
+        Err(reason) => return StatusLineChange::Untouched { reason },
+    };
     existing["command"] = Value::String(after.clone());
     StatusLineChange::Wrapped {
         before: command,
@@ -534,10 +561,7 @@ fn uninstall_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> Stat
         root.shift_remove("statusLine");
         return StatusLineChange::Removed { before: command };
     }
-    match rest
-        .strip_prefix(" -- sh -c ")
-        .and_then(unquote_single_word)
-    {
+    match marimo.unwrapped_statusline(rest) {
         Some(original) => {
             root["statusLine"]["command"] = Value::String(original.clone());
             StatusLineChange::Restored {
@@ -839,7 +863,7 @@ mod tests {
     }
 
     #[test]
-    fn windows_status_line_is_added_only_when_absent_and_writable() {
+    fn windows_status_line_is_written_only_in_words_both_shells_read_alike() {
         let m = Marimo::windows(
             r"C:\Users\user\.marimo\bin\marimo-hook.exe",
             Some(r"C:\Users\user"),
@@ -889,18 +913,81 @@ mod tests {
         uninstall(&mut settings, &outside).unwrap();
         assert_eq!(settings, json!({}));
 
-        // 既存の statusLine は包まずに残す。
-        let original =
-            json!({"statusLine": {"type": "command", "command": "bash ~/.claude/statusline.sh"}});
-        let mut settings = original.clone();
+        // 既存の statusLine は、どちらのシェルでも同じ語に分かれる場合だけ -- の後ろへそのまま続けて包み、
+        // uninstall で元に戻す。sh -c で始まっていても、引用符が無ければ元のコマンドの一部として扱う。
+        let exe = "~/.marimo/bin/marimo-hook.exe";
+        let cases = [
+            ("bash C:/Users/user/.claude/statusline.sh", true),
+            ("statusline.exe", true),
+            ("sh -c statusline", true),
+            ("bash ~/.claude/statusline.sh", false),
+            ("bash 'C:/Users/user/.claude/statusline.sh'", false),
+            (r#"bash "C:/Users/user/.claude/statusline.sh""#, false),
+            (r"bash C:\Users\user\.claude\statusline.sh", false),
+            ("echo $HOME", false),
+            ("cat | head -1", false),
+            ("bash  statusline.sh", false),
+            (" bash statusline.sh", false),
+            ("bash statusline.sh ", false),
+            ("", false),
+        ];
+        for (command, wrapped) in cases {
+            let original = json!({"statusLine": {"type": "command", "command": command}});
+            let mut settings = original.clone();
+            let report = install(&mut settings, &m).unwrap();
+            let after = format!("{exe} statusline -- {command}");
+            if wrapped {
+                assert_eq!(
+                    report.status_line,
+                    StatusLineChange::Wrapped {
+                        before: command.to_owned(),
+                        after: after.clone()
+                    }
+                );
+                assert_eq!(settings["statusLine"]["command"], after.as_str());
+                let before = settings.clone();
+                let again = install(&mut settings, &m).unwrap();
+                assert_eq!(
+                    again.status_line,
+                    StatusLineChange::AlreadyMarimo {
+                        current: after.clone()
+                    }
+                );
+                assert_eq!(settings, before);
+            } else {
+                let StatusLineChange::Untouched { reason } = &report.status_line else {
+                    panic!("{command:?}: {:?}", report.status_line);
+                };
+                assert!(reason.contains("引用符や記号"), "{command:?}: {reason}");
+                assert!(reason.contains("「利用制限を API から取得」"), "{reason}");
+                assert_eq!(settings["statusLine"], original["statusLine"]);
+            }
+            let report = uninstall(&mut settings, &m).unwrap();
+            if wrapped {
+                assert_eq!(
+                    report.status_line,
+                    StatusLineChange::Restored {
+                        before: after,
+                        after: command.to_owned()
+                    }
+                );
+            }
+            assert_eq!(settings, original, "{command:?}");
+        }
+
+        // 以前の版が Windows でも sh -c の形で包んでいたものは、その形のまま元に戻す。
+        let legacy = "C:/Users/user/.marimo/bin/marimo-hook.exe statusline -- sh -c 'bash ~/.claude/statusline.sh'";
+        let mut settings = json!({"statusLine": {"type": "command", "command": legacy}});
         let report = install(&mut settings, &m).unwrap();
-        let StatusLineChange::Untouched { reason } = &report.status_line else {
-            panic!("{:?}", report.status_line);
-        };
-        assert!(reason.contains("「利用制限を API から取得」"), "{reason}");
-        assert_eq!(settings["statusLine"], original["statusLine"]);
+        assert!(matches!(
+            report.status_line,
+            StatusLineChange::AlreadyMarimo { .. }
+        ));
         uninstall(&mut settings, &m).unwrap();
-        assert_eq!(settings, original);
+        assert_eq!(
+            settings["statusLine"]["command"],
+            "bash ~/.claude/statusline.sh"
+        );
 
         // どちらのシェルでも同じに読める形で書けないパスでは、statusLine を登録しない。
         let spaced = Marimo::windows(r"D:\My Tools\marimo-hook.exe", Some(r"C:\Users\user"));
@@ -915,5 +1002,15 @@ mod tests {
             settings["hooks"]["Stop"][0]["hooks"][0]["command"],
             r"D:\My Tools\marimo-hook.exe"
         );
+        // 既存の statusLine も包めない。
+        let original =
+            json!({"statusLine": {"type": "command", "command": "bash C:/statusline.sh"}});
+        let mut settings = original.clone();
+        let report = install(&mut settings, &spaced).unwrap();
+        let StatusLineChange::Untouched { reason } = &report.status_line else {
+            panic!("{:?}", report.status_line);
+        };
+        assert!(reason.contains("marimo-hook のパス"), "{reason}");
+        assert_eq!(settings["statusLine"], original["statusLine"]);
     }
 }

@@ -166,6 +166,8 @@ fn statusline(rest: &[OsString]) -> ExitCode {
 
 fn spawn_original(command: &[OsString], input: &[u8]) -> Option<Child> {
     let (program, args) = command.split_first()?;
+    #[cfg(windows)]
+    let program = &resolve_program(program);
     // stdout と stderr は継承し、元のコマンドの出力を一切加工せずに Claude Code へ届ける。
     let mut child = Command::new(program)
         .args(args)
@@ -185,6 +187,55 @@ fn spawn_original(command: &[OsString], input: &[u8]) -> Option<Child> {
     Some(child)
 }
 
+// std の Command は Windows では PATH より先に実行ファイルのフォルダや System32 を探すので、
+// WSL が入っていると bash が System32 の bash.exe になり、Git Bash や PowerShell が同じ名前で
+// 起動するものと食い違う。そこで名前だけのプログラムは PATH の順に自分で探す。
+#[cfg(windows)]
+fn resolve_program(program: &std::ffi::OsStr) -> OsString {
+    let found = program.to_str().and_then(|name| {
+        let path = std::env::var("PATH").ok()?;
+        let pathext = std::env::var("PATHEXT").ok();
+        find_in_path(name, &path, pathext.as_deref(), |p| p.is_file())
+    });
+    found.map_or_else(|| program.to_owned(), std::path::PathBuf::into_os_string)
+}
+
+// 見つからなければ None を返し、呼び出し側は名前をそのまま std に渡す。
+#[cfg(any(windows, test))]
+fn find_in_path(
+    name: &str,
+    path: &str,
+    pathext: Option<&str>,
+    exists: impl Fn(&std::path::Path) -> bool,
+) -> Option<std::path::PathBuf> {
+    if name.is_empty() || name.contains(['/', '\\']) {
+        return None;
+    }
+    let exts: Vec<&str> = pathext
+        .unwrap_or(".COM;.EXE;.BAT;.CMD")
+        .split(';')
+        .filter(|e| !e.is_empty())
+        .collect();
+    let has_ext = std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| {
+            exts.iter()
+                .any(|x| x.strip_prefix('.').unwrap_or(x).eq_ignore_ascii_case(e))
+        });
+    path.split(';')
+        .map(|dir| dir.replace('"', ""))
+        .filter(|dir| !dir.is_empty())
+        .find_map(|dir| {
+            let dir = std::path::Path::new(&dir);
+            let as_is = has_ext.then(|| dir.join(name));
+            as_is
+                .into_iter()
+                .chain(exts.iter().map(|ext| dir.join(format!("{name}{ext}"))))
+                .find(|p| exists(p))
+        })
+}
+
 // 元のコマンドの終了コードはそのまま返す。statusLine は非 0 で終わると表示が空に
 // なるので、ここで 0 に揃えると元の見た目が変わってしまう。
 fn wait_original(mut child: Child) -> ExitCode {
@@ -196,6 +247,84 @@ fn wait_original(mut child: Child) -> ExitCode {
         Err(e) => {
             report(Err(format!("statusline command wait failed: {e}")));
             ExitCode::SUCCESS
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn program_is_searched_in_path_order_then_pathext_order() {
+        let files = [
+            Path::new("git").join("bash.exe"),
+            Path::new("system32").join("bash.exe"),
+            Path::new("tools").join("run.cmd"),
+            Path::new("tools").join("run.bat"),
+            Path::new("tools").join("script.sh"),
+            Path::new("tools").join("tool.exe"),
+            Path::new("tools").join("tool.exe.COM"),
+        ];
+        // Windows のファイル名は大文字と小文字を区別しない。
+        let exists = |p: &Path| {
+            files.iter().any(|f| {
+                f.to_string_lossy()
+                    .eq_ignore_ascii_case(&p.to_string_lossy())
+            })
+        };
+        let pathext = Some(".COM;.EXE;.BAT;.CMD");
+        let cases = [
+            (
+                "bash",
+                "git;system32",
+                pathext,
+                Some(Path::new("git").join("bash.EXE")),
+            ),
+            (
+                "bash",
+                "system32;git",
+                pathext,
+                Some(Path::new("system32").join("bash.EXE")),
+            ),
+            (
+                "bash",
+                ";\"git\";;system32",
+                pathext,
+                Some(Path::new("git").join("bash.EXE")),
+            ),
+            (
+                "run",
+                "tools",
+                pathext,
+                Some(Path::new("tools").join("run.BAT")),
+            ),
+            (
+                "run",
+                "tools",
+                Some(".CMD;.BAT"),
+                Some(Path::new("tools").join("run.CMD")),
+            ),
+            (
+                "tool.exe",
+                "tools",
+                pathext,
+                Some(Path::new("tools").join("tool.exe")),
+            ),
+            ("script.sh", "tools", pathext, None),
+            ("bash", "git", None, Some(Path::new("git").join("bash.EXE"))),
+            ("missing", "git;system32;tools", pathext, None),
+            ("bash", "", pathext, None),
+            ("git/bash.exe", "git", pathext, None),
+            (r"git\bash", "git", pathext, None),
+        ];
+        for (name, path, pathext, expected) in cases {
+            assert_eq!(
+                find_in_path(name, path, pathext, exists),
+                expected,
+                "{name} in {path}"
+            );
         }
     }
 }
