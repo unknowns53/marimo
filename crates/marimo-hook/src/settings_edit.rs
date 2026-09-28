@@ -235,6 +235,7 @@ fn shell_agnostic_path(exe_path: &str, home: Option<&str>) -> Option<String> {
 
 // 空白のほか、どちらかのシェルが特別に扱う記号を含まない一語だけを受け付ける。
 // 先頭の ~ はホームへの展開になるので、明示的に ~/ を付ける場合のほかは避ける。
+// PowerShell は ‘ ’ ‚ ‛ “ ” „ を引用符として、– — ― をハイフンとして読むので、ASCII 以外でもこれらは避ける。
 fn plain_word(s: &str) -> bool {
     !s.is_empty()
         && !s.starts_with('~')
@@ -243,6 +244,7 @@ fn plain_word(s: &str) -> bool {
                 c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+' | ':' | '~')
             } else {
                 !c.is_whitespace()
+                    && !matches!(c, '\u{2013}'..='\u{2015}' | '\u{2018}'..='\u{201E}')
             }
         })
 }
@@ -926,6 +928,8 @@ mod tests {
             (r"bash C:\Users\user\.claude\statusline.sh", false),
             ("echo $HOME", false),
             ("cat | head -1", false),
+            ("bash C:/Users/user/\u{201C}a\u{201D}.sh", false),
+            ("bash C:/Users/user/a.sh \u{2013}x", false),
             ("bash  statusline.sh", false),
             (" bash statusline.sh", false),
             ("bash statusline.sh ", false),
