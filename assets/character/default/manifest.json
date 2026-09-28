@@ -105,7 +105,8 @@
           "Task",
           "spawn_agent"
         ],
-        "expression": "working_delegate"
+        "expression": "working_delegate",
+        "max_ms": 30000
       }
     ],
     "working_no_tool": "working_think",

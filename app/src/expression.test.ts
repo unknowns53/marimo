@@ -13,6 +13,7 @@ const FULL: StandingManifest = {
       "working_focus",
       "working_curious",
       "working_think",
+      "working_delegate",
       "waiting",
       "done",
       "error",
@@ -26,6 +27,7 @@ const FULL: StandingManifest = {
     working_tools: [
       { tools: ["Bash", "Edit"], expression: "working_focus" },
       { tools: ["WebSearch", "WebFetch"], expression: "working_curious" },
+      { tools: ["Agent"], expression: "working_delegate", max_ms: 30000 },
     ],
     working_no_tool: "working_think",
     min_switch_ms: 4000,
@@ -79,6 +81,22 @@ describe("ExpressionDirector", () => {
     // 状態が変わったときは下限を待たずに切り替える。
     d.setInput({ status: "done", tool: null });
     expect(d.current(4100)).toBe("done");
+  });
+
+  it("returns to the base working expression after a tool's time limit", () => {
+    const d = director();
+    d.setInput({ status: "working", tool: "Agent" });
+    expect(d.current(0)).toBe("working_delegate");
+    expect(d.current(29999)).toBe("working_delegate");
+    expect(d.current(30000)).toBe("working");
+    // 別のツールを挟むか状態が変われば、上限は数え直す。
+    d.setInput({ status: "working", tool: "Bash" });
+    expect(d.current(35000)).toBe("working_focus");
+    d.setInput({ status: "working", tool: "Agent" });
+    expect(d.current(40000)).toBe("working_delegate");
+    d.setInput({ status: "waiting", tool: "Agent" });
+    d.setInput({ status: "working", tool: "Agent" });
+    expect(d.current(80000)).toBe("working_delegate");
   });
 
   it("starts and ends idle gestures within the configured ranges", () => {

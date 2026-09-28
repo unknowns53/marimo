@@ -15,6 +15,8 @@ export class ExpressionDirector {
   private input: DirectorInput = { status: "idle", tool: null };
   private workingExpression: string | null = null;
   private workingSince = Number.NEGATIVE_INFINITY;
+  private mapped: string | undefined;
+  private mappedSince = Number.NEGATIVE_INFINITY;
   private gesture: { expression: string; until: number } | null = null;
   private lastGesture: string | null = null;
   private nextGestureAt: number | null = null;
@@ -31,6 +33,7 @@ export class ExpressionDirector {
   setInput(input: DirectorInput): void {
     if (input.status !== this.input.status) {
       this.workingExpression = null;
+      this.mapped = undefined;
       this.gesture = null;
       this.nextGestureAt = null;
     }
@@ -80,7 +83,15 @@ export class ExpressionDirector {
     const mapped = this.input.tool
       ? this.rules.workingTools.get(this.input.tool)
       : (this.rules.workingNoTool ?? undefined);
-    const candidate = mapped && this.available(mapped) ? mapped : base;
+    if (mapped !== this.mapped) {
+      this.mapped = mapped;
+      this.mappedSince = now;
+    }
+    // サブエージェントの実行のように同じツールが何分も続くと、ウインクのような一瞬の表情が
+    // 張り付いて不自然になるので、上限を過ぎたら基本の表情へ戻す。
+    const maxMs = mapped ? this.rules.workingMaxMs.get(mapped) : undefined;
+    const expired = maxMs != null && now - this.mappedSince >= maxMs;
+    const candidate = mapped && !expired && this.available(mapped) ? mapped : base;
     if (this.workingExpression === null) {
       this.workingExpression = candidate;
       this.workingSince = now;
