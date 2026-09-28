@@ -46,8 +46,10 @@ if [[ $pull -eq 1 ]]; then
   if [[ "$branch" != "main" ]]; then
     fail "今のブランチは「${branch:-（ブランチなし）}」です。main へ切り替えてから実行してください。ほかのブランチを試すときは --no-pull を付けます。"
   fi
-  if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
-    fail "コミットしていない変更があります。コミットするか取り消してから実行してください。"
+  dirty="$(git status --porcelain --untracked-files=no)"
+  if [[ -n "$dirty" ]]; then
+    echo "$dirty" >&2
+    fail "上のファイルにコミットしていない変更があります。コミットするか、git checkout -- <ファイル> で取り消してから実行してください。"
   fi
   echo "最新の main を取り込んでいます"
   git pull --ff-only
@@ -59,7 +61,8 @@ echo "marimo-hook をビルドしています"
 cargo build --release -p marimo-hook
 
 echo "アプリの依存をインストールしています"
-(cd app && npm install --no-audit --no-fund)
+# npm install は npm の版や OS によって package-lock.json を書き直し、次の実行を変更ありで止めてしまう。
+(cd app && npm ci --no-audit --no-fund)
 
 echo "アプリをビルドしています"
 (cd app && npm run tauri -- build --bundles app)

@@ -293,8 +293,8 @@ powershell -ExecutionPolicy Bypass -File .\tools\update.ps1
 スクリプトは次のことを順に行います。
 
 1. `git pull --ff-only` で main の最新を取り込みます。
-2. `marimo-hook` とアプリをビルドします。アプリは、macOS では `marimo.app` だけを、Windows では NSIS のインストーラだけを作ります。環境変数 `CARGO_TARGET_DIR` を設定していれば、できあがったものをその下から探します。
-3. 両方のビルドが成功したら、起動している marimo を終了します。macOS では、10 秒ほど待っても終わらなければ、アプリを差し替えずに止まります。
+2. `marimo-hook` とアプリをビルドします。画面部分の依存は、`package-lock.json` を書き換えない `npm ci` で入れ直します。アプリは、macOS では `marimo.app` だけを、Windows では NSIS のインストーラだけを作ります。環境変数 `CARGO_TARGET_DIR` を設定していれば、できあがったものをその下から探します。
+3. 両方のビルドが成功したら、起動している marimo を終了します。macOS では、10 秒ほど待っても終わらなければ、アプリを差し替えずに止まります。Windows では、終わらなければそのまま進み、動いているアプリを閉じる処理をインストーラに任せます。インストーラも閉じられなければ、アプリは差し替わらずに失敗を表示します。
 4. アプリを差し替えます。macOS では、新しい `marimo.app` を `/Applications` の中へ別の名前でコピーしてから、古い `/Applications/marimo.app` と入れ替えます。Windows では、NSIS のインストーラを画面を出さずに（`/S`）実行して、`%LOCALAPPDATA%\marimo\marimo.exe` を入れ直します。
 5. ビルドしたばかりの `marimo-hook` で `install` を実行し、`~/.marimo/bin/marimo-hook` を新しいものに差し替えます。
 6. marimo を起動し直します。
