@@ -113,16 +113,21 @@ function Get-Build([string]$Work) {
 
     Write-Host "$tag のビルドを取ってきています"
     $started = Get-Date
-    $deadline = $started.AddMinutes(30)
+    # リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、-Wait が無くても 1 分は確かめ直す。
+    if ($Wait) { $deadline = $started.AddMinutes(30); $interval = 30 }
+    else { $deadline = $started.AddMinutes(1); $interval = 10 }
     while ($true) {
         $code = Save-Url "$base/SHA256SUMS" $sumsPath
         if ($code -eq 200) { $code = Save-Url "$base/$archive" $archivePath }
         if ($code -eq 200) { break }
         if ($code -ne 404) { Fail "$base から取得できませんでした（HTTP $code）。" }
-        if (-not $Wait) { Fail "${notReady}-Wait を付けると、できあがるまで最大 30 分待ちます。" }
-        if ((Get-Date) -ge $deadline) { Fail "30 分待ってもできあがりませんでした。$notReady" }
-        Write-Host "CI のビルドを待っています（$([int]((Get-Date) - $started).TotalMinutes) 分経過、最大 30 分）"
-        Start-Sleep -Seconds 30
+        if ((Get-Date) -ge $deadline) {
+            if ($Wait) { Fail "30 分待ってもできあがりませんでした。$notReady" }
+            Fail "${notReady}-Wait を付けると、できあがるまで最大 30 分待ちます。"
+        }
+        if ($Wait) { Write-Host "CI のビルドを待っています（$([int]((Get-Date) - $started).TotalMinutes) 分経過、最大 30 分）" }
+        else { Write-Host "ビルドがまだ取れないので、$interval 秒後に確かめ直します（最大 1 分）" }
+        Start-Sleep -Seconds $interval
     }
 
     $expected = $null
