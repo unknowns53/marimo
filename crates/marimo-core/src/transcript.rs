@@ -82,6 +82,19 @@ impl Usage {
 }
 
 pub fn read_tail(path: &Path) -> io::Result<TranscriptTail> {
+    search_tail(path, |buf, head| {
+        let tail = scan(buf, head);
+        let found = tail.usage.is_some();
+        (tail, found)
+    })
+}
+
+/// JSON Lines のファイルを末尾から読み、`scan` が見つけたと答えるか、ファイルの先頭か読む量の
+/// 上限に達するまで範囲を広げる。`scan` には読んだバイト列と、それがファイルの先頭から始まるかを渡す。
+pub(crate) fn search_tail<T>(
+    path: &Path,
+    mut scan: impl FnMut(&[u8], bool) -> (T, bool),
+) -> io::Result<T> {
     let mut file = File::open(path)?;
     let len = file.metadata()?.len();
     let mut window = FIRST_WINDOW.min(len);
@@ -90,9 +103,9 @@ pub fn read_tail(path: &Path) -> io::Result<TranscriptTail> {
         file.seek(SeekFrom::Start(start))?;
         let mut buf = Vec::with_capacity(window as usize);
         (&mut file).take(window).read_to_end(&mut buf)?;
-        let tail = scan(&buf, start == 0);
-        if tail.usage.is_some() || window >= len || window >= MAX_WINDOW {
-            return Ok(tail);
+        let (result, found) = scan(&buf, start == 0);
+        if found || window >= len || window >= MAX_WINDOW {
+            return Ok(result);
         }
         window = (window * 8).min(MAX_WINDOW).min(len);
     }
@@ -100,15 +113,19 @@ pub fn read_tail(path: &Path) -> io::Result<TranscriptTail> {
 
 // buf の先頭がファイルの途中なら、最初の行は切れているので読まない。末尾の改行で
 // 終わっていない行も書き込みの途中なので読まない。
-fn scan(buf: &[u8], starts_at_file_head: bool) -> TranscriptTail {
+pub(crate) fn complete_lines(buf: &[u8], starts_at_file_head: bool) -> Vec<&[u8]> {
     let Some(complete_end) = buf.iter().rposition(|&b| b == b'\n') else {
-        return TranscriptTail::default();
+        return Vec::new();
     };
-    let body = &buf[..complete_end];
-    let mut lines: Vec<&[u8]> = body.split(|&b| b == b'\n').collect();
+    let mut lines: Vec<&[u8]> = buf[..complete_end].split(|&b| b == b'\n').collect();
     if !starts_at_file_head && !lines.is_empty() {
         lines.remove(0);
     }
+    lines
+}
+
+fn scan(buf: &[u8], starts_at_file_head: bool) -> TranscriptTail {
+    let lines = complete_lines(buf, starts_at_file_head);
     let usage = lines
         .iter()
         .rev()
@@ -151,7 +168,7 @@ fn parse_line(bytes: &[u8]) -> Option<TranscriptUsage> {
     })
 }
 
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
 }
 

@@ -1,6 +1,8 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+use crate::state::Provider;
+
 pub const HOME_ENV: &str = "MARIMO_HOME";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,13 +31,26 @@ impl MarimoHome {
     }
 
     /// session_id はフックの入力をそのまま使うので、`sessions/` の外を指しうる値や
-    /// ファイル名にできない値には `None` を返す。
-    pub fn session_file(&self, session_id: &str) -> Option<PathBuf> {
-        is_safe_id(session_id).then(|| self.sessions_dir().join(format!("{session_id}.json")))
+    /// ファイル名にできない値には `None` を返す。Claude Code と Codex の session_id は別々に
+    /// 振られるので、Codex のファイルには接頭辞を付けて同じ値でもぶつからないようにする。
+    /// Claude Code のファイル名は以前の版と同じままにする。
+    pub fn session_file(&self, provider: Provider, session_id: &str) -> Option<PathBuf> {
+        let prefix = match provider {
+            Provider::Claude => "",
+            Provider::Codex => "codex-",
+        };
+        is_safe_id(session_id).then(|| {
+            self.sessions_dir()
+                .join(format!("{prefix}{session_id}.json"))
+        })
     }
 
     pub fn rate_limits_file(&self) -> PathBuf {
         self.root.join("rate_limits.json")
+    }
+
+    pub fn codex_rate_limits_file(&self) -> PathBuf {
+        self.root.join("codex_rate_limits.json")
     }
 
     pub fn logs_dir(&self) -> PathBuf {
@@ -100,11 +115,17 @@ mod tests {
     #[test]
     fn session_file_rejects_path_tricks() {
         let home = MarimoHome::at("/tmp/m");
-        assert!(home.session_file("abc-123_x").is_some());
-        assert!(home.session_file("").is_none());
-        assert!(home.session_file("../evil").is_none());
-        assert!(home.session_file("a/b").is_none());
-        assert!(home.session_file("a\\b").is_none());
-        assert!(home.session_file(".hidden").is_none());
+        for provider in [Provider::Claude, Provider::Codex] {
+            assert!(home.session_file(provider, "abc-123_x").is_some());
+            for bad in ["", "../evil", "a/b", "a\\b", ".hidden"] {
+                assert!(home.session_file(provider, bad).is_none(), "{bad}");
+            }
+        }
+        let name = |p| home.session_file(p, "s1").unwrap();
+        assert_eq!(name(Provider::Claude), home.sessions_dir().join("s1.json"));
+        assert_eq!(
+            name(Provider::Codex),
+            home.sessions_dir().join("codex-s1.json")
+        );
     }
 }

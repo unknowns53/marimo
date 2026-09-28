@@ -30,6 +30,15 @@ impl Status {
     }
 }
 
+/// フックを送ってきたツール。この項目を持たない以前の版のファイルは Claude Code のものとして読む。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    #[default]
+    Claude,
+    Codex,
+}
+
 pub fn aggregate<I: IntoIterator<Item = Status>>(statuses: I) -> Status {
     statuses
         .into_iter()
@@ -145,6 +154,47 @@ pub const AGENT_STALE_MS: u64 = 30 * 60 * 1000;
 // statusLine は応答ごとに走るので、この時間より新しい値があれば会話ログからの計算より優先する。
 const STATUSLINE_FRESH_MS: u64 = 5 * 60 * 1000;
 
+/// Codex の rollout の token_count から読んだ値。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CodexTokenUsage {
+    /// 最後の API 呼び出しの total_tokens。
+    pub last_total_tokens: i64,
+    pub model_context_window: Option<i64>,
+}
+
+// codex-rs/protocol/src/protocol.rs の BASELINE_TOKENS。システムプロンプトやツールの説明のように
+// 常にコンテキストにある分として、Codex が % の分子と分母の両方から引く。
+const CODEX_BASELINE_TOKENS: i64 = 12000;
+
+/// Codex の TUI の表示と同じ % にする。TUI は codex-rs/tui/src/chatwidget.rs の
+/// context_remaining_percent で last_token_usage の percent_of_context_window_remaining
+/// （codex-rs/protocol/src/protocol.rs）を残りの % として出すので、同じ式で残りを求め、
+/// 100 から引いて使用中の % にする。
+pub fn context_from_codex(usage: &CodexTokenUsage, now_ms: u64) -> ContextUsage {
+    let used_percentage = usage.model_context_window.map(|window| {
+        let remaining = if window <= CODEX_BASELINE_TOKENS {
+            0
+        } else {
+            let effective = window - CODEX_BASELINE_TOKENS;
+            let used = (usage.last_total_tokens - CODEX_BASELINE_TOKENS).max(0);
+            let left = (effective - used).max(0);
+            ((left as f64 / effective as f64) * 100.0)
+                .clamp(0.0, 100.0)
+                .round() as i64
+        };
+        (100 - remaining) as f64
+    });
+    ContextUsage {
+        used_percentage,
+        total_input_tokens: u64::try_from(usage.last_total_tokens).ok(),
+        context_window_size: usage
+            .model_context_window
+            .and_then(|w| u64::try_from(w).ok()),
+        updated_at: now_ms,
+        source: Some("codex-rollout".to_owned()),
+    }
+}
+
 /// 会話ログから数えたトークン数で、保存済みのコンテキスト使用量を更新する。上限は statusLine から
 /// 得た値だけを使い、無ければ % を出さない。モデル名から上限を推し量ると、1M の版かどうかが
 /// 分からず誤った % を出すからである。
@@ -175,6 +225,9 @@ pub fn context_from_transcript(
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionState {
     pub session_id: String,
+    /// セッションは (provider, session_id) で一意になる。二つのツールの session_id は別々に振られる。
+    #[serde(default)]
+    pub provider: Provider,
     #[serde(default)]
     pub cwd: Option<String>,
     /// cwd を含む git リポジトリの名前。linked worktree では元のリポジトリの名前になる。
@@ -246,6 +299,7 @@ impl SessionState {
     pub fn new(session_id: impl Into<String>) -> Self {
         Self {
             session_id: session_id.into(),
+            provider: Provider::Claude,
             cwd: None,
             repo: None,
             title: None,
@@ -297,18 +351,47 @@ pub struct RateLimits {
     pub updated_at: u64,
 }
 
+/// Codex の利用制限の窓。Codex は窓の長さを値として送ってくるので、5 時間や 7 日に決め打ちせず、
+/// 送られてきた長さのまま持つ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexRateWindow {
+    #[serde(default)]
+    pub window_minutes: Option<u64>,
+    pub used_percentage: f64,
+    /// Unix 秒。
+    #[serde(default)]
+    pub resets_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexRateLimits {
+    pub windows: Vec<CodexRateWindow>,
+    #[serde(default)]
+    pub plan_type: Option<String>,
+    /// 値を読んだ rollout の行の timestamp（Unix ミリ秒）。複数のセッションの rollout の
+    /// 末尾はそれぞれ別の時点の値を持つので、これで新しさを比べる。
+    pub observed_at: u64,
+    pub updated_at: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub aggregate: Status,
     /// 優先度の高い順に並べ、同じ優先度では更新の新しい順に並べる。
     pub sessions: Vec<SessionState>,
     pub rate_limits: Option<RateLimits>,
+    #[serde(default)]
+    pub codex_rate_limits: Option<CodexRateLimits>,
 }
 
 /// 項目名は https://code.claude.com/docs/en/hooks の Common input fields と、
-/// 各イベントの input の節に従う。
+/// 各イベントの input の節に従う。Codex のフックの入力も同じ名前の項目を持つ
+/// （codex-rs/hooks/src/schema.rs の各 CommandInput）。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct HookInput {
+    /// 入力には含まれず、どのサブコマンドで受けたかで決まる。
+    #[serde(skip)]
+    pub provider: Provider,
     pub session_id: String,
     pub hook_event_name: String,
     #[serde(default)]
@@ -343,11 +426,27 @@ impl HookInput {
         self.agent_id.as_deref().filter(|a| !a.is_empty())
     }
 
+    /// Codex の会話の題名を session_index.jsonl から取り直す契機。題名は利用者が付け直すか、
+    /// Codex が最初のやりとりの後に付けるので、ターンの始まりと終わりで見れば足りる。
+    pub fn wants_codex_title(&self) -> bool {
+        self.provider == Provider::Codex
+            && self.subagent().is_none()
+            && matches!(
+                self.hook_event_name.as_str(),
+                "SessionStart" | "UserPromptSubmit" | "Stop"
+            )
+    }
+
     // ツールの実行ごとに API の呼び出しが一回挟まるので、PostToolUse と Stop で数え直せば
     // 使用量の変化に追いつける。サブエージェントのツールの実行は親のコンテキストの使用量を変えないので数えない。
+    // Codex では resume した会話の使用量と利用制限をすぐ出せるよう、SessionStart でも読む。
     pub fn wants_transcript_usage(&self) -> bool {
+        let events: &[&str] = match self.provider {
+            Provider::Claude => &["PostToolUse", "Stop"],
+            Provider::Codex => &["PostToolUse", "Stop", "SessionStart"],
+        };
         self.subagent().is_none()
-            && matches!(self.hook_event_name.as_str(), "PostToolUse" | "Stop")
+            && events.contains(&self.hook_event_name.as_str())
             && self
                 .transcript_path
                 .as_deref()
@@ -409,6 +508,7 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
     let Some(mut next) = next else {
         return Transition::Nothing;
     };
+    next.provider = input.provider;
     if next.started_at == 0 {
         next.started_at = now_ms;
     }
@@ -446,8 +546,12 @@ fn main_update(
         "UserPromptSubmit" => (Status::Working, Act::Clear),
         "PreToolUse" => {
             let (name, a) = tool();
-            // この二つのツールは、呼ばれた時点でユーザーの回答や承認を待つ。
-            if matches!(name, "AskUserQuestion" | "ExitPlanMode") {
+            // これらのツールは、呼ばれた時点でユーザーの回答や承認を待つ。request_user_input は
+            // Codex の質問のツールである。
+            if matches!(
+                name,
+                "AskUserQuestion" | "ExitPlanMode" | "request_user_input"
+            ) {
                 (Status::Waiting, Act::Set(a))
             } else {
                 (Status::Working, Act::Set(a))
@@ -497,6 +601,8 @@ fn main_update(
             };
             (Status::Done, act)
         }
+        // Codex で利用者がターンを中断したときに届く。中断では Stop が発火しないので、ここで待機へ戻す。
+        "Interrupt" => (Status::Idle, Act::Keep),
         "StopFailure" => {
             let text = input
                 .last_assistant_message
@@ -511,7 +617,7 @@ fn main_update(
     let reason: Option<String> = match input.hook_event_name.as_str() {
         "PermissionRequest" => Some("permission".to_owned()),
         "PreToolUse" => match input.tool_name.as_deref() {
-            Some("AskUserQuestion") => Some("question".to_owned()),
+            Some("AskUserQuestion" | "request_user_input") => Some("question".to_owned()),
             Some("ExitPlanMode") => Some("plan".to_owned()),
             _ => None,
         },
@@ -786,6 +892,13 @@ mod tests {
                 Some(Working),
                 None,
             ),
+            (
+                json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"request_user_input","tool_input":{"questions":[]}}),
+                Some(Working),
+                Some(Waiting),
+            ),
+            (ev("Interrupt"), Some(Working), Some(Idle)),
+            (ev("Interrupt"), Some(Waiting), Some(Idle)),
             (ev("SubagentStop"), Some(Working), None),
             (ev("SomeFutureEvent"), Some(Working), None),
         ];
@@ -899,13 +1012,16 @@ mod tests {
         assert_eq!(s.status_reason.as_deref(), Some("permission"));
         let s = write(transition(&input(ev("PostToolUse")), Some(&s), 300));
         assert_eq!(s.status_reason, None);
-        let ask = json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{}});
-        assert_eq!(
-            write(transition(&input(ask), Some(&s), 310))
-                .status_reason
-                .as_deref(),
-            Some("question")
-        );
+        for tool in ["AskUserQuestion", "request_user_input"] {
+            let ask = json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":tool,"tool_input":{}});
+            assert_eq!(
+                write(transition(&input(ask), Some(&s), 310))
+                    .status_reason
+                    .as_deref(),
+                Some("question"),
+                "{tool}"
+            );
+        }
         let plan = json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{}});
         assert_eq!(
             write(transition(&input(plan), Some(&s), 320))
@@ -970,7 +1086,10 @@ mod tests {
             (a.kind, a.summary.as_str()),
             (ActivityKind::Text, "Bash: cargo test")
         );
-        assert_eq!((s.status_since, s.origin), (0, None));
+        assert_eq!(
+            (s.status_since, s.origin, s.provider),
+            (0, None, Provider::Claude)
+        );
 
         for line in [json!(null), json!(""), json!(42)] {
             let v = json!({"session_id": "s1", "status": "done", "line": line});
@@ -1462,6 +1581,91 @@ mod tests {
         refresh_repo(&sub, Some(&cur), &mut next, lookup);
         assert_eq!(next.repo.as_deref(), Some("repo-of-/w/a"));
         assert_eq!(lookup_count.get(), 1);
+    }
+
+    #[test]
+    fn provider_follows_the_input() {
+        let mut codex = input(ev("UserPromptSubmit"));
+        codex.provider = Provider::Codex;
+        let s = write(transition(&codex, None, 1));
+        assert_eq!(s.provider, Provider::Codex);
+        let text = serde_json::to_string(&s).unwrap();
+        assert!(text.contains("\"provider\":\"codex\""));
+        assert_eq!(serde_json::from_str::<SessionState>(&text).unwrap(), s);
+
+        let mut sub_event = sub("SubagentStart", "a1");
+        sub_event.provider = Provider::Codex;
+        assert_eq!(
+            write(transition(&sub_event, None, 2)).provider,
+            Provider::Codex
+        );
+        assert_eq!(
+            write(transition(&input(ev("UserPromptSubmit")), None, 3)).provider,
+            Provider::Claude
+        );
+    }
+
+    #[test]
+    fn logs_are_read_only_on_their_events() {
+        // (provider, event, agent_id, rollout か会話ログを読むか, Codex の題名を読むか)
+        let cases = [
+            (Provider::Claude, "PostToolUse", None, true, false),
+            (Provider::Claude, "SessionStart", None, false, false),
+            (Provider::Claude, "UserPromptSubmit", None, false, false),
+            (Provider::Codex, "PostToolUse", None, true, false),
+            (Provider::Codex, "Stop", None, true, true),
+            (Provider::Codex, "SessionStart", None, true, true),
+            (Provider::Codex, "UserPromptSubmit", None, false, true),
+            (Provider::Codex, "PreToolUse", None, false, false),
+            (
+                Provider::Codex,
+                "UserPromptSubmit",
+                Some("a1"),
+                false,
+                false,
+            ),
+            (Provider::Codex, "PostToolUse", Some("a1"), false, false),
+        ];
+        for (provider, event, agent, usage, title) in cases {
+            let mut i = input(json!({
+                "session_id": "s1", "hook_event_name": event,
+                "transcript_path": "/t.jsonl", "agent_id": agent
+            }));
+            i.provider = provider;
+            assert_eq!(
+                (i.wants_transcript_usage(), i.wants_codex_title()),
+                (usage, title),
+                "{provider:?} {event} {agent:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn codex_context_matches_the_tui_indicator() {
+        // (last total_tokens, model_context_window, 使用中の %)
+        let cases = [
+            (12_000, Some(272_000), Some(0.0)),
+            (5_000, Some(272_000), Some(0.0)),
+            (142_000, Some(272_000), Some(50.0)),
+            (70_000, Some(272_000), Some(22.0)),
+            (400_000, Some(272_000), Some(100.0)),
+            (100, Some(12_000), Some(100.0)),
+            (70_000, None, None),
+        ];
+        for (tokens, window, expected) in cases {
+            let usage = CodexTokenUsage {
+                last_total_tokens: tokens,
+                model_context_window: window,
+            };
+            let c = context_from_codex(&usage, 7);
+            assert_eq!(c.used_percentage, expected, "{tokens} / {window:?}");
+            assert_eq!(c.total_input_tokens, Some(tokens as u64));
+            assert_eq!(c.context_window_size, window.map(|w| w as u64));
+            assert_eq!(
+                (c.updated_at, c.source.as_deref()),
+                (7, Some("codex-rollout"))
+            );
+        }
     }
 
     #[test]

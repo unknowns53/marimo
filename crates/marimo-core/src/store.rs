@@ -8,11 +8,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::codex::RolloutTail;
 use crate::paths::MarimoHome;
 use crate::repo::repo_name;
 use crate::state::{
-    ContextUsage, HookInput, Origin, RateLimits, RateWindow, SessionState, Snapshot, Transition,
-    aggregate, clean_title, context_from_transcript, expire_agents, refresh_repo, transition,
+    CodexRateLimits, ContextUsage, HookInput, Origin, Provider, RateLimits, RateWindow,
+    SessionState, Snapshot, Transition, aggregate, clean_title, context_from_codex,
+    context_from_transcript, expire_agents, refresh_repo, transition,
 };
 use crate::time::{now_ms, rfc3339_utc, utc_date};
 use crate::transcript::TranscriptTail;
@@ -142,8 +144,12 @@ fn try_lock_file(path: &Path) -> Option<File> {
     }
 }
 
-pub fn read_session(home: &MarimoHome, session_id: &str) -> Option<SessionState> {
-    let path = home.session_file(session_id)?;
+pub fn read_session(
+    home: &MarimoHome,
+    provider: Provider,
+    session_id: &str,
+) -> Option<SessionState> {
+    let path = home.session_file(provider, session_id)?;
     let bytes = fs::read(path).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
@@ -153,14 +159,33 @@ pub fn read_session(home: &MarimoHome, session_id: &str) -> Option<SessionState>
 pub struct HookExtras {
     pub origin: Option<Origin>,
     pub transcript: Option<TranscriptTail>,
+    pub rollout: Option<RolloutTail>,
+    /// Codex の session_index.jsonl から読んだ題名。
+    pub title: Option<String>,
 }
 
 pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> io::Result<()> {
     let path = home
-        .session_file(&input.session_id)
+        .session_file(input.provider, &input.session_id)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "unusable session_id"))?;
+    let result = apply_session(home, &path, input, extras);
+    // 利用制限はアカウント全体の値なので、セッションの状態が変わらないイベントでも書く。
+    // write_codex_rate_limits が自分でロックを取るので、セッションのロックを放してから呼ぶ。
+    let limits = extras.rollout.as_ref().and_then(|r| r.rate_limits.as_ref());
+    match limits.map(|l| write_codex_rate_limits(home, l)) {
+        Some(Err(e)) if result.is_ok() => Err(e),
+        _ => result,
+    }
+}
+
+fn apply_session(
+    home: &MarimoHome,
+    path: &Path,
+    input: &HookInput,
+    extras: &HookExtras,
+) -> io::Result<()> {
     let _lock = lock_home(home);
-    let current = read_session(home, &input.session_id);
+    let current = read_session(home, input.provider, &input.session_id);
     match transition(input, current.as_ref(), now_ms()) {
         Transition::Write(mut next) => {
             let usage = extras.transcript.as_ref().and_then(|t| t.usage.as_ref());
@@ -172,7 +197,11 @@ pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> 
             {
                 next.context = Some(ctx);
             }
-            if let Some(title) = extras.transcript.as_ref().and_then(|t| t.title.clone()) {
+            if let Some(u) = extras.rollout.as_ref().and_then(|r| r.usage.as_ref()) {
+                next.context = Some(context_from_codex(u, now_ms()));
+            }
+            let title = extras.transcript.as_ref().and_then(|t| t.title.clone());
+            if let Some(title) = title.or_else(|| extras.title.clone()) {
                 next.title = Some(title);
             }
             // 調べ直すかどうかは保存済みの cwd で決まるので、ロックの内側で調べる。
@@ -180,9 +209,9 @@ pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> 
             refresh_repo(input, current.as_ref(), &mut next, |cwd| {
                 repo_name(Path::new(cwd))
             });
-            write_json_atomic(&path, &next)
+            write_json_atomic(path, &next)
         }
-        Transition::Delete => match fs::remove_file(&path) {
+        Transition::Delete => match fs::remove_file(path) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         },
@@ -212,7 +241,10 @@ pub fn apply_statusline(home: &MarimoHome, input: &Value) -> io::Result<()> {
         .and_then(clean_title);
     if let Some(id) = input.get("session_id").and_then(Value::as_str)
         && (context.is_some() || title.is_some())
-        && let (Some(path), Some(mut session)) = (home.session_file(id), read_session(home, id))
+        && let (Some(path), Some(mut session)) = (
+            home.session_file(Provider::Claude, id),
+            read_session(home, Provider::Claude, id),
+        )
     {
         if let Some(context) = context {
             session.context = Some(context);
@@ -271,6 +303,22 @@ pub fn read_rate_limits(home: &MarimoHome) -> Option<RateLimits> {
     serde_json::from_slice(&bytes).ok()
 }
 
+/// Codex のセッションはそれぞれ自分の rollout の末尾にある時点の利用制限を持つので、しばらく
+/// 動いていないセッションのフックが古い値を届けることがある。保存済みの値と同じか新しい時点の
+/// 値なら書かない。
+pub fn write_codex_rate_limits(home: &MarimoHome, limits: &CodexRateLimits) -> io::Result<()> {
+    let _lock = lock_home(home);
+    if read_codex_rate_limits(home).is_some_and(|stored| stored.observed_at >= limits.observed_at) {
+        return Ok(());
+    }
+    write_json_atomic(&home.codex_rate_limits_file(), limits)
+}
+
+pub fn read_codex_rate_limits(home: &MarimoHome) -> Option<CodexRateLimits> {
+    let bytes = fs::read(home.codex_rate_limits_file()).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 pub fn load_snapshot(home: &MarimoHome) -> Snapshot {
     let mut sessions: Vec<SessionState> = fs::read_dir(home.sessions_dir())
         .into_iter()
@@ -290,6 +338,7 @@ pub fn load_snapshot(home: &MarimoHome) -> Snapshot {
         aggregate: aggregate(sessions.iter().map(|s| s.status)),
         sessions,
         rate_limits: read_rate_limits(home),
+        codex_rate_limits: read_codex_rate_limits(home),
     }
 }
 
@@ -499,7 +548,10 @@ mod tests {
         assert_eq!(mode(home.root()), 0o700);
         assert_eq!(mode(&home.sessions_dir()), 0o700);
         assert_eq!(mode(&home.logs_dir()), 0o700);
-        assert_eq!(mode(&home.session_file("s1").unwrap()), 0o600);
+        assert_eq!(
+            mode(&home.session_file(Provider::Claude, "s1").unwrap()),
+            0o600
+        );
         assert_eq!(mode(&record_files(&home)[0]), 0o600);
 
         // 利用者がすでに用意していたフォルダの権限は変えない。
@@ -567,7 +619,7 @@ mod tests {
         });
         // フックがまだファイルを作っていないセッションは作らない。
         apply_statusline(&home, &status).unwrap();
-        assert!(read_session(&home, "s1").is_none());
+        assert!(read_session(&home, Provider::Claude, "s1").is_none());
         let rl = read_rate_limits(&home).unwrap();
         assert_eq!(rl.five_hour.unwrap().resets_at, Some(1738425600));
         assert_eq!(rl.seven_day.unwrap().used_percentage, 41.2);
@@ -577,10 +629,16 @@ mod tests {
             json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","prompt":"hi"}),
         );
         apply_statusline(&home, &status).unwrap();
-        let ctx = read_session(&home, "s1").unwrap().context.unwrap();
+        let ctx = read_session(&home, Provider::Claude, "s1")
+            .unwrap()
+            .context
+            .unwrap();
         assert_eq!(ctx.used_percentage, Some(8.0));
         assert_eq!(ctx.total_input_tokens, Some(15500));
-        assert_eq!(read_session(&home, "s1").unwrap().status, Status::Working);
+        assert_eq!(
+            read_session(&home, Provider::Claude, "s1").unwrap().status,
+            Status::Working
+        );
 
         // rate_limits を持たない入力は、前に保存した利用制限を消さない。
         apply_statusline(
@@ -603,7 +661,7 @@ mod tests {
         let (_d, home) = home();
         let named = json!({"session_id": "s1", "session_name": "  ウィジェットの改修  "});
         apply_statusline(&home, &named).unwrap();
-        assert!(read_session(&home, "s1").is_none());
+        assert!(read_session(&home, Provider::Claude, "s1").is_none());
 
         hook(
             &home,
@@ -611,13 +669,19 @@ mod tests {
         );
         apply_statusline(&home, &named).unwrap();
         assert_eq!(
-            read_session(&home, "s1").unwrap().title.as_deref(),
+            read_session(&home, Provider::Claude, "s1")
+                .unwrap()
+                .title
+                .as_deref(),
             Some("ウィジェットの改修")
         );
         apply_statusline(&home, &json!({"session_id": "s1", "session_name": ""})).unwrap();
         apply_statusline(&home, &json!({"session_id": "s1"})).unwrap();
         assert_eq!(
-            read_session(&home, "s1").unwrap().title.as_deref(),
+            read_session(&home, Provider::Claude, "s1")
+                .unwrap()
+                .title
+                .as_deref(),
             Some("ウィジェットの改修")
         );
 
@@ -631,15 +695,22 @@ mod tests {
                 usage: None,
                 title: title.map(str::to_owned),
             }),
+            ..HookExtras::default()
         };
         apply_hook(&home, &stop, &with_title(Some("デスクトップの題名"))).unwrap();
         assert_eq!(
-            read_session(&home, "s1").unwrap().title.as_deref(),
+            read_session(&home, Provider::Claude, "s1")
+                .unwrap()
+                .title
+                .as_deref(),
             Some("デスクトップの題名")
         );
         apply_hook(&home, &stop, &with_title(None)).unwrap();
         assert_eq!(
-            read_session(&home, "s1").unwrap().title.as_deref(),
+            read_session(&home, Provider::Claude, "s1")
+                .unwrap()
+                .title
+                .as_deref(),
             Some("デスクトップの題名")
         );
     }
@@ -657,7 +728,10 @@ mod tests {
 
         hook(&home, at(&repo.join("app")));
         assert_eq!(
-            read_session(&home, "s1").unwrap().repo.as_deref(),
+            read_session(&home, Provider::Claude, "s1")
+                .unwrap()
+                .repo
+                .as_deref(),
             Some("marimo")
         );
         hook(
@@ -665,11 +739,17 @@ mod tests {
             json!({"session_id":"s1","hook_event_name":"SubagentStart","agent_id":"a1","cwd":plain.to_str().unwrap()}),
         );
         assert_eq!(
-            read_session(&home, "s1").unwrap().repo.as_deref(),
+            read_session(&home, Provider::Claude, "s1")
+                .unwrap()
+                .repo
+                .as_deref(),
             Some("marimo")
         );
         hook(&home, at(&plain));
-        assert_eq!(read_session(&home, "s1").unwrap().repo, None);
+        assert_eq!(
+            read_session(&home, Provider::Claude, "s1").unwrap().repo,
+            None
+        );
     }
 
     #[test]
@@ -705,6 +785,94 @@ mod tests {
         assert_eq!(load_snapshot(&home).aggregate, Status::Waiting);
     }
 
+    fn codex_limits(observed_at: u64, used: f64) -> CodexRateLimits {
+        CodexRateLimits {
+            windows: vec![crate::state::CodexRateWindow {
+                window_minutes: Some(10080),
+                used_percentage: used,
+                resets_at: Some(1_800_000_000),
+            }],
+            plan_type: Some("plus".to_owned()),
+            observed_at,
+            updated_at: observed_at + 1,
+        }
+    }
+
+    #[test]
+    fn codex_sessions_live_beside_claude_sessions() {
+        let (_d, home) = home();
+        let codex = |v: Value, extras: &HookExtras| {
+            let mut input: HookInput = serde_json::from_value(v).unwrap();
+            input.provider = Provider::Codex;
+            apply_hook(&home, &input, extras).unwrap();
+        };
+        hook(
+            &home,
+            json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","cwd":"/w/a"}),
+        );
+        let extras = HookExtras {
+            rollout: Some(RolloutTail {
+                usage: Some(crate::state::CodexTokenUsage {
+                    last_total_tokens: 142_000,
+                    model_context_window: Some(272_000),
+                }),
+                rate_limits: Some(codex_limits(10, 5.0)),
+            }),
+            title: Some("Codex の題名".to_owned()),
+            ..HookExtras::default()
+        };
+        codex(
+            json!({"session_id":"s1","hook_event_name":"Stop","cwd":"/w/b","last_assistant_message":null}),
+            &extras,
+        );
+        assert!(home.sessions_dir().join("s1.json").exists());
+        assert!(home.sessions_dir().join("codex-s1.json").exists());
+        let c = read_session(&home, Provider::Codex, "s1").unwrap();
+        assert_eq!((c.provider, c.status), (Provider::Codex, Status::Done));
+        assert_eq!(c.title.as_deref(), Some("Codex の題名"));
+        let ctx = c.context.unwrap();
+        assert_eq!(ctx.used_percentage, Some(50.0));
+        assert_eq!(ctx.source.as_deref(), Some("codex-rollout"));
+        let claude = read_session(&home, Provider::Claude, "s1").unwrap();
+        assert_eq!(
+            (claude.provider, claude.status, claude.cwd.as_deref()),
+            (Provider::Claude, Status::Working, Some("/w/a"))
+        );
+
+        let snap = load_snapshot(&home);
+        let keys: Vec<_> = snap
+            .sessions
+            .iter()
+            .map(|s| (s.provider, s.session_id.as_str()))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![(Provider::Claude, "s1"), (Provider::Codex, "s1")]
+        );
+        assert_eq!(snap.codex_rate_limits, Some(codex_limits(10, 5.0)));
+        assert_eq!(snap.rate_limits, None);
+
+        codex(
+            json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"exit"}),
+            &HookExtras::default(),
+        );
+        assert!(read_session(&home, Provider::Codex, "s1").is_none());
+        assert!(read_session(&home, Provider::Claude, "s1").is_some());
+    }
+
+    #[test]
+    fn codex_rate_limits_keep_the_newest_observation() {
+        let (_d, home) = home();
+        assert_eq!(read_codex_rate_limits(&home), None);
+        write_codex_rate_limits(&home, &codex_limits(100, 10.0)).unwrap();
+        for stale in [codex_limits(50, 99.0), codex_limits(100, 99.0)] {
+            write_codex_rate_limits(&home, &stale).unwrap();
+            assert_eq!(read_codex_rate_limits(&home), Some(codex_limits(100, 10.0)));
+        }
+        write_codex_rate_limits(&home, &codex_limits(200, 20.0)).unwrap();
+        assert_eq!(read_codex_rate_limits(&home), Some(codex_limits(200, 20.0)));
+    }
+
     const HOUR_MS: u64 = 60 * 60 * 1000;
     const NOW_MS: u64 = 1_790_509_325_123;
 
@@ -717,12 +885,19 @@ mod tests {
             .unwrap();
     }
 
-    fn put_session(home: &MarimoHome, id: &str, updated_at: u64, mtime_ms: u64) {
+    fn put_session(
+        home: &MarimoHome,
+        provider: Provider,
+        id: &str,
+        updated_at: u64,
+        mtime_ms: u64,
+    ) {
         let session = SessionState {
             updated_at,
+            provider,
             ..SessionState::new(id)
         };
-        let path = home.session_file(id).unwrap();
+        let path = home.session_file(provider, id).unwrap();
         write_json_atomic(&path, &session).unwrap();
         set_mtime(&path, mtime_ms);
     }
@@ -742,8 +917,20 @@ mod tests {
 
         let dir = home.sessions_dir();
         // updated_at があれば mtime より優先する。
-        put_session(&home, "stale", NOW_MS - 25 * HOUR_MS, NOW_MS);
-        put_session(&home, "fresh", NOW_MS - 23 * HOUR_MS, NOW_MS - 48 * HOUR_MS);
+        put_session(
+            &home,
+            Provider::Claude,
+            "stale",
+            NOW_MS - 25 * HOUR_MS,
+            NOW_MS,
+        );
+        put_session(
+            &home,
+            Provider::Claude,
+            "fresh",
+            NOW_MS - 23 * HOUR_MS,
+            NOW_MS - 48 * HOUR_MS,
+        );
         // 読めないファイルと updated_at が 0 のファイルは mtime で判定する。
         put_file(
             &dir.join("broken-old.json"),
@@ -751,20 +938,37 @@ mod tests {
             NOW_MS - 25 * HOUR_MS,
         );
         put_file(&dir.join("broken-new.json"), b"not json", NOW_MS - HOUR_MS);
-        put_session(&home, "zero-old", 0, NOW_MS - 25 * HOUR_MS);
-        put_session(&home, "zero-new", 0, NOW_MS - HOUR_MS);
+        put_session(
+            &home,
+            Provider::Claude,
+            "zero-old",
+            0,
+            NOW_MS - 25 * HOUR_MS,
+        );
+        put_session(&home, Provider::Claude, "zero-new", 0, NOW_MS - HOUR_MS);
         put_file(&dir.join(".a.json.1.2.tmp"), b"{", NOW_MS - 25 * HOUR_MS);
         put_file(&dir.join(".b.json.1.3.tmp"), b"{", NOW_MS - HOUR_MS);
         put_file(&dir.join("notes.txt"), b"x", NOW_MS - 48 * HOUR_MS);
+        // Codex のセッションは同じ session_id の Claude Code のセッションと別に判定する。
+        put_session(&home, Provider::Codex, "stale", NOW_MS - HOUR_MS, NOW_MS);
+        put_session(
+            &home,
+            Provider::Codex,
+            "fresh",
+            NOW_MS - 25 * HOUR_MS,
+            NOW_MS,
+        );
 
         let removed = prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
-        assert_eq!(removed, 4);
-        assert!(read_session(&home, "stale").is_none());
-        assert!(read_session(&home, "fresh").is_some());
+        assert_eq!(removed, 5);
+        assert!(read_session(&home, Provider::Codex, "stale").is_some());
+        assert!(read_session(&home, Provider::Codex, "fresh").is_none());
+        assert!(read_session(&home, Provider::Claude, "stale").is_none());
+        assert!(read_session(&home, Provider::Claude, "fresh").is_some());
         assert!(!dir.join("broken-old.json").exists());
         assert!(dir.join("broken-new.json").exists());
-        assert!(read_session(&home, "zero-old").is_none());
-        assert!(read_session(&home, "zero-new").is_some());
+        assert!(read_session(&home, Provider::Claude, "zero-old").is_none());
+        assert!(read_session(&home, Provider::Claude, "zero-new").is_some());
         assert!(!dir.join(".a.json.1.2.tmp").exists());
         assert!(dir.join(".b.json.1.3.tmp").exists());
         assert!(dir.join("notes.txt").exists());
@@ -775,7 +979,9 @@ mod tests {
             json!({"session_id":"stale","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}),
         );
         assert_eq!(
-            read_session(&home, "stale").unwrap().status,
+            read_session(&home, Provider::Claude, "stale")
+                .unwrap()
+                .status,
             Status::Working
         );
     }
@@ -791,7 +997,7 @@ mod tests {
             &home,
             json!({"session_id":"s1","hook_event_name":"Stop","last_assistant_message":"ok"}),
         );
-        let before = read_session(&home, "s1").unwrap();
+        let before = read_session(&home, Provider::Claude, "s1").unwrap();
         assert_eq!(before.status, Status::Working);
 
         let soon = before.updated_at + 60_000;
@@ -799,14 +1005,14 @@ mod tests {
             prune_stale_sessions(&home, soon, STALE_SESSION_AGE).unwrap(),
             0
         );
-        assert_eq!(read_session(&home, "s1").unwrap(), before);
+        assert_eq!(read_session(&home, Provider::Claude, "s1").unwrap(), before);
 
         let later = before.updated_at + crate::state::AGENT_STALE_MS + 60_000;
         assert_eq!(
             prune_stale_sessions(&home, later, STALE_SESSION_AGE).unwrap(),
             0
         );
-        let after = read_session(&home, "s1").unwrap();
+        let after = read_session(&home, Provider::Claude, "s1").unwrap();
         assert_eq!((after.status, after.agents.len()), (Status::Done, 0));
         assert_eq!(after.updated_at, before.updated_at);
     }

@@ -81,7 +81,9 @@ pub fn deserialize_compat<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Acti
 }
 
 /// `tool_input` の項目名は https://code.claude.com/docs/en/hooks の PreToolUse input にある、
-/// ツールごとの表に従う。
+/// ツールごとの表に従う。Codex はシェルのコマンドを Bash、ファイルの編集を apply_patch、MCP のツールを
+/// mcp__<server>__<tool> の名前で送り（codex-rs/core/src/tools/hook_names.rs と handlers/mcp.rs）、
+/// ほかの関数のツールは引数の JSON をそのまま送る（codex-rs/core/src/tools/registry.rs）。
 pub fn tool_activity(tool_name: &str, tool_input: Option<&Value>, cwd: Option<&str>) -> Activity {
     let get = |key: &str| {
         tool_input
@@ -157,7 +159,38 @@ pub fn tool_activity(tool_name: &str, tool_input: Option<&Value>, cwd: Option<&s
             };
             Activity::tool(name, summary, get("subagent_type").map(str::to_owned))
         }
-        "AskUserQuestion" => {
+        // Codex の apply_patch は tool_input の command にパッチの全文を入れる
+        // （codex-rs/core/src/tools/handlers/apply_patch.rs の pre_tool_use_payload）。
+        "apply_patch" => {
+            let files = get("command").map(patch_files).unwrap_or_default();
+            let summary = match files.as_slice() {
+                [] => "編集".to_owned(),
+                [one] => format!("編集: {}", rel(one)),
+                [first, rest @ ..] => format!("編集: {} ほか {} 件", rel(first), rest.len()),
+            };
+            Activity::tool(name, summary, (!files.is_empty()).then(|| files.join("\n")))
+        }
+        // 引数は codex-rs/core/src/tools/handlers/multi_agents/spawn.rs と multi_agents_v2/spawn.rs の
+        // SpawnAgentArgs に従う。task_name は v2 にだけある。
+        "spawn_agent" => {
+            let summary = match get("task_name").or(get("agent_type")) {
+                Some(t) => format!("サブエージェント: {t}"),
+                None => "サブエージェント".to_owned(),
+            };
+            Activity::tool(name, summary, get("message").map(str::to_owned))
+        }
+        // 引数は codex-rs/core/src/tools/handlers/view_image.rs の ViewImageArgs に従う。
+        "view_image" => {
+            let path = get("path");
+            let summary = match path {
+                Some(p) => format!("画像: {}", rel(p)),
+                None => "画像".to_owned(),
+            };
+            Activity::tool(name, summary, path.map(str::to_owned))
+        }
+        // request_user_input は Codex の質問のツールで、questions の各要素が question と、label を持つ
+        // options を持つ（codex-rs/protocol/src/request_user_input.rs）。
+        "AskUserQuestion" | "request_user_input" => {
             let first = tool_input.and_then(|v| v.pointer("/questions/0"));
             let summary = match first
                 .and_then(|q| q.get("question"))
@@ -194,6 +227,25 @@ pub fn tool_activity(tool_name: &str, tool_input: Option<&Value>, cwd: Option<&s
             Activity::tool(name, summary, compact_args(tool_input))
         }
     }
+}
+
+// パッチの書式は Codex がモデルに示す説明（codex-rs/core/gpt_5_2_prompt.md）にある
+// `*** Add File: <path>`、`*** Delete File: <path>`、`*** Update File: <path>` の行で、対象のファイルを表す。
+fn patch_files(patch: &str) -> Vec<String> {
+    let mut files: Vec<String> = Vec::new();
+    for line in patch.lines() {
+        let path = ["*** Add File: ", "*** Delete File: ", "*** Update File: "]
+            .iter()
+            .find_map(|p| line.strip_prefix(p))
+            .map(str::trim)
+            .filter(|p| !p.is_empty());
+        if let Some(p) = path
+            && !files.iter().any(|f| f == p)
+        {
+            files.push(p.to_owned());
+        }
+    }
+    files
 }
 
 // MCP のツール名は mcp__<server>__<tool> の形になる（hooks のドキュメントの Match MCP tools）。
@@ -357,7 +409,44 @@ mod tests {
                 "質問: Which?",
                 Some("A / B"),
             ),
+            (
+                "request_user_input",
+                json!({"questions": [{"id": "q", "header": "h", "question": "Which?", "options": [{"label": "A", "description": "a"}]}]}),
+                "質問: Which?",
+                Some("A"),
+            ),
             ("ExitPlanMode", json!({}), "計画の承認を依頼", None),
+            (
+                "apply_patch",
+                json!({"command": "*** Begin Patch\n*** Update File: src/a.rs\n@@\n-x\n+y\n*** End Patch\n"}),
+                "編集: src/a.rs",
+                Some("src/a.rs"),
+            ),
+            (
+                "apply_patch",
+                json!({"command": "*** Begin Patch\n*** Add File: /w/proj/new.txt\n+hi\n*** Delete File: old.txt\n*** Update File: /w/proj/new.txt\n*** End Patch"}),
+                "編集: new.txt ほか 1 件",
+                Some("/w/proj/new.txt\nold.txt"),
+            ),
+            ("apply_patch", json!({"command": "garbage"}), "編集", None),
+            (
+                "spawn_agent",
+                json!({"message": "Look into the tests", "task_name": "tests", "agent_type": "explorer"}),
+                "サブエージェント: tests",
+                Some("Look into the tests"),
+            ),
+            (
+                "spawn_agent",
+                json!({"message": "m", "agent_type": "worker"}),
+                "サブエージェント: worker",
+                Some("m"),
+            ),
+            (
+                "view_image",
+                json!({"path": "/w/proj/shot.png"}),
+                "画像: shot.png",
+                Some("/w/proj/shot.png"),
+            ),
             (
                 "mcp__claude-in-chrome__navigate_page",
                 json!({"url": "https://example.com"}),

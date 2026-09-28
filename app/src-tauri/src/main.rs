@@ -87,7 +87,9 @@ fn set_acknowledged(state: State<'_, AppState>, keys: Vec<String>) -> Result<(),
 
 #[tauri::command]
 fn focus_session(state: State<'_, AppState>, session_id: String) {
-    if let Some(session) = store::read_session(&state.home, &session_id) {
+    if let Some(session) =
+        store::read_session(&state.home, marimo_core::Provider::Claude, &session_id)
+    {
         focus::run(focus::plan(&session));
     }
 }

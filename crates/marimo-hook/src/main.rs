@@ -4,15 +4,19 @@ use std::panic::{self, AssertUnwindSafe};
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::thread;
 
-use marimo_core::{HookInput, MarimoHome, store, transcript};
+use marimo_core::time::now_ms;
+use marimo_core::{HookInput, MarimoHome, Provider, codex, store, transcript};
 
 mod install;
 mod origin;
 mod settings_edit;
 
-// hook、statusline、record は、marimo の内部で何が失敗しても終了コード 0 で抜ける。
+// hook、codex-hook、statusline、record は、marimo の内部で何が失敗しても終了コード 0 で抜ける。
 // フックの終了コードと stdout は Claude Code に読まれ、終了コード 2 は操作を止め、
 // UserPromptSubmit や SessionStart の stdout は Claude の文脈に加わるためである。
+// Codex も同じで、終了コード 0 で stdout が空なら、PermissionRequest では判断を示さず通常の承認へ進み、
+// PreToolUse、UserPromptSubmit、Stop では何も止めない（codex-rs/hooks/src/events の
+// permission_request.rs、pre_tool_use.rs、user_prompt_submit.rs、stop.rs の parse_completed）。
 // install と uninstall は利用者が端末で実行するので、失敗は非 0 と stderr で知らせる。
 fn main() -> ExitCode {
     // 既定の panic メッセージは stderr に出るだけで害はないが、Claude Code の
@@ -38,7 +42,11 @@ fn run(args: &[OsString]) -> ExitCode {
     let rest = args.get(1..).unwrap_or(&[]);
     match sub {
         "hook" => {
-            report(hook());
+            report(hook(Provider::Claude));
+            ExitCode::SUCCESS
+        }
+        "codex-hook" => {
+            report(hook(Provider::Codex));
             ExitCode::SUCCESS
         }
         "statusline" => statusline(rest),
@@ -84,16 +92,27 @@ fn home() -> Result<MarimoHome, String> {
     MarimoHome::resolve().ok_or_else(|| "cannot resolve marimo home".to_owned())
 }
 
-fn hook() -> Result<(), String> {
+fn hook(provider: Provider) -> Result<(), String> {
     let input = read_stdin();
-    let parsed: HookInput =
+    let mut parsed: HookInput =
         serde_json::from_slice(&input).map_err(|e| format!("invalid hook input: {e}"))?;
+    parsed.provider = provider;
     // 会話ログが読めなくても、状態の更新は続ける。
-    let transcript = parsed
+    let log = parsed
         .transcript_path
         .as_deref()
         .filter(|_| parsed.wants_transcript_usage())
-        .and_then(|p| transcript::read_tail(std::path::Path::new(p)).ok());
+        .map(std::path::Path::new);
+    let (transcript, rollout) = match provider {
+        Provider::Claude => (log.and_then(|p| transcript::read_tail(p).ok()), None),
+        Provider::Codex => (
+            None,
+            log.and_then(|p| codex::read_rollout_tail(p, now_ms()).ok()),
+        ),
+    };
+    let title = codex::codex_home()
+        .filter(|_| parsed.wants_codex_title())
+        .and_then(|home| codex::thread_name(&home, &parsed.session_id));
     // サブエージェントのフックで親の行を書くのは承認待ちの出入りだけなので、起動元の手がかりは
     // 親の会話のフックからだけ取る。
     let extras = store::HookExtras {
@@ -102,6 +121,8 @@ fn hook() -> Result<(), String> {
             .is_none()
             .then(|| origin::detect(&parsed.hook_event_name)),
         transcript,
+        rollout,
+        title,
     };
     store::apply_hook(&home()?, &parsed, &extras).map_err(|e| format!("write failed: {e}"))
 }

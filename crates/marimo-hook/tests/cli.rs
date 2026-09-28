@@ -12,6 +12,8 @@ fn run_with_env(home: &Path, args: &[&str], stdin: &[u8], envs: &[(&str, &str)])
     let mut child = Command::new(env!("CARGO_BIN_EXE_marimo-hook"))
         .args(args)
         .env("MARIMO_HOME", home)
+        // 利用者の本物の Codex のフォルダを読まないよう、存在しない場所を指しておく。
+        .env("CODEX_HOME", home.join("no-codex-home"))
         .env_remove("TERM_PROGRAM")
         .env_remove("__CFBundleIdentifier")
         .envs(envs.iter().copied())
@@ -127,6 +129,97 @@ fn post_tool_use_reads_context_tokens_from_transcript() {
 }
 
 #[test]
+fn codex_hook_tracks_state_context_title_and_rate_limits() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let codex_home = dir.path().join("codex");
+    std::fs::create_dir_all(&codex_home).unwrap();
+    let index = [
+        json!({"id": "t1", "thread_name": "古い名前", "updated_at": "2026-09-27T00:00:00Z"}),
+        json!({"id": "t1", "thread_name": "テストの会話", "updated_at": "2026-09-27T00:01:00Z"}),
+    ]
+    .map(|v| format!("{v}\n"))
+    .concat();
+    std::fs::write(codex_home.join("session_index.jsonl"), index).unwrap();
+    let rollout = dir.path().join("rollout.jsonl");
+    let token_count = json!({
+        "timestamp": "2026-09-27T00:02:00.000Z", "type": "event_msg",
+        "payload": {"type": "token_count",
+            "info": {"last_token_usage": {"total_tokens": 142_000}, "total_token_usage": {"total_tokens": 900_000},
+                     "model_context_window": 272_000},
+            "rate_limits": {"primary": {"used_percent": 12.5, "window_minutes": 10080, "resets_at": 1_800_000_000},
+                            "secondary": null, "plan_type": "plus"}}
+    });
+    std::fs::write(&rollout, format!("{token_count}\n")).unwrap();
+    let envs = [("CODEX_HOME", codex_home.to_str().unwrap())];
+    let send = |v: Value| {
+        let out = run_with_env(&home, &["codex-hook"], v.to_string().as_bytes(), &envs);
+        assert!(out.status.success() && out.stdout.is_empty(), "{v}");
+    };
+    let common =
+        json!({"session_id": "t1", "cwd": "/w/p", "transcript_path": rollout, "model": "gpt-5.5"});
+    let event = |name: &str, extra: Value| {
+        let mut v = common.clone();
+        v["hook_event_name"] = json!(name);
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        v
+    };
+    let codex_session = || session(&home, "codex-t1").unwrap();
+
+    send(event(
+        "SessionStart",
+        json!({"source": "startup", "permission_mode": "default"}),
+    ));
+    let s = codex_session();
+    assert_eq!(
+        (&s["provider"], &s["status"]),
+        (&json!("codex"), &json!("idle"))
+    );
+    assert_eq!(s["title"], "テストの会話");
+    assert_eq!(s["context"]["used_percentage"], 50.0);
+    assert_eq!(s["context"]["source"], "codex-rollout");
+    assert!(session(&home, "t1").is_none());
+    let limits: Value =
+        serde_json::from_slice(&std::fs::read(home.join("codex_rate_limits.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        limits["windows"],
+        json!([{"window_minutes": 10080, "used_percentage": 12.5, "resets_at": 1_800_000_000}])
+    );
+    assert_eq!(limits["plan_type"], "plus");
+
+    send(event(
+        "UserPromptSubmit",
+        json!({"turn_id": "u1", "prompt": "hi"}),
+    ));
+    send(event(
+        "PreToolUse",
+        json!({"turn_id": "u1", "tool_name": "apply_patch", "tool_use_id": "c1",
+        "tool_input": {"command": "*** Begin Patch\n*** Update File: src/main.rs\n*** End Patch\n"}}),
+    ));
+    let s = codex_session();
+    assert_eq!(
+        (&s["status"], &s["activity"]["summary"]),
+        (&json!("working"), &json!("編集: src/main.rs"))
+    );
+    send(event(
+        "PermissionRequest",
+        json!({"turn_id": "u1", "tool_name": "Bash",
+        "tool_input": {"command": "rm -rf target"}}),
+    ));
+    assert_eq!(codex_session()["status"], "waiting");
+    send(event("Interrupt", json!({"turn_id": "u1"})));
+    assert_eq!(codex_session()["status"], "idle");
+    send(
+        json!({"session_id": "t1", "hook_event_name": "SessionEnd", "cwd": "/w/p",
+        "transcript_path": null, "reason": "exit"}),
+    );
+    assert!(session(&home, "codex-t1").is_none());
+}
+
+#[test]
 fn broken_input_exits_zero_with_empty_stdout() {
     let dir = tempfile::tempdir().unwrap();
     let inputs: [&[u8]; 5] = [
@@ -139,6 +232,7 @@ fn broken_input_exits_zero_with_empty_stdout() {
     for input in inputs {
         for args in [
             &["hook"][..],
+            &["codex-hook"][..],
             &["statusline"][..],
             &["record", "x"][..],
             &["nope"][..],
