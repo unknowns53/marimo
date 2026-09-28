@@ -152,3 +152,9 @@ Clawd の素材は、`tools/character/clawd.py` がドット絵を描いて作�
 ```bash
 .venv/bin/python tools/tray_icon.py
 ```
+
+アプリのアイコンは、`tools/app_icon.py` が水槽の中の顔のあるまりもを描きます。毛並みは乱数で置いた短い線を数万本重ねて描き、乱数の種を固定しているので、何度実行しても同じ画像になります。実行すると `app/src-tauri/icons/` へ `icon.icns`、`icon.ico`、`icon.png`、`32x32.png`、`128x128.png`、`128x128@2x.png` を書き出します。macOS 用の `icon.icns` は、1024×1024 ピクセルの画像の中央 824 ピクセルに角の丸い板を描いて周りを透明にし、Dock に並ぶ他のアプリと大きさを揃えます。Windows と Linux 用の残りのファイルは、同じ絵から板だけを切り出して画像いっぱいに描きます。こちらも描き直したらアプリをビルドし直します。
+
+```bash
+.venv/bin/python tools/app_icon.py
+```
