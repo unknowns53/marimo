@@ -1,0 +1,53 @@
+{
+  "waiting.permission": [
+    "{folder}、これ実行していいか確認まってるよ！",
+    "{folder} が許可まち！ 中身をチェックしてね。",
+    "{folder}、ここから先はOKがほしいって！"
+  ],
+  "waiting.question": [
+    "{folder} から質問きてるよ！",
+    "{folder}、どっちにするか選んでほしいって！",
+    "{folder} が答えをまってるよ！"
+  ],
+  "waiting.plan": [
+    "{folder} の計画ができたよ！ 見てみて！",
+    "{folder}、この計画で進めていいか聞いてるよ！"
+  ],
+  "waiting": [
+    "{folder}、確認まってるよ！",
+    "{folder} がちょっと手を借りたいって！"
+  ],
+  "done.short": [
+    "{folder}、できた！",
+    "{folder} から返事きたよ！",
+    "{folder}、ひと区切り！"
+  ],
+  "done": [
+    "{folder}、終わったよ！ 見てみて！",
+    "{folder} の作業、ひと段落！",
+    "{folder} から返事きてるよ！ チェックしてね！"
+  ],
+  "done.long": [
+    "{folder}、{duration}かかったけど終わったよ！ おつかれ！",
+    "長かったね！ {folder}、やっと終わったよ！",
+    "{folder}、{duration}がんばって、ひと段落！"
+  ],
+  "error.rate_limit": [
+    "{folder}、利用制限にひっかかっちゃった！",
+    "{folder} が止まっちゃった。制限が戻るまでひと休みしよ！"
+  ],
+  "error": [
+    "あれっ、{folder} で何か止まっちゃった！",
+    "{folder} でエラーが出てるよ！ 見てあげて！",
+    "{folder}、うまく進めなかったみたい…"
+  ],
+  "reaction": [
+    "なになに？",
+    "よんだ？",
+    "ちゃんと見てるよ！"
+  ],
+  "reaction.working": [
+    "いま {folder} ががんばってるとこ！",
+    "{folder}、順調に進んでるよ！"
+  ]
+}

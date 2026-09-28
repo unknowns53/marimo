@@ -11,6 +11,8 @@
   --error: #f87171;
   /* 立ち絵の表示倍率。Rust の set_scale が返した値を main.ts が入れる。 */
   --scale: 1;
+  /* 立ち絵の枠の縦横比（高さ ÷ 幅）。選んだキャラクターの素材の比を main.ts が入れる。 */
+  --stage-aspect: 1.5;
 }
 
 html,
@@ -40,7 +42,7 @@ body {
   right: 8px;
   bottom: 8px;
   width: calc(180px * var(--scale));
-  height: calc(270px * var(--scale));
+  height: calc(180px * var(--stage-aspect) * var(--scale));
 }
 
 .character {
@@ -63,9 +65,18 @@ body {
   display: none;
 }
 
+#stage.pixelated .character img {
+  image-rendering: pixelated;
+}
+
 /* 画像を増やさずに呼吸を表す。下端を支点にして縦へ 1% だけ伸ばす。 */
 .breathing {
   animation: breathe 4s ease-in-out infinite;
+}
+
+/* ドット絵を 1% だけ伸ばすと、画素の行が倍率によって現れたり消えたりしてちらつくので、呼吸は付けない。 */
+#stage.pixelated .breathing {
+  animation: none;
 }
 
 @keyframes breathe {
@@ -80,7 +91,8 @@ body {
 
 #bubble {
   position: absolute;
-  bottom: calc(100% + 2px);
+  /* 隙間の 2px は main.ts の BUBBLE_GAP_PX と揃える。--bubble-lift はパネルを避けるときに main.ts が入れる。 */
+  bottom: calc(100% + 2px + var(--bubble-lift, 0px));
   right: 0;
   z-index: 2;
   width: max-content;

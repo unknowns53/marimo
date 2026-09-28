@@ -12,7 +12,7 @@ mod usage;
 mod watch;
 mod window_pos;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use marimo_core::{MarimoHome, Provider, Snapshot, store};
 use serde_json::Value;
@@ -23,6 +23,22 @@ struct AppState {
     hits: Arc<hit::HitState>,
     usage: usage::Poller,
     icons: OnceLock<icons::AppIcons>,
+    // 立ち絵の縦横比は選んだキャラクターの manifest にあり、読むのはフロントエンドなので、
+    // 知らされるまでは既定のキャラクターの比で窓を開く。
+    aspect: Mutex<f64>,
+}
+
+impl AppState {
+    fn aspect(&self) -> f64 {
+        *self.aspect.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+fn resize(window: &WebviewWindow, scale: f64, aspect: f64) {
+    let (w, h) = scale::window_size(scale, aspect);
+    if let Err(e) = window_pos::resize_keeping_bottom_right(window, LogicalSize::new(w, h)) {
+        eprintln!("marimo: cannot resize window: {e}");
+    }
 }
 
 #[tauri::command]
@@ -45,10 +61,7 @@ fn get_scale(state: State<'_, AppState>) -> f64 {
 #[tauri::command]
 fn set_scale(window: WebviewWindow, state: State<'_, AppState>, scale: f64) -> f64 {
     let scale = scale::clamp(scale);
-    let (w, h) = scale::window_size(scale);
-    if let Err(e) = window_pos::resize_keeping_bottom_right(&window, LogicalSize::new(w, h)) {
-        eprintln!("marimo: cannot resize window: {e}");
-    }
+    resize(&window, scale, state.aspect());
     if let Err(e) = scale::save(&state.home, scale) {
         eprintln!("marimo: cannot save scale: {e}");
     }
@@ -63,6 +76,23 @@ fn get_panel_mode(state: State<'_, AppState>) -> Option<String> {
 #[tauri::command]
 fn set_panel_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
     scale::save_panel_mode(&state.home, &mode).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_character(state: State<'_, AppState>) -> String {
+    scale::load_character(&state.home)
+}
+
+#[tauri::command]
+fn set_character(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    scale::save_character(&state.home, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_stage_aspect(window: WebviewWindow, state: State<'_, AppState>, aspect: f64) {
+    let aspect = scale::clamp_aspect(aspect);
+    *state.aspect.lock().unwrap_or_else(|e| e.into_inner()) = aspect;
+    resize(&window, scale::load(&state.home), aspect);
 }
 
 #[tauri::command]
@@ -141,6 +171,7 @@ fn main() {
             hits: hits.clone(),
             usage: usage.clone(),
             icons: OnceLock::new(),
+            aspect: Mutex::new(scale::DEFAULT_ASPECT),
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -149,6 +180,9 @@ fn main() {
             set_scale,
             get_panel_mode,
             set_panel_mode,
+            get_character,
+            set_character,
+            set_stage_aspect,
             get_usage_api,
             set_usage_api,
             get_acknowledged,
@@ -167,7 +201,7 @@ fn main() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window is declared in tauri.conf.json");
-            let (w, h) = scale::window_size(scale::load(&home));
+            let (w, h) = scale::window_size(scale::load(&home), scale::DEFAULT_ASPECT);
             window_pos::restore(&window, &home, LogicalSize::new(w, h));
             window.show()?;
             window_pos::track(&window, home.clone());

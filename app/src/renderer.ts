@@ -29,6 +29,8 @@ export interface CharacterRenderer {
 export interface SpriteManifest {
   mode: "sprite";
   name?: string;
+  display_name?: string;
+  pixelated?: boolean;
   sheet: string;
   columns: number;
   frame: { width: number; height: number };

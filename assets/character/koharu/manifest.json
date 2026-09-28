@@ -1,0 +1,175 @@
+{
+  "mode": "standing",
+  "name": "koharu",
+  "display_name": "小春",
+  "canvas": {
+    "width": 800,
+    "height": 1200
+  },
+  "expressions": {
+    "idle": {
+      "image": "idle.png",
+      "blink": "idle_blink.png"
+    },
+    "working": {
+      "image": "working.png",
+      "blink": "working_blink.png"
+    },
+    "working_focus": {
+      "image": "working_focus.png",
+      "blink": "working_focus_blink.png"
+    },
+    "working_curious": {
+      "image": "working_curious.png",
+      "blink": "working_curious_blink.png"
+    },
+    "working_read": {
+      "image": "working_read.png",
+      "blink": "working_read_blink.png"
+    },
+    "working_think": {
+      "image": "working_think.png",
+      "blink": "working_think_blink.png"
+    },
+    "working_delegate": {
+      "image": "working_delegate.png",
+      "blink": "working_delegate_blink.png"
+    },
+    "waiting": {
+      "image": "waiting.png"
+    },
+    "done": {
+      "image": "done.png"
+    },
+    "error": {
+      "image": "error.png"
+    },
+    "idle_look_away": {
+      "image": "idle_look_away.png"
+    },
+    "idle_hair": {
+      "image": "idle_hair.png"
+    },
+    "idle_yawn": {
+      "image": "idle_yawn.png"
+    },
+    "idle_tea": {
+      "image": "idle_tea.png"
+    },
+    "idle_chin": {
+      "image": "idle_chin.png"
+    },
+    "idle_stretch": {
+      "image": "idle_stretch.png"
+    },
+    "react_shy": {
+      "image": "react_shy.png"
+    }
+  },
+  "rules": {
+    "status": {
+      "idle": "idle",
+      "working": "working",
+      "waiting": "waiting",
+      "done": "done",
+      "error": "error"
+    },
+    "working_tools": [
+      {
+        "tools": [
+          "Bash",
+          "PowerShell",
+          "Edit",
+          "Write",
+          "NotebookEdit",
+          "apply_patch"
+        ],
+        "expression": "working_focus"
+      },
+      {
+        "tools": [
+          "Read",
+          "Grep",
+          "Glob"
+        ],
+        "expression": "working_read"
+      },
+      {
+        "tools": [
+          "WebSearch",
+          "WebFetch"
+        ],
+        "expression": "working_curious"
+      },
+      {
+        "tools": [
+          "Agent",
+          "Task",
+          "spawn_agent"
+        ],
+        "expression": "working_delegate",
+        "max_ms": 30000
+      }
+    ],
+    "working_no_tool": "working_think",
+    "min_switch_ms": 4000,
+    "idle_gestures": {
+      "interval_ms": [
+        20000,
+        60000
+      ],
+      "gestures": [
+        {
+          "expression": "idle_look_away",
+          "duration_ms": [
+            3000,
+            5000
+          ]
+        },
+        {
+          "expression": "idle_hair",
+          "duration_ms": [
+            3000,
+            5000
+          ]
+        },
+        {
+          "expression": "idle_yawn",
+          "duration_ms": [
+            3000,
+            5000
+          ]
+        },
+        {
+          "expression": "idle_tea",
+          "duration_ms": [
+            3000,
+            5000
+          ]
+        },
+        {
+          "expression": "idle_chin",
+          "duration_ms": [
+            3000,
+            5000
+          ]
+        },
+        {
+          "expression": "idle_stretch",
+          "duration_ms": [
+            3000,
+            5000
+          ]
+        }
+      ]
+    },
+    "reaction": {
+      "expression": "react_shy",
+      "duration_ms": 2500
+    },
+    "hover": {
+      "working": "idle"
+    },
+    "hover_release_ms": 600
+  }
+}

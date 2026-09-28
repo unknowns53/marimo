@@ -19,10 +19,9 @@ export interface HitRegions {
   mask: (Rect & HitMask) | null;
 }
 
-// 素材 800×1200 を 40×60 に縮めると、1 マスは倍率 1.0 で 4.5 px 四方になる。指先ほどの精度があれば
-// 足り、Rust 側へ送る量と判定の手間も小さく済む。
+// 素材を横 40 マスに縮めると、1 マスは倍率 1.0 で 4.5 px 四方になる。指先ほどの精度があれば
+// 足り、Rust 側へ送る量と判定の手間も小さく済む。縦のマス数は素材の縦横比から決め、マスを正方形に保つ。
 export const MASK_COLS = 40;
-export const MASK_ROWS = 60;
 // 縮小した画素のアルファがこれを超えるマスを不透明とみなす。髪の毛先のような薄い縁は拾わない。
 const ALPHA_THRESHOLD = 24;
 
@@ -48,16 +47,18 @@ export function dilate(solid: boolean[], cols: number, rows: number): boolean[] 
 }
 
 export function maskFromImage(img: HTMLImageElement): HitMask | null {
+  if (!img.naturalWidth) return null;
+  const rows = Math.max(1, Math.round((MASK_COLS * img.naturalHeight) / img.naturalWidth));
   const canvas = document.createElement("canvas");
   canvas.width = MASK_COLS;
-  canvas.height = MASK_ROWS;
+  canvas.height = rows;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx || !img.naturalWidth) return null;
-  ctx.drawImage(img, 0, 0, MASK_COLS, MASK_ROWS);
-  const data = ctx.getImageData(0, 0, MASK_COLS, MASK_ROWS).data;
-  const alpha = new Uint8Array(MASK_COLS * MASK_ROWS);
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0, MASK_COLS, rows);
+  const data = ctx.getImageData(0, 0, MASK_COLS, rows).data;
+  const alpha = new Uint8Array(MASK_COLS * rows);
   for (let i = 0; i < alpha.length; i++) alpha[i] = data[i * 4 + 3];
-  return maskFromAlpha(alpha, MASK_COLS, MASK_ROWS);
+  return maskFromAlpha(alpha, MASK_COLS, rows);
 }
 
 export function rectOf(el: Element | null): Rect | null {
