@@ -422,6 +422,9 @@ pub struct HookInput {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub agent_type: Option<String>,
+    /// 形の分からない項目が混ざっても入力全体を捨てないよう、中身は使う時に読む。
+    #[serde(default)]
+    pub background_tasks: Option<Value>,
 }
 
 impl HookInput {
@@ -430,6 +433,20 @@ impl HookInput {
     /// agent_type は `--agent` で起動した親の会話にも入るので、見分けには使わない。
     pub fn subagent(&self) -> Option<&str> {
         self.agent_id.as_deref().filter(|a| !a.is_empty())
+    }
+
+    /// 親の会話の Stop の background_tasks から、ターンの後も動き続けるサブエージェントの ID を返す。
+    /// hooks のドキュメントの Stop input によると、この配列は裏で動いている作業の一覧で、サブエージェントは
+    /// type が subagent、エージェントチームの仲間は teammate として載る。配列が無ければ None を返す。
+    pub fn running_agents(&self) -> Option<Vec<&str>> {
+        let tasks = self.background_tasks.as_ref()?.as_array()?;
+        Some(
+            tasks
+                .iter()
+                .filter(|t| matches!(t["type"].as_str(), Some("subagent" | "teammate")))
+                .filter_map(|t| t["id"].as_str())
+                .collect(),
+        )
     }
 
     /// Codex の会話の題名を session_index.jsonl から取り直す契機。題名は利用者が付け直すか、
@@ -648,6 +665,18 @@ fn main_update(
         "SessionStart" if input.source.as_deref() != Some("compact") => {
             next.turn_started_at = None;
             next.agents.clear();
+        }
+        // 前景のサブエージェントを利用者が止めると SubagentStop が届かないが、前景のものは親のターンが
+        // 終わる前に必ず終わる。そこでターンの終わりに裏で動いている一覧に無いものを外す。一覧の ID が
+        // agent_id と同じ値だとは文書に書かれていないので、一つも一致しないときは見分けられないとみなして
+        // 何も外さず、AGENT_STALE_MS での期限切れに任せる。
+        "Stop" => {
+            if let Some(running) = input.running_agents() {
+                let matched = next.agents.keys().any(|k| running.contains(&k.as_str()));
+                if running.is_empty() || matched {
+                    next.agents.retain(|k, _| running.contains(&k.as_str()));
+                }
+            }
         }
         _ => {}
     }
@@ -1552,14 +1581,49 @@ mod tests {
     }
 
     #[test]
-    fn session_start_clears_agents_but_stop_does_not() {
+    fn stop_keeps_only_agents_listed_as_running() {
         let s = write(transition(
             &sub("SubagentStart", "a1"),
             Some(&working_parent()),
             20,
         ));
-        let s = write(transition(&stop(), Some(&s), 30));
-        assert_eq!(s.agents.len(), 1);
+        let s = write(transition(&sub("SubagentStart", "a2"), Some(&s), 21));
+        let task = |id: &str, kind: &str| json!({"id": id, "type": kind, "status": "running"});
+        let cases = [
+            (None, vec!["a1", "a2"]),
+            (Some(json!([])), vec![]),
+            (Some(json!([task("sh1", "shell")])), vec![]),
+            (Some(json!([task("a2", "subagent")])), vec!["a2"]),
+            (Some(json!([task("a1", "teammate")])), vec!["a1"]),
+            (Some(json!([task("other", "subagent")])), vec!["a1", "a2"]),
+            (Some(json!({"unexpected": true})), vec!["a1", "a2"]),
+        ];
+        for (tasks, expected) in cases {
+            let mut event = json!({"session_id":"s1","hook_event_name":"Stop"});
+            if let Some(t) = tasks.clone() {
+                event["background_tasks"] = t;
+            }
+            let after = write(transition(&input(event), Some(&s), 30));
+            assert_eq!(
+                after.agents.keys().collect::<Vec<_>>(),
+                expected,
+                "{tasks:?}"
+            );
+            assert_eq!(
+                after.status == Status::Working,
+                !expected.is_empty(),
+                "{tasks:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn session_start_clears_agents_except_on_compact() {
+        let s = write(transition(
+            &sub("SubagentStart", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
         let compact =
             input(json!({"session_id":"s1","hook_event_name":"SessionStart","source":"compact"}));
         assert_eq!(write(transition(&compact, Some(&s), 40)).agents.len(), 1);
