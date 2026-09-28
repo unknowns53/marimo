@@ -1,7 +1,7 @@
 import { sessionKey, type Acknowledged } from "./acknowledged";
 import type { SessionState, Snapshot, Status } from "./types";
 
-// 詳細の段階の行数の上限。行はリストの上へ伸びるだけで立ち絵は動かないが、窓の高さに収める。
+// 詳細の表示の行数の上限。行はリストの上へ伸びるだけで立ち絵は動かないが、窓の高さに収める。
 export const MAX_ROWS = 5;
 // 見たと示した完了の行を、薄くして残しておく時間。
 export const READ_LINGER_MS = 3 * 60 * 1000;
@@ -17,7 +17,7 @@ export interface PanelPlan {
 const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
 
 /**
- * 詳細の段階で出す行を決める。待機以外のセッションを 1 セッション 1 行で並べ、作業中も畳まない。
+ * 詳細の表示で出す行を決める。待機以外のセッションを 1 セッション 1 行で並べ、作業中も畳まない。
  * 見たと示された完了は畳むが、押した直後に行が消えると何を押したのか見失うので、READ_LINGER_MS の
  * 間だけその場で薄くして残す。完了のまま放っておかれるセッションは多く、いつまでも残すと古い既読で埋まる。
  *
@@ -59,14 +59,18 @@ export function isEmpty(plan: PanelPlan): boolean {
   return plan.rows.length === 0;
 }
 
-export type PanelMode = "detail" | "counts" | "list" | "picture";
+/** パネルの行の出し方。立ち絵を出すかどうかとは独立に選ぶ。 */
+export type PanelStyle = "detail" | "counts";
 
-export const PANEL_MODES: readonly PanelMode[] = ["detail", "counts", "list", "picture"];
+export const PANEL_STYLES: readonly PanelStyle[] = ["detail", "counts"];
 
-/** リストだけの段階では立ち絵と吹き出しを隠し、その場所のクリックも下のウィンドウへ通す。 */
-export function showsCharacter(mode: PanelMode): boolean {
-  return mode !== "list";
+/** Rust の scale::PanelDisplay と同じ形で、display.json に保存する。 */
+export interface PanelDisplay {
+  show_character: boolean;
+  panel_style: PanelStyle;
 }
+
+export const DEFAULT_PANEL_DISPLAY: PanelDisplay = { show_character: true, panel_style: "detail" };
 
 export interface StatusCount {
   status: Status;
@@ -74,7 +78,7 @@ export interface StatusCount {
 }
 
 export interface PanelView {
-  mode: PanelMode;
+  style: PanelStyle;
   plan: PanelPlan;
   counts: StatusCount[];
   /** 件数の行を押したときに移動する、最も優先度の高い要対応のセッション。 */
@@ -84,13 +88,13 @@ export interface PanelView {
 const ATTENTION: ReadonlySet<Status> = new Set(["waiting", "error", "done"]);
 
 /**
- * 段階ごとに何を出すかを決める。件数だけの段階でも数え方は詳細と同じにし、見たと示された完了は
- * 数えない。吹き出しや表情を決める仕組みは段階によらず同じで、リストだけの段階ではそれを見せないだけにする。
+ * 行の出し方ごとに何を出すかを決める。件数だけの表示でも数え方は詳細と同じにし、見たと示された完了は
+ * 数えない。吹き出しや表情を決める仕組みは表示によらず同じで、立ち絵を隠している間はそれを見せないだけにする。
  */
 export function panelView(
   snapshot: Snapshot | null,
   ack: Acknowledged,
-  mode: PanelMode,
+  style: PanelStyle,
   now: number = Date.now(),
 ): PanelView {
   const plan = planPanel(snapshot, ack, now);
@@ -101,20 +105,14 @@ export function panelView(
     count: counted.filter((s) => s.status === status).length,
   })).filter((c) => c.count > 0);
   const target = counted.find((s) => ATTENTION.has(s.status)) ?? null;
-  return { mode, plan, counts, target };
+  return { style, plan, counts, target };
 }
 
+/**
+ * 今の出し方で出す行があるかどうか。無いときも、パネルは無いことを示す 1 行を出して残す。
+ * パネルごと消えると、詳細と件数を切り替える場所も、立ち絵を隠しているときに右クリックやドラッグを
+ * 受ける場所も無くなるからである。
+ */
 export function hasContent(view: PanelView): boolean {
-  switch (view.mode) {
-    case "detail":
-      return !isEmpty(view.plan);
-    case "counts":
-      return view.counts.length > 0;
-    // 立ち絵を隠しているので、パネルまで消えると右クリックもドラッグもできる場所が無くなる。
-    // 行が無いときも、無いことを示す 1 行を出してパネルを残す。
-    case "list":
-      return true;
-    case "picture":
-      return false;
-  }
+  return view.style === "detail" ? !isEmpty(view.plan) : view.counts.length > 0;
 }

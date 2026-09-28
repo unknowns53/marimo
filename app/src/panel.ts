@@ -1,7 +1,7 @@
 import { sessionKey } from "./acknowledged";
 import { folderName, formatAge, formatTokens, isCodexScratch } from "./format";
 import { limitLine, type LimitLine } from "./limits";
-import { hasContent, isEmpty, type PanelPlan, type PanelView } from "./panelModel";
+import { hasContent, type PanelPlan, type PanelView } from "./panelModel";
 import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
 
 const FALLBACK_SUMMARY: Record<Status, string> = {
@@ -53,31 +53,20 @@ export function renderPanel(
   now: number,
   onSelect: (session: SessionState) => void,
 ): void {
-  if (view.mode === "picture") {
-    panel.hidden = true;
-    return;
-  }
   const line = limitLine(rateLimits.claude, rateLimits.codex, now);
   if (line) renderLimits(limits, line, icons);
-  const limitText = line !== null;
-  let children: HTMLElement[] = [];
-  if (hasContent(view)) {
-    if (view.mode === "counts") children = [renderCounts(view, icons, now, onSelect)];
-    else if (view.mode === "list" && isEmpty(view.plan)) children = [el("div", "empty", EMPTY_LIST_TEXT)];
-    else children = detailChildren(view.plan, icons, now, onSelect);
-  }
+  let children: HTMLElement[];
+  if (!hasContent(view)) children = [el("div", "empty", EMPTY_LIST_TEXT)];
+  else if (view.style === "counts") children = [renderCounts(view, icons, now, onSelect)];
+  else children = detailChildren(view.plan, icons, now, onSelect);
   rows.replaceChildren(...children);
-  rows.hidden = children.length === 0;
-  limits.hidden = !limitText;
-  panel.hidden = children.length === 0 && !limitText;
-  // 今の段階を短い文字で示し、押すと詳細と件数だけを行き来する。リストだけの段階ではどちらも明るくせず、
-  // 押せば押した方の段階へ移る。
-  for (const button of toggle.querySelectorAll<HTMLElement>("button[data-mode]")) {
-    const active = button.dataset.mode === view.mode;
+  limits.hidden = line === null;
+  panel.hidden = false;
+  for (const button of toggle.querySelectorAll<HTMLElement>("button[data-style]")) {
+    const active = button.dataset.style === view.style;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   }
-  toggle.hidden = children.length === 0;
 }
 
 function detailChildren(
@@ -93,7 +82,7 @@ function detailChildren(
   return children;
 }
 
-// 件数だけの段階は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
+// 件数だけの表示は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
 // 押したときは、最も優先度の高い要対応のセッションへ移動する。
 function renderCounts(
   view: PanelView,

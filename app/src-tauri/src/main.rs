@@ -69,13 +69,16 @@ fn set_scale(window: WebviewWindow, state: State<'_, AppState>, scale: f64) -> f
 }
 
 #[tauri::command]
-fn get_panel_mode(state: State<'_, AppState>) -> Option<String> {
-    scale::load_panel_mode(&state.home)
+fn get_panel_display(state: State<'_, AppState>) -> Option<scale::PanelDisplay> {
+    scale::load_panel_display(&state.home)
 }
 
 #[tauri::command]
-fn set_panel_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
-    scale::save_panel_mode(&state.home, &mode).map_err(|e| e.to_string())
+fn set_panel_display(
+    state: State<'_, AppState>,
+    display: scale::PanelDisplay,
+) -> Result<(), String> {
+    scale::save_panel_display(&state.home, display).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -178,8 +181,8 @@ fn main() {
             get_dialogue,
             get_scale,
             set_scale,
-            get_panel_mode,
-            set_panel_mode,
+            get_panel_display,
+            set_panel_display,
             get_character,
             set_character,
             set_stage_aspect,

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { type HitRegions, hitRegions, maskFromAlpha, type Portrait } from "./hitArea";
-import { showsCharacter } from "./panelModel";
 
 describe("hit mask", () => {
   it("marks cells above the alpha threshold and widens them by one cell within each row", () => {
@@ -30,18 +29,11 @@ describe("hit regions", () => {
         { rects: [panel], mask: { ...box, ...mask } },
       ],
       ["whole portrait box without a mask", hitRegions([panel], { box, mask: null }), { rects: [panel, box], mask: null }],
-      // リストだけの段階では立ち絵を送らず、その場所のクリックを下のウィンドウへ通す。
-      [
-        "portrait left out in list mode",
-        hitRegions([panel], showsCharacter("list") ? portrait : null),
-        { rects: [panel], mask: null },
-      ],
+      // 立ち絵を隠している間は立ち絵を送らず、その場所のクリックを下のウィンドウへ通す。
+      ["portrait left out while hidden", hitRegions([panel], null), { rects: [panel], mask: null }],
     ];
     for (const [label, actual, expected] of cases) {
       expect(actual, label).toEqual(expected);
-    }
-    for (const mode of ["detail", "counts", "picture"] as const) {
-      expect(hitRegions([panel], showsCharacter(mode) ? portrait : null).mask, mode).not.toBeNull();
     }
   });
 });

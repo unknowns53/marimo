@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { Acknowledged, triggerKey } from "./acknowledged";
-import { hasContent, isEmpty, type PanelMode, panelView, planPanel, READ_LINGER_MS } from "./panelModel";
+import { hasContent, type PanelStyle, panelView, planPanel, READ_LINGER_MS } from "./panelModel";
 import { session, snap } from "./testFixtures";
 import type { Snapshot } from "./types";
 
@@ -164,20 +164,24 @@ describe("panelView", () => {
     expect(v.counts.find((c) => c.status === "done")).toBeUndefined();
   });
 
-  it("decides per mode whether the panel has anything to show", () => {
+  it("decides per style whether there are rows to show instead of the empty line", () => {
     const idle = snap(session("i", "idle", 1));
-    // リストだけの段階は立ち絵を隠すので、行が無くてもパネルを残してドラッグと右クリックを受ける。
-    const cases: [string, Snapshot | null, PanelMode, boolean][] = [
-      ["counts with only idle sessions", idle, "counts", false],
-      ["detail with only idle sessions", idle, "detail", false],
-      ["picture", sessions(), "picture", false],
-      ["list with only idle sessions", idle, "list", true],
-      ["list without a snapshot", null, "list", true],
+    // 見たと示した直後の完了は詳細では薄く残るが、件数には数えない。
+    const ack = new Acknowledged();
+    const seen = session("seen", "done", 10);
+    ack.add(triggerKey(seen));
+    const cases: [string, Snapshot | null, Acknowledged, PanelStyle, boolean][] = [
+      ["detail with sessions", sessions(), new Acknowledged(), "detail", true],
+      ["counts with sessions", sessions(), new Acknowledged(), "counts", true],
+      ["detail with only idle sessions", idle, new Acknowledged(), "detail", false],
+      ["counts with only idle sessions", idle, new Acknowledged(), "counts", false],
+      ["detail without a snapshot", null, new Acknowledged(), "detail", false],
+      ["detail with a lingering seen completion", snap(seen), ack, "detail", true],
+      ["counts with a lingering seen completion", snap(seen), ack, "counts", false],
     ];
-    for (const [label, snapshot, mode, expected] of cases) {
-      expect(hasContent(panelView(snapshot, new Acknowledged(), mode)), label).toBe(expected);
+    for (const [label, snapshot, acks, style, expected] of cases) {
+      expect(hasContent(panelView(snapshot, acks, style)), label).toBe(expected);
     }
-    expect(isEmpty(panelView(idle, new Acknowledged(), "list").plan)).toBe(true);
   });
 
   it("targets the highest-priority session needing attention, or nothing", () => {

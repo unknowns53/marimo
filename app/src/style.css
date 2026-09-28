@@ -153,15 +153,13 @@ body {
 }
 
 #panel[hidden],
-#rows[hidden],
-#limits[hidden],
-#panel-toggle[hidden] {
+#limits[hidden] {
   display: none;
 }
 
 /* パネルの右上の外に付ける切り替え。行と重ならず、パネルが上へ伸びても一緒に動く。
-   文字一つだと「今の段階」と「押すとなる段階」のどちらか読み分けられないので、
-   二つの段階を並べて今の方だけを明るくする。 */
+   文字一つだと「今の表示」と「押すとなる表示」のどちらか読み分けられないので、
+   二つの表示を並べて今の方だけを明るくする。 */
 #panel-toggle {
   position: absolute;
   right: 8px;
@@ -429,7 +427,7 @@ body {
   opacity: 0.6;
 }
 
-/* リストだけの段階。場所を詰めずに見えなくするだけにして、窓とパネルの位置を変えない。 */
+/* 立ち絵を隠すときは、場所を詰めずに見えなくするだけにして、窓とパネルの位置を変えない。 */
 #app.character-hidden #stage {
   visibility: hidden;
 }
@@ -461,7 +459,7 @@ body {
   opacity: 0.47;
 }
 
-#rows:not([hidden]) + #limits {
+#rows + #limits {
   margin-top: 4px;
   padding-top: 4px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
