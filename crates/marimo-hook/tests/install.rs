@@ -768,7 +768,14 @@ fn codex_hooks_round_trip_and_reinstall_changes_nothing() {
             "PreCompact": [{"hooks": [{"type": "command", "command": "echo compact"}]}]
         }
     }));
-    let env = Env::with_codex(Some(&original));
+    // 前に別の場所の marimo-hook で入れた登録は、入れ直しで置き換わり、uninstall でも消える。
+    let mut stale: Value = serde_json::from_str(&original).unwrap();
+    stale["hooks"]["Stop"] = json!([
+        {"hooks": [{"type": "command", "command": "/old/marimo-hook codex-hook", "timeout": 5}]},
+        {"hooks": [{"type": "command", "command": "'/old dir/marimo-hook' codex-hook", "timeout": 5}]}
+    ]);
+    let stale = pretty(&stale);
+    let env = Env::with_codex(Some(&stale));
     let out = env.run(&["install"]);
     assert!(
         out.status.success(),
@@ -778,7 +785,7 @@ fn codex_hooks_round_trip_and_reinstall_changes_nothing() {
     let text = stdout(&out);
     if cfg!(windows) {
         assert!(text.contains("Codex のフックは扱いませんでした"), "{text}");
-        assert_eq!(fs::read_to_string(env.codex_hooks()).unwrap(), original);
+        assert_eq!(fs::read_to_string(env.codex_hooks()).unwrap(), stale);
         return;
     }
     assert!(text.contains("/hooks で"), "{text}");
@@ -802,6 +809,7 @@ fn codex_hooks_round_trip_and_reinstall_changes_nothing() {
         installed["hooks"]["PreCompact"].as_array().unwrap().len(),
         1
     );
+    assert_eq!(installed["hooks"]["Stop"].as_array().unwrap().len(), 1);
 
     // 同じ実行ファイルで入れ直しても hooks.json を書き換えないので、Codex の信頼は保たれる。
     let before = fs::read(env.codex_hooks()).unwrap();

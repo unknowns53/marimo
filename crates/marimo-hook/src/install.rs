@@ -93,7 +93,7 @@ fn codex(mode: &Mode, opts: &Options, exe: &Path) -> Result<(), String> {
             None => out += "hooks.json がないので、取り除くものはありません。\n",
             Some(original) => {
                 let mut file = original.value.clone();
-                let removed = settings_edit::uninstall_codex(&mut file, &command)?;
+                let removed = settings_edit::uninstall_codex(&mut file)?;
                 out += &format!("取り除くフック: {}\n", list_or_none(&removed));
                 if removed.is_empty() {
                     out += "変更はありません（marimo は登録されていません）。\n";

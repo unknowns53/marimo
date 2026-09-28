@@ -339,6 +339,7 @@ pub struct CodexInstallReport {
 
 /// Codex はフックの定義を正規化したもののハッシュで信頼を覚えるので、すでに同じコマンドの
 /// ハンドラがあるイベントには手を付けない。書き直すと利用者が /hooks で信頼し直すことになる。
+/// marimo-hook の場所が変わって別のコマンドで登録されているものは、二重に動かないよう取り除く。
 pub fn install_codex(file: &mut Value, command: &str) -> Result<CodexInstallReport, String> {
     let root = file
         .as_object_mut()
@@ -362,6 +363,20 @@ pub fn install_codex(file: &mut Value, command: &str) -> Result<CodexInstallRepo
             already.push(event);
             continue;
         }
+        if let Some(groups) = root
+            .get_mut("hooks")
+            .and_then(|h| h.get_mut(event))
+            .and_then(Value::as_array_mut)
+        {
+            groups.retain_mut(|group| {
+                let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) else {
+                    return true;
+                };
+                let n = handlers.len();
+                handlers.retain(|h| !is_marimo_codex_handler(h));
+                handlers.len() == n || !handlers.is_empty()
+            });
+        }
         let handler = json!({
             "type": "command",
             "command": command,
@@ -373,17 +388,35 @@ pub fn install_codex(file: &mut Value, command: &str) -> Result<CodexInstallRepo
     Ok(CodexInstallReport { added, already })
 }
 
-pub fn uninstall_codex(file: &mut Value, command: &str) -> Result<Vec<String>, String> {
+pub fn uninstall_codex(file: &mut Value) -> Result<Vec<String>, String> {
     let root = file
         .as_object_mut()
         .ok_or("hooks.json の最上位が JSON のオブジェクトではありません")?;
     check_hooks_shape(root, &CODEX_EVENTS)?;
-    Ok(remove_handlers(root, |h| is_codex_handler(h, command)))
+    Ok(remove_handlers(root, is_marimo_codex_handler))
 }
 
 fn is_codex_handler(handler: &Value, command: &str) -> bool {
     handler.get("type").and_then(Value::as_str) == Some("command")
         && handler.get("command").and_then(Value::as_str) == Some(command)
+}
+
+// codex_hook_command が書いた形、つまり一語の marimo-hook のパスに codex-hook が続くものだけを
+// marimo のものとみなす。どこに置いた marimo-hook でも当たるので、古い場所の登録も見つかる。
+fn is_marimo_codex_handler(handler: &Value) -> bool {
+    let Some(program) = handler
+        .get("command")
+        .and_then(Value::as_str)
+        .filter(|_| handler.get("type").and_then(Value::as_str) == Some("command"))
+        .and_then(|c| c.strip_suffix(" codex-hook"))
+    else {
+        return false;
+    };
+    let path = unquote_single_word(program).unwrap_or_else(|| program.to_owned());
+    matches!(
+        path.rsplit(['/', '\\']).next(),
+        Some("marimo-hook" | "marimo-hook.exe")
+    )
 }
 
 const API_HINT: &str = "利用制限を表示するには、アプリの右クリックメニューで「利用制限を API から取得」を有効にしてください";
