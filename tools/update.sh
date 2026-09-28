@@ -6,7 +6,7 @@ usage() {
   cat >&2 <<'EOF'
 使い方: tools/update.sh [--no-pull] [--wait] [--build]
 
-既定では、main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきて入れ替えます。
+既定では、main の最新を取り込み、CI がビルドしたものを GitHub のリリースから取ってきて入れ替えます。
 
   --no-pull  ブランチが main であることの確認と取り込みを省き、今チェックアウトしているコミットを使います。
              --build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
@@ -102,7 +102,10 @@ download_build() {
   # CI がビルドするのは arm64 だけで、Intel の Mac では動かない。
   [[ "$(uname -m)" == "arm64" ]] || fail "CI のビルドは arm64 の Mac 用だけです。この Mac では --build を付けて手元でビルドしてください。"
   slug="$(repo_slug)"
-  sha="$(git rev-parse HEAD)"
+  # CI は文書だけを変えたコミットをビルドしないので、文書以外を変えた最後のコミットのビルドを探す。
+  # この一覧は .github/workflows/ci.yml の paths-ignore と同じにしておく。
+  sha="$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*')"
+  [[ -n "$sha" ]] || fail "git でビルドを探すコミットを調べられませんでした。"
   tag="build-${sha:0:12}"
   base="https://github.com/$slug/releases/download/$tag"
   archive="marimo-macos-arm64.tar.gz"

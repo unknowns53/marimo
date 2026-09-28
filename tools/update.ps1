@@ -7,7 +7,7 @@
 marimo を新しい版へ更新します。
 
 .DESCRIPTION
-既定では、main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきて入れ直します。
+既定では、main の最新を取り込み、CI がビルドしたものを GitHub のリリースから取ってきて入れ直します。
 
 .PARAMETER NoPull
 ブランチが main であることの確認と取り込みを省き、今チェックアウトしているコミットを使います。-Build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
@@ -108,8 +108,10 @@ function Get-Build([string]$Work) {
     $ProgressPreference = 'SilentlyContinue'
 
     $slug = Get-RepoSlug
-    $sha = git rev-parse HEAD
-    if ($LASTEXITCODE -ne 0) { Fail 'git で今のコミットを調べられませんでした。' }
+    # CI は文書だけを変えたコミットをビルドしないので、文書以外を変えた最後のコミットのビルドを探す。
+    # この一覧は .github/workflows/ci.yml の paths-ignore と同じにしておく。
+    $sha = git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*'
+    if ($LASTEXITCODE -ne 0 -or -not $sha) { Fail 'git でビルドを探すコミットを調べられませんでした。' }
     $short = $sha.Substring(0, 12)
     $tag = "build-$short"
     $base = "https://github.com/$slug/releases/download/$tag"

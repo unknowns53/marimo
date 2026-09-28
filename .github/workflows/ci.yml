@@ -1,9 +1,19 @@
 name: CI
 
+# 文書だけを変えたコミットでは、検査の結果もビルドも変わらないので走らせない。
+# この一覧を変えるときは、下の公開のジョブと tools/update.sh、tools/update.ps1 の同じ一覧も直す。
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE-*'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE-*'
   workflow_dispatch:
 
 permissions:
@@ -197,6 +207,16 @@ jobs:
       run:
         shell: bash
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # 文書だけのコミットはビルドしないので、更新用のスクリプトは文書以外を変えた最後のコミットの名前でビルドを探す。
+      # 同じ push の中で文書だけのコミットが後に続いたときにも見つかるよう、タグもそのコミットの名前で付ける。
+      - name: Find the commit the update scripts look for
+        id: target
+        run: echo "sha=$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*')" >> "$GITHUB_OUTPUT"
+
       - uses: actions/download-artifact@v8
         with:
           pattern: marimo-*
@@ -213,17 +233,19 @@ jobs:
       # 失敗した実行をやり直したときにも通るよう、リリースがあれば中身だけを差し替える。
       - name: Publish the prerelease
         working-directory: dist
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
         run: |
-          tag="build-${GITHUB_SHA::12}"
+          tag="build-${SHA::12}"
           files=(marimo-macos-arm64.tar.gz marimo-windows-x64.zip SHA256SUMS)
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${files[@]}" --clobber
           else
             gh release create "$tag" "${files[@]}" \
-              --target "$GITHUB_SHA" \
+              --target "$SHA" \
               --prerelease \
-              --title "main build ${GITHUB_SHA::12}" \
-              --notes "main のコミット ${GITHUB_SHA} を自動でビルドしたものです。tools/update.sh と tools/update.ps1 がこのビルドを取りに来ます。"
+              --title "main build ${SHA::12}" \
+              --notes "main のコミット ${SHA} を自動でビルドしたものです。tools/update.sh と tools/update.ps1 がこのビルドを取りに来ます。"
           fi
 
       # build- で始まらないリリースとタグには触れない。

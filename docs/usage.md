@@ -240,7 +240,7 @@ macOS では、有効にしたあと最初にトークンを読むとき、キ�
 
 ## 更新する
 
-README の [4. 更新する](../README.md#4-更新する)で使う更新用のスクリプト `tools/update.sh` と `tools/update.ps1` の動きを説明します。スクリプトは、GitHub Actions の CI（継続的インテグレーション。push のたびに自動でテストやビルドを行う仕組み）が main の各コミットについてビルドしたものを、GitHub のリリースから取ってきて入れ替えます。手元ではビルドしないので、Rust や Node.js は要りません。スクリプトは次のことを順に行います。
+README の [4. 更新する](../README.md#4-更新する)で使う更新用のスクリプト `tools/update.sh` と `tools/update.ps1` の動きを説明します。スクリプトは、GitHub Actions の CI（継続的インテグレーション。push のたびに自動でテストやビルドを行う仕組み）が main のコミットについてビルドしたものを、GitHub のリリースから取ってきて入れ替えます。手元ではビルドしないので、Rust や Node.js は要りません。スクリプトは次のことを順に行います。
 
 1. `git pull --ff-only` で main の最新を取り込みます。
 2. 取り込んだコミットのビルドを一時フォルダへ取ってきます。コミットのハッシュの先頭 12 文字を使った `build-<12 文字>` という名前のリリースから、macOS では `marimo-macos-arm64.tar.gz` を、Windows では `marimo-windows-x64.zip` を、チェックサムを書いた `SHA256SUMS` と一緒に取ってきます。チェックサムが合わなければ、何も変えずに止まります。リポジトリの `origin` が GitHub のリポジトリを指していればそのリポジトリのリリースを、そうでなければ marimo の元のリポジトリのリリースを探すので、フォークからでも使えます。
@@ -248,6 +248,8 @@ README の [4. 更新する](../README.md#4-更新する)で使う更新用の�
 4. アプリを差し替えます。macOS では、新しい `marimo.app` を `/Applications` の中へ別の名前でコピーしてから、古い `/Applications/marimo.app` と入れ替えます。Windows では、NSIS（Windows 向けのインストーラを作る仕組み）のインストーラを画面を出さずに（`/S`）実行して、`%LOCALAPPDATA%\marimo\marimo.exe` を入れ直します。
 5. 取ってきた `marimo-hook` で `install` を実行し、`~/.marimo/bin/marimo-hook`（Windows では `marimo-hook.exe`）を新しいものに差し替えます。`install` は自分自身をこの場所へコピーするので、一時フォルダから実行してもフックは動き続けます。
 6. marimo を起動し直し、一時フォルダを消します。
+
+CI は、文書（`.md` のファイル、`docs/` の中のファイル、`LICENSE-` で始まるファイル）だけを変えたコミットをビルドしません。スクリプトは、取り込んだコミットから main の履歴をさかのぼり、文書以外を変えた最後のコミットのビルドを取ってきます。
 
 CI がビルドするのは、arm64 の Mac（Apple シリコンの Mac）向けと x64 の Windows 向けだけです。Intel の Mac では、下の `--build` を付けて手元でビルドしてください。
 
