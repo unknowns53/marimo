@@ -147,7 +147,7 @@ Clawd の素材は、`tools/character/clawd.py` がドット絵を描いて作�
 
 ### アイコンを描き直す
 
-メニューバーと通知領域のアイコンは、`tools/tray_icon.py` が Pillow だけでまりもの形に描きます。実行すると `app/src-tauri/icons/` へ四つの PNG を書き出します。`tray-template.png` は macOS のふだんのアイコンに使う黒一色のテンプレート画像、`tray-color.png` は Windows のふだんのアイコンに使う緑の画像、`tray-waiting.png` と `tray-error.png` は承認待ちとエラーのときにどちらの OS でも使う、緑のまりもに「！」の印を載せた画像です。メニューバーは画像の高さを 18 ポイントに縮めて置くので、どれも 2 倍の画面で等倍になる 36×36 ピクセルにしています。アイコンはビルドのときにアプリへ埋め込まれるので、描き直したらアプリをビルドし直します。
+メニューバーと通知領域のアイコンは、`tools/tray_icon.py` が Pillow だけでまりもの形に描きます。実行すると `app/src-tauri/icons/` へ四つの PNG を書き出します。`tray-template.png` は macOS のふだんのアイコン、`tray-color.png` は Windows のふだんのアイコン、`tray-waiting.png` と `tray-error.png` は承認待ちとエラーのときにどちらの OS でも使うアイコンです（見え方は[メニューバーと通知領域のアイコン](usage.md#メニューバーと通知領域のアイコン)を参照）。メニューバーは画像の高さを 18 ポイントに縮めて置くので、どれも 2 倍の画面で等倍になる 36×36 ピクセルにしています。アイコンはビルドのときにアプリへ埋め込まれるので、描き直したらアプリをビルドし直します。
 
 ```bash
 .venv/bin/python tools/tray_icon.py

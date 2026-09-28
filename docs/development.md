@@ -12,9 +12,7 @@ marimo をソースからビルドする人、`install` が何を書き換える
 
 ## ソースからビルドする
 
-marimo は配布用のバイナリを用意していないので、リポジトリを手元に置いたら自分でビルドします。
-
-ビルドのコマンドは、README の [1. ビルドする](../README.md#1-ビルドする)にあります。
+この節では、ビルドに必要なもの、できあがるもの、macOS での署名について説明します。ビルドのコマンドは、README の [1. ビルドする](../README.md#1-ビルドする)にあります。
 
 ### 必要なもの
 
@@ -29,7 +27,7 @@ Node.js のバージョンは、依存しているビルドツールの Vite と
 
 ### ビルドの成果物
 
-macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<版>_x64-setup.exe` と `target/release/bundle/msi/marimo_<版>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
+`cargo build --release -p marimo-hook` でできる実行ファイルは `target/release/marimo-hook` に置かれます。`npm run tauri -- build` を実行すると、macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<版>_x64-setup.exe` と `target/release/bundle/msi/marimo_<版>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
 
 `target\release\marimo.exe` を直接起動しても動きますが、ふだん使いには向きません。起動している間は実行ファイルが使用中になり、ビルドし直すと上書きに失敗するためです。MSI のインストーラはすべての利用者向けに Program Files へ入れるもので、管理者の権限が要ります。
 
@@ -38,7 +36,7 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。Windows 
 `marimo.app` は、Apple の開発者証明書ではなく ad-hoc 署名（証明書を使わずに、その場で作った署名）で署名され、Apple の公証も受けていません。このため、次のことが起こりえます。
 
 - 初めて開くときに macOS が「開けません」と警告することがあります。その場合は、Finder で `marimo.app` を control キーを押しながらクリックして「開く」を選ぶか、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。
-- macOS は、キーチェーンの「常に許可」などの許可を署名に結びつけて覚えます。ビルドし直すと署名が変わるので、[利用制限を API から取得](usage.md#利用制限の表示)を使っている場合は、キーチェーンの確認がもう一度出ます。
+- macOS は、キーチェーンの「常に許可」などの許可を署名に結びつけて覚えます。ビルドし直すと署名が変わるので、キーチェーンの確認がもう一度出ます（[キーチェーンの確認](usage.md#キーチェーンの確認)を参照）。
 
 ## フックと statusLine の登録
 
@@ -63,7 +61,7 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。Windows 
    }
    ```
 
-   `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを通さずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを通さないので、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form は Claude Code 2.1.139 で加わった書き方なので、Claude Code 2.1.139 以降が必要です。
+   `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを通さずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを通さないので、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form は Claude Code 2.1.139 で加わった書き方です（必要な版は README の[動作環境](../README.md#動作環境)を参照）。
 
    以前の marimo は、`~/.marimo/bin/marimo-hook hook` という文字列をシェルに渡す形でフックを登録していました。この形の登録が残っている状態で `install` を実行し直すと、同じグループの同じ位置のまま exec form へ書き換えます。
 
@@ -71,7 +69,7 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。Windows 
 
 ### statusLine の包み方
 
-statusLine を登録します。statusLine がまだ無ければ `marimo-hook statusline` だけを登録します。すでに自分の statusLine を使っている場合は、元のコマンドを `marimo-hook statusline -- sh -c '<元のコマンド>'` の形で包みます。marimo は受け取った入力をそのまま元のコマンドへ渡し、元のコマンドの出力と終了コードもそのまま返すので、statusLine の見た目は変わりません。statusLine が command 形式でない場合は書き換えません。statusLine には exec form がないので、こちらはシェルを通すコマンドの文字列で登録します。
+statusLine がまだ無ければ `marimo-hook statusline` だけを登録します。すでに自分の statusLine を使っている場合は、元のコマンドを `marimo-hook statusline -- sh -c '<元のコマンド>'` の形で包みます。marimo は受け取った入力をそのまま元のコマンドへ渡し、元のコマンドの出力と終了コードもそのまま返すので、statusLine の見た目は変わりません。statusLine が command 形式でない場合は書き換えません。statusLine には exec form がないので、こちらはシェルを通すコマンドの文字列で登録します。
 
 Windows の Claude Code は、Git Bash が入っていれば Git Bash で、なければ PowerShell で statusLine を実行します。どちらで動くかが環境によって変わり、両者で引用の規則も違うので、引用符を使わずにどちらのシェルでも同じように読める形だけで書きます。marimo-hook のパスは、実行ファイルがホームフォルダの下にあれば `~/.marimo/bin/marimo-hook.exe statusline` のように `~/` で始め、そうでなければ `/` 区切りの絶対パスを書きます。パスに空白などが含まれていてどちらの形でも書けない場合は、statusLine を登録せず、既存の statusLine も包みません。
 
@@ -85,10 +83,8 @@ Windows の Claude Code は、Git Bash が入っていれば Git Bash で、な�
 
 - 書き換える前に、同じフォルダへ `settings.json.marimo-backup-<日時>` という名前でバックアップを取ります。日時は UTC（協定世界時）の `YYYYMMDD-HHMMSS` の形で、同じ名前があれば末尾に `-1` などの番号が付きます。設定ファイルがまだ無かった場合は、バックアップを取らずに新しく作ります。
 - 既存のフックや marimo に関係しない項目は、キーの順序も含めてそのまま残します。ファイルの権限も引き継ぎます。settings.json がシンボリックリンクなら、リンク先のファイルを書き換えます。
-- 何度実行しても結果は同じです。すでに登録されていれば「変更はありません（すでにインストール済みです）」と表示し、settings.json にもバックアップにも手を付けません。
+- 何度実行しても結果は同じです。すでに登録されていれば「変更はありません（すでにインストール済みです）」と表示し、settings.json にもバックアップにも手を付けません。ビルドし直したあとに実行すると、`~/.marimo/bin/marimo-hook` だけが新しいものに差し替わります。以前の形のフックが残っていた場合だけ、exec form へ書き換えます。[更新用のスクリプト](usage.md#更新する)も、ビルドのあとにこの `install` を実行します。
 - settings.json が JSON として読めないときなどは、何も変更せずに理由を表示し、0 以外の終了コードで終わります。
-
-marimo を新しくビルドし直したときも、同じ `install` を実行すれば `~/.marimo/bin/marimo-hook` だけが新しいものに差し替わります。settings.json はすでに登録済みなので変わりません。以前の形のフックが残っていた場合だけ、exec form へ書き換えます。[4. 更新する](usage.md#更新する)のスクリプトは、ビルドのあとにこの `install` も実行します。
 
 ### サブコマンドと設定ファイルの場所
 
@@ -129,7 +125,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | パス | 用途 |
 | --- | --- |
 | `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。24 時間更新のないファイルは、アプリが消します |
-| `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。書き方と消し方は Claude Code のセッションと同じです |
+| `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine と API からの取得の両方がここへ書きます |
 | `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
 | `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、API からの取得を使うかどうかの `usage_api`、選んだキャラクターの名前の `character` を持ちます。以前の版が書いた `panel_mode` は、表示を切り替えて新しい二つの鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
@@ -144,8 +140,6 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude` か `codex` です。この項目を持たない以前の版のファイルは、Claude Code のセッションとして読みます。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
-
-Claude Code と Codex は session_id を別々に振るので、同じ ID のセッションが両方にありえます。marimo は、どちらのツールのセッションかと ID の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。
 
 `codex_rate_limits.json` は次の項目を持ちます。
 
@@ -173,7 +167,7 @@ marimo は Claude Code の作業を一切妨げないことを最優先にして
 - **Codex の rollout と session_index.jsonl** Codex のセッションでは、rollout の末尾から最大 4 MB を読んで最後の `token_count` のトークン数と利用制限だけを取り出し、`session_index.jsonl` の末尾から最大 512 KB を読んでそのセッションの題名だけを取り出します。macOS で起動元のアプリが分からないときは、セッションの開始時とプロンプトを送ったときに rollout の先頭から最大 64 KB を読み、最初の行の `originator` だけを取り出します。Codex の `auth.json` と `config.toml` は読みません。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。
 - **OAuth のアクセストークン** 「利用制限を API から取得」を有効にしたときだけ読みます。扱いは[トークンの扱い](usage.md#トークンの扱い)のとおりです。
-- **アプリのアイコン** パネルの印に使うため、起動したときに一度だけ、Claude と Codex のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に、Windows では PackageManager に問い合わせ、アプリの中のファイルを直接は開きません。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。
+- **アプリのアイコン** パネルの印に使うため、起動したときに一度だけ、Claude と Codex のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop` と `com.openai.codex` のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。
 
 ### marimo が書くもの
 
@@ -237,7 +231,7 @@ npm test
 npm run build
 ```
 
-開発中にアプリを動かすときは、`app/` で `npm run tauri -- dev` を使うと、画面部分の開発用サーバー（ポート 1420）を立ち上げてアプリを起動します。本来の `~/.marimo` に触れずに試したいときは、`MARIMO_HOME` を別のフォルダに向けておきます。
+開発中にアプリを動かすときは、`app/` で `npm run tauri -- dev` を使うと、画面部分の開発用サーバー（ポート 1420）を立ち上げてアプリを起動します。本来の `~/.marimo` に触れずに試したいときは、`MARIMO_HOME` を別のフォルダに向けておきます（[ファイルとデータ](#ファイルとデータ)を参照）。
 
 ## 仕組みの概要
 
@@ -257,6 +251,8 @@ npm run build
 サブエージェントのフックは、行の名前も、セッション自身の進み具合も書き換えません。worktree で隔離されたサブエージェントが別のフォルダで動いても、行の名前は親のセッションのリポジトリ名やフォルダ名のままです。marimo は SubagentStart と SubagentStop で動いているサブエージェントを覚えておき、一つでも動いている間は、親のセッションの応答が終わった後でも作業中として出します。最後のサブエージェントが終わると完了になり、完了までにかかった時間もそこまでで数えます。サブエージェントがツールの実行許可を求めたときは承認待ちとして出し、許可か拒否が済むと元の表示に戻ります。サブエージェントが失敗したときなどに SubagentStop が届くとは限らないので、30 分のあいだ何のイベントも届かないサブエージェントは終わったものとして扱います。
 
 ### 題名とコンテキスト使用率の取り方
+
+デスクトップアプリの Code タブでは statusLine が動かないため、marimo はコンテキスト使用率を会話ログ（transcript。Claude Code がセッションごとに書く JSON Lines 形式の記録）から数えます。このときモデルのコンテキストの上限は分かりません。
 
 題名は二つの場所から取ります。CLI では statusLine の入力にある `session_name` を使います。これは `--name` や `/rename` で付けた名前か、それが無ければ Claude Code が自動で付けた題名です。statusLine が呼ばれないデスクトップアプリの Code タブでは、PostToolUse と Stop のときに読む会話ログの末尾から題名の行を探します。この行の形式は Claude Code のドキュメントに載っていないので、Claude Code の更新で題名が出なくなることがあります。どちらの場合も、題名が付く前や最初の読み取りの前は名前だけが出ます。
 
