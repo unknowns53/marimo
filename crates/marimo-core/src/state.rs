@@ -64,7 +64,8 @@ pub struct ContextUsage {
 /// セッションを起動したアプリの手がかり。行を押したときに、そのアプリやタブへ移動するのに使う。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Origin {
-    /// macOS がアプリから起動したプロセスに渡す `__CFBundleIdentifier`。
+    /// macOS がアプリから起動したプロセスに渡す `__CFBundleIdentifier`。無ければ、祖先のプロセスを収めた
+    /// アプリの Info.plist にある CFBundleIdentifier か、Codex のデスクトップアプリの bundle id を入れる。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bundle_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -118,6 +119,7 @@ impl Origin {
 
     // CLI で --resume すると、デスクトップアプリの会話と同じ session_id のまま別のアプリへ移る。
     // 環境変数と端末の手がかりは毎回の実行から取り直し、得られたときだけ置き換える。
+    // 祖先のアプリから読む bundle id は一部のイベントでしか取らないので、端末が前と同じ実行では前の値を残す。
     // Windows のウィンドウと祖先のプロセスは、調べるのに時間がかかるので一部のイベントでしか取らない。
     // それを含む実行からは全体を置き換え、環境変数だけの実行ではウィンドウと祖先を前の値のまま残す。
     // 会話ログの entrypoint は読める契機が限られるので、新しい値がなければ前の値を残す。
@@ -133,7 +135,11 @@ impl Origin {
                 ..p.clone()
             },
             Some(p) if p.has_env_clues() => Origin {
-                bundle_id: p.bundle_id.clone(),
+                bundle_id: p.bundle_id.clone().or_else(|| {
+                    let same_terminal =
+                        p.term_program == previous.term_program && p.tty == previous.tty;
+                    previous.bundle_id.clone().filter(|_| same_terminal)
+                }),
                 term_program: p.term_program.clone(),
                 tty: p.tty.clone(),
                 ..previous
@@ -1219,6 +1225,27 @@ mod tests {
         assert_eq!(Origin::merge(None, Some(&Origin::default()), None), None);
         let kept = Origin::merge(Some(&terminal), Some(&Origin::default()), None).unwrap();
         assert_eq!(kept, terminal);
+
+        // 祖先のアプリから読んだ bundle id は、同じ端末からの環境変数だけの実行では消さない。
+        let tmux = Origin {
+            term_program: Some("tmux".into()),
+            tty: Some("/dev/ttys004".into()),
+            ..Origin::default()
+        };
+        let found = Origin {
+            bundle_id: Some("com.example.app".into()),
+            ..tmux.clone()
+        };
+        let kept = Origin::merge(Some(&found), Some(&tmux), None).unwrap();
+        assert_eq!(kept.bundle_id.as_deref(), Some("com.example.app"));
+        let moved = Origin {
+            tty: Some("/dev/ttys005".into()),
+            ..tmux
+        };
+        assert_eq!(
+            Origin::merge(Some(&found), Some(&moved), None).unwrap(),
+            moved
+        );
 
         let first = windows_terminal();
         let merged = Origin::merge(None, Some(&first), Some("cli")).unwrap();

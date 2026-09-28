@@ -1,5 +1,6 @@
 use std::env;
-use std::io;
+use std::fs::File;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -142,6 +143,32 @@ fn rate_limits(limits: Limits, observed_at: u64, now_ms: u64) -> Option<CodexRat
     })
 }
 
+/// rollout の先頭の session_meta から、Codex のデスクトップアプリが始めた会話かを判断する。
+/// originator の値は Codex のドキュメントに無く、手元の rollout で、デスクトップアプリが "Codex Desktop" を、
+/// 端末の Codex CLI が "codex-tui" を書くことを確かめた。先頭の行は基本の指示を含んで 20 KB ほどになるので、
+/// 64 KB まで読んで行が終わらなければ諦める。
+pub fn started_by_desktop_app(path: &Path) -> bool {
+    #[derive(Deserialize)]
+    struct Meta {
+        #[serde(rename = "type")]
+        kind: String,
+        payload: MetaPayload,
+    }
+    #[derive(Deserialize)]
+    struct MetaPayload {
+        originator: Option<String>,
+    }
+    const HEAD_LIMIT: u64 = 64 * 1024;
+    let mut head = Vec::new();
+    let read = File::open(path).and_then(|f| f.take(HEAD_LIMIT).read_to_end(&mut head));
+    let Some(end) = read.ok().and(head.iter().position(|b| *b == b'\n')) else {
+        return false;
+    };
+    serde_json::from_slice::<Meta>(&head[..end]).is_ok_and(|m| {
+        m.kind == "session_meta" && m.payload.originator.as_deref() == Some("Codex Desktop")
+    })
+}
+
 /// `$CODEX_HOME/session_index.jsonl` の末尾から、この会話の最後の thread_name を探す。
 /// 名前を付け直すたびに行が書き足され、最後の行が有効になる（codex-rs/rollout/src/session_index.rs）。
 /// 題名のために大きく読むことはせず、末尾の一回分の範囲に無ければ諦める。
@@ -281,5 +308,31 @@ mod tests {
         );
         assert_eq!(thread_name(dir.path(), "t3"), None);
         assert_eq!(thread_name(&dir.path().join("missing"), "t1"), None);
+    }
+
+    #[test]
+    fn started_by_desktop_app_reads_the_session_meta_originator() {
+        let meta = |originator: &str, instructions: usize| {
+            json!({"timestamp": "2026-09-20T01:00:00.000Z", "type": "session_meta",
+                   "payload": {"id": "t1", "originator": originator, "cli_version": "0.130.0",
+                               "base_instructions": {"text": "x".repeat(instructions)}}})
+            .to_string()
+        };
+        let event = json!({"timestamp": "2026-09-20T01:00:00.000Z", "type": "event_msg",
+                           "payload": {"type": "user_message", "originator": "Codex Desktop"}})
+        .to_string();
+        let cases = [
+            (vec![meta("Codex Desktop", 20_000)], true),
+            (vec![meta("codex-tui", 20_000)], false),
+            (vec![meta("Codex Desktop", 70_000)], false),
+            (vec![event, meta("Codex Desktop", 10)], false),
+        ];
+        for (i, (lines, want)) in cases.iter().enumerate() {
+            assert_eq!(
+                started_by_desktop_app(write(lines).path()),
+                *want,
+                "case {i}"
+            );
+        }
     }
 }

@@ -113,13 +113,18 @@ fn hook(provider: Provider) -> Result<(), String> {
     let title = codex::codex_home()
         .filter(|_| parsed.wants_codex_title())
         .and_then(|home| codex::thread_name(&home, &parsed.session_id));
+    let codex_rollout = parsed
+        .transcript_path
+        .as_deref()
+        .filter(|_| provider == Provider::Codex)
+        .map(std::path::Path::new);
     // サブエージェントのフックで親の行を書くのは承認待ちの出入りだけなので、起動元の手がかりは
     // 親の会話のフックからだけ取る。
     let extras = store::HookExtras {
         origin: parsed
             .subagent()
             .is_none()
-            .then(|| origin::detect(&parsed.hook_event_name)),
+            .then(|| origin::detect(&parsed.hook_event_name, codex_rollout)),
         transcript,
         rollout,
         title,
