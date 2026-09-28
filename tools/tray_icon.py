@@ -26,7 +26,10 @@ WHITE = (255, 255, 255, 255)
 
 
 def marimo_mask(r=13.0, spikes=32, amp=1.4):
-    """縁に細かな毛羽を立てた円を、縁の 1 px だけ濃淡で滑らかにした 8 bit の不透明度で描く。"""
+    """影絵でもまりもと分かるよう、縁に細かな毛羽を立てる。
+
+    36 px の小ささでは縁のぎざぎざが目立つので、縁の 1 px だけを濃淡で滑らかにする。
+    """
     im = Image.new("L", (N, N), 0)
     px = im.load()
     c = (N - 1) / 2
@@ -52,7 +55,6 @@ def fill(mask, color):
 
 
 def badge(im, color):
-    """右上に白い縁取りの丸と「！」を載せる。"""
     im = im.copy()
     d = ImageDraw.Draw(im)
     d.ellipse([22, 0, 35, 13], fill=WHITE)

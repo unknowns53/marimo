@@ -12,7 +12,7 @@ pub const DEFAULT: f64 = 1.0;
 // 掛けたもの）を窓の右下に固定し、パネル（幅 312）をその左に下端を揃えて置く。倍率 1.0 で
 // 既定のキャラクターのときの窓の大きさは tauri.conf.json にも書く。
 const STAGE_W: f64 = 180.0;
-/// 立ち絵の縦横比（高さ ÷ 幅）。既定のキャラクターの素材 800×1200 の比で、窓を最初に開くときに使う。
+/// 立ち絵の縦横比（高さ ÷ 幅）。既定のキャラクターの素材 800×1200 の比で、比がまだ保存されていないときに窓を開くのに使う。
 pub const DEFAULT_ASPECT: f64 = 1.5;
 // 手で書き換えた manifest の極端な縦横比で、窓が画面を覆うほど大きくならないようにする。
 const MIN_ASPECT: f64 = 0.25;
@@ -24,7 +24,6 @@ const BUBBLE_ROOM: f64 = 120.0;
 // パネルは行の増減や、件数の行に詳細を重ねたときに上へ伸びる。その最大の高さ。
 const PANEL_COLUMN_H: f64 = 380.0;
 
-/// パネルの行の出し方。行を 1 セッションずつ並べる詳細か、状態ごとの件数の 1 行に畳むか。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelStyle {
@@ -43,11 +42,43 @@ impl PanelStyle {
     }
 }
 
-/// 立ち絵を出すかどうかと、パネルの行の出し方。二つは独立に選べ、パネルはどちらでも常に出る。
+/// 並べ方は詳細と件数のどちらの出し方にも効く。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RowOrder {
+    /// 始まった時刻で並べるので、状態が変わっても行が動かない。
+    #[default]
+    Started,
+    Status,
+    Updated,
+}
+
+impl RowOrder {
+    fn parse(s: &str) -> Option<Self> {
+        match s {
+            "started" => Some(Self::Started),
+            "status" => Some(Self::Status),
+            "updated" => Some(Self::Updated),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Started => "started",
+            Self::Status => "status",
+            Self::Updated => "updated",
+        }
+    }
+}
+
+/// 立ち絵の有無と行の出し方と並べ方はどれも独立に選べ、どの組み合わせでもパネルは常に出る。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PanelDisplay {
     pub show_character: bool,
     pub panel_style: PanelStyle,
+    #[serde(default)]
+    pub row_order: RowOrder,
 }
 
 impl Default for PanelDisplay {
@@ -55,6 +86,7 @@ impl Default for PanelDisplay {
         Self {
             show_character: true,
             panel_style: PanelStyle::Detail,
+            row_order: RowOrder::Started,
         }
     }
 }
@@ -71,6 +103,7 @@ fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
     Some(PanelDisplay {
         show_character,
         panel_style,
+        row_order: RowOrder::default(),
     })
 }
 
@@ -79,8 +112,8 @@ fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
 const CHARACTER_INDEX: &str = include_str!("../../../assets/character/index.json");
 const FALLBACK_CHARACTER: &str = "koharu";
 
-// display.json には倍率とパネルの表示と利用制限の取得元とキャラクターを一緒に置く。一つを保存するときに
-// ほかを消さないよう、読んでから書き戻す。
+// display.json には倍率とパネルの表示と利用制限の取得元とキャラクターと立ち絵の縦横比を一緒に置く。
+// 一つを保存するときにほかを消さないよう、読んでから書き戻す。
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Display {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -93,9 +126,13 @@ struct Display {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     panel_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    row_order: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     usage_api: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stage_aspect: Option<f64>,
 }
 
 fn read_display(home: &MarimoHome) -> Display {
@@ -120,18 +157,21 @@ pub fn save(home: &MarimoHome, scale: f64) -> io::Result<()> {
 }
 
 /// 新しい鍵も以前の panel_mode も保存されていなければ None を返し、フロントエンドに既定を決めさせる。
-/// 新しい鍵が片方だけのときは、残りを panel_mode の読み替えか既定で補う。
+/// 新しい鍵が一部だけのときは、残りを panel_mode の読み替えか既定で補う。並べ方は panel_mode の
+/// 頃には無かったので、無いか知らない値なら始まった順にする。
 pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
     let d = read_display(home);
     let style = d.panel_style.as_deref().and_then(PanelStyle::parse);
+    let order = d.row_order.as_deref().and_then(RowOrder::parse);
     let legacy = d.panel_mode.as_deref().and_then(legacy_panel_mode);
-    if d.show_character.is_none() && style.is_none() && legacy.is_none() {
+    if d.show_character.is_none() && style.is_none() && order.is_none() && legacy.is_none() {
         return None;
     }
     let fallback = legacy.unwrap_or_default();
     Some(PanelDisplay {
         show_character: d.show_character.unwrap_or(fallback.show_character),
         panel_style: style.unwrap_or(fallback.panel_style),
+        row_order: order.unwrap_or_default(),
     })
 }
 
@@ -145,6 +185,7 @@ pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Resul
         }
         .to_owned(),
     );
+    d.row_order = Some(display.row_order.as_str().to_owned());
     d.panel_mode = None;
     store::write_json_atomic(&home.display_file(), &d)
 }
@@ -171,7 +212,7 @@ pub fn default_character() -> String {
         .unwrap_or_else(|| FALLBACK_CHARACTER.to_owned())
 }
 
-/// 保存されていない、または一覧に無い名前なら既定のキャラクターを返す。
+/// 組み込みの一覧から外れた名前が残っていても立ち絵の無い状態で起動しないよう、既定のキャラクターへ戻す。
 pub fn load_character(home: &MarimoHome) -> String {
     read_display(home)
         .character
@@ -188,6 +229,21 @@ pub fn save_character(home: &MarimoHome, id: &str) -> io::Result<()> {
     }
     let mut d = read_display(home);
     d.character = Some(id.to_owned());
+    store::write_json_atomic(&home.display_file(), &d)
+}
+
+// 縦横比は選んだキャラクターの manifest にあり、読めるのはフロントエンドだけである。起動のたびに
+// 既定の比で窓を開いてから右下を保って縮めると、保存した左上がその差だけずれていくので、前回知らされた比を
+// 残しておき、窓を最初からその大きさで開く。
+pub fn load_aspect(home: &MarimoHome) -> f64 {
+    read_display(home)
+        .stage_aspect
+        .map_or(DEFAULT_ASPECT, clamp_aspect)
+}
+
+pub fn save_aspect(home: &MarimoHome, aspect: f64) -> io::Result<()> {
+    let mut d = read_display(home);
+    d.stage_aspect = Some(clamp_aspect(aspect));
     store::write_json_atomic(&home.display_file(), &d)
 }
 
@@ -236,9 +292,15 @@ mod tests {
             r#"{"scale": 3.0}"#,
             r#"{"scale": -1}"#,
             r#"{"other": 1.5}"#,
+            r#"{"stage_aspect": 0}"#,
+            r#"{"stage_aspect": -1.5}"#,
         ] {
             fs::write(home.display_file(), content).unwrap();
-            assert_eq!(load(&home), DEFAULT, "content {content:?}");
+            assert_eq!(
+                (load(&home), load_aspect(&home)),
+                (DEFAULT, DEFAULT_ASPECT),
+                "content {content:?}"
+            );
         }
     }
 
@@ -246,6 +308,7 @@ mod tests {
         PanelDisplay {
             show_character,
             panel_style,
+            row_order: RowOrder::Started,
         }
     }
 
@@ -263,13 +326,23 @@ mod tests {
             (1.5, Some(counts))
         );
         save(&home, 2.0).unwrap();
-        assert_eq!(load_panel_display(&home), Some(counts));
+        save_character(&home, "clawd").unwrap();
+        assert_eq!(
+            (load_panel_display(&home), load_character(&home).as_str()),
+            (Some(counts), "clawd")
+        );
 
         save_usage_api(&home, true).unwrap();
+        save_aspect(&home, 1.0).unwrap();
         assert!(load_usage_api(&home));
         assert_eq!(
-            (load(&home), load_panel_display(&home)),
-            (2.0, Some(counts))
+            (
+                load(&home),
+                load_panel_display(&home),
+                load_aspect(&home),
+                load_character(&home).as_str()
+            ),
+            (2.0, Some(counts), 1.0, "clawd")
         );
         save(&home, 2.5).unwrap();
         save_panel_display(&home, display(false, PanelStyle::Detail)).unwrap();
@@ -290,50 +363,57 @@ mod tests {
 
     #[test]
     fn panel_display_reads_legacy_panel_mode_until_saved() {
+        use PanelStyle::{Counts, Detail};
+        use RowOrder::{Started, Status, Updated};
         let (_d, home) = home();
         let cases = [
-            (
-                r#"{"panel_mode": "detail"}"#,
-                Some((true, PanelStyle::Detail)),
-            ),
-            (
-                r#"{"panel_mode": "counts"}"#,
-                Some((true, PanelStyle::Counts)),
-            ),
-            (
-                r#"{"panel_mode": "list"}"#,
-                Some((false, PanelStyle::Detail)),
-            ),
+            (r#"{"panel_mode": "detail"}"#, Some((true, Detail, Started))),
+            (r#"{"panel_mode": "counts"}"#, Some((true, Counts, Started))),
+            (r#"{"panel_mode": "list"}"#, Some((false, Detail, Started))),
             (
                 r#"{"panel_mode": "picture"}"#,
-                Some((true, PanelStyle::Counts)),
+                Some((true, Counts, Started)),
             ),
             (r#"{"scale": 1.2, "panel_mode": "tiny"}"#, None),
             (r#"{"scale": 1.7}"#, None),
             (r#"{"panel_style": "bogus"}"#, None),
+            (r#"{"row_order": "bogus"}"#, None),
             // 新しい鍵は panel_mode より優先し、無い方だけを panel_mode の読み替えで補う。
             (
                 r#"{"panel_mode": "list", "show_character": true, "panel_style": "counts"}"#,
-                Some((true, PanelStyle::Counts)),
+                Some((true, Counts, Started)),
             ),
             (
                 r#"{"panel_mode": "list", "panel_style": "counts"}"#,
-                Some((false, PanelStyle::Counts)),
+                Some((false, Counts, Started)),
             ),
             (
                 r#"{"show_character": false}"#,
-                Some((false, PanelStyle::Detail)),
+                Some((false, Detail, Started)),
             ),
             (
                 r#"{"panel_mode": "picture", "panel_style": "bogus"}"#,
-                Some((true, PanelStyle::Counts)),
+                Some((true, Counts, Started)),
+            ),
+            (r#"{"row_order": "status"}"#, Some((true, Detail, Status))),
+            (
+                r#"{"panel_mode": "list", "row_order": "updated"}"#,
+                Some((false, Detail, Updated)),
+            ),
+            (
+                r#"{"show_character": true, "panel_style": "counts", "row_order": "bogus"}"#,
+                Some((true, Counts, Started)),
             ),
         ];
         for (content, expected) in cases {
             fs::write(home.display_file(), content).unwrap();
             assert_eq!(
                 load_panel_display(&home),
-                expected.map(|(c, s)| display(c, s)),
+                expected.map(|(show_character, panel_style, row_order)| PanelDisplay {
+                    show_character,
+                    panel_style,
+                    row_order,
+                }),
                 "content {content:?}"
             );
         }
@@ -343,12 +423,19 @@ mod tests {
             r#"{"scale": 1.3, "panel_mode": "list"}"#,
         )
         .unwrap();
-        save_panel_display(&home, display(true, PanelStyle::Detail)).unwrap();
+        save_panel_display(
+            &home,
+            PanelDisplay {
+                row_order: Status,
+                ..display(true, Detail)
+            },
+        )
+        .unwrap();
         let saved: serde_json::Value =
             serde_json::from_slice(&fs::read(home.display_file()).unwrap()).unwrap();
         assert_eq!(
             saved,
-            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail"})
+            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status"})
         );
     }
 
@@ -357,16 +444,6 @@ mod tests {
         let (_d, home) = home();
         assert_eq!(default_character(), "koharu");
         assert_eq!(load_character(&home), "koharu");
-        save(&home, 1.5).unwrap();
-        save_character(&home, "clawd").unwrap();
-        save_panel_display(&home, display(false, PanelStyle::Counts)).unwrap();
-        assert_eq!(
-            (load_character(&home).as_str(), load(&home)),
-            ("clawd", 1.5)
-        );
-        assert!(save_character(&home, "bogus").is_err());
-        assert_eq!(load_character(&home), "clawd");
-
         for (content, expected) in [
             (r#"{"character": "koharu"}"#, "koharu"),
             (r#"{"character": "clawd", "scale": 0.6}"#, "clawd"),
@@ -378,6 +455,14 @@ mod tests {
             fs::write(home.display_file(), content).unwrap();
             assert_eq!(load_character(&home), expected, "content {content:?}");
         }
+    }
+
+    #[test]
+    fn unknown_character_is_not_saved() {
+        let (_d, home) = home();
+        save_character(&home, "clawd").unwrap();
+        assert!(save_character(&home, "bogus").is_err());
+        assert_eq!(load_character(&home), "clawd");
     }
 
     #[test]

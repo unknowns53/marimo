@@ -27,7 +27,7 @@ struct AppState {
     usage: usage::Poller,
     icons: OnceLock<icons::AppIcons>,
     // 立ち絵の縦横比は選んだキャラクターの manifest にあり、読むのはフロントエンドなので、
-    // 知らされるまでは既定のキャラクターの比で窓を開く。
+    // 知らされるまでは前回保存した比を使う。
     aspect: Mutex<f64>,
     tray: OnceLock<tray::Tray>,
 }
@@ -83,8 +83,8 @@ fn set_panel_display(
     display: scale::PanelDisplay,
 ) -> Result<(), String> {
     scale::save_panel_display(&state.home, display).map_err(|e| e.to_string())?;
-    // 表示はトレイのメニューからも、右クリックメニューやパネルの切り替えからも変わるので、
-    // どれで変えても必ず通るここでトレイの印を付け直す。
+    // 右クリックメニューやパネルの切り替えで変えた表示を、トレイのメニューの印にも揃える。
+    // トレイで選んだ表示はトレイ自身が保存して印を付けるので、ここは通らない。
     if let Some(tray) = state.tray.get() {
         tray.reflect(display);
     }
@@ -106,6 +106,9 @@ fn set_stage_aspect(window: WebviewWindow, state: State<'_, AppState>, aspect: f
     let aspect = scale::clamp_aspect(aspect);
     *state.aspect.lock().unwrap_or_else(|e| e.into_inner()) = aspect;
     resize(&window, scale::load(&state.home), aspect);
+    if let Err(e) = scale::save_aspect(&state.home, aspect) {
+        eprintln!("marimo: cannot save stage aspect: {e}");
+    }
 }
 
 #[tauri::command]
@@ -170,6 +173,7 @@ fn main() {
     let context = tauri::generate_context!();
     let hits = Arc::new(hit::HitState::default());
     let usage = usage::Poller::new(scale::load_usage_api(&home));
+    let aspect = scale::load_aspect(&home);
 
     // LaunchAgent は System Events への自動操作の許可を求めずに登録できる。
     // plist の名前は既定だと製品名の marimo になり、同名の別アプリと重なりうるので
@@ -192,7 +196,7 @@ fn main() {
             hits: hits.clone(),
             usage: usage.clone(),
             icons: OnceLock::new(),
-            aspect: Mutex::new(scale::DEFAULT_ASPECT),
+            aspect: Mutex::new(aspect),
             tray: OnceLock::new(),
         })
         .invoke_handler(tauri::generate_handler![
@@ -224,7 +228,7 @@ fn main() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window is declared in tauri.conf.json");
-            let (w, h) = scale::window_size(scale::load(&home), scale::DEFAULT_ASPECT);
+            let (w, h) = scale::window_size(scale::load(&home), aspect);
             window_pos::restore(&window, &home, LogicalSize::new(w, h));
             window.show()?;
             window_pos::track(&window, home.clone());

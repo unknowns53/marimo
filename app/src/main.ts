@@ -9,10 +9,18 @@ import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
 import { BubbleModel } from "./bubbleModel";
 import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
-import { characterCandidates, characterInfo, type CharacterInfo } from "./manifest";
-import { renderPanel } from "./panel";
+import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
+import { onScrollbar, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
-import { DEFAULT_PANEL_DISPLAY, PANEL_STYLES, panelView, type PanelDisplay, type PanelStyle } from "./panelModel";
+import {
+  DEFAULT_PANEL_DISPLAY,
+  PANEL_STYLES,
+  panelView,
+  ROW_ORDERS,
+  type PanelDisplay,
+  type PanelStyle,
+  type RowOrder,
+} from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer, type Manifest } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
@@ -25,7 +33,7 @@ const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";
 // 利用制限の「古い」「リセット済み」と既読の行を畳む時期は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
 const REACTION_SPEECH_MS = 2500;
-// style.css の #bubble の bottom に足している、立ち絵と吹き出しの間の隙間。
+// style.css の #bubble の bottom に足している、立ち絵と吹き出しの間の隙間と揃える必要がある。
 const BUBBLE_GAP_PX = 2;
 // 押してからこれ以上動いたらドラッグとみなし、立ち絵の反応は出さない。
 const DRAG_THRESHOLD_PX = 4;
@@ -38,6 +46,7 @@ const panelElements = {
   rows: $("rows"),
   limits: $("limits"),
   toggle: $("panel-toggle"),
+  order: $("row-order"),
 };
 const bubbleNode = $("bubble");
 const acknowledged = new Acknowledged((keys) =>
@@ -60,9 +69,12 @@ const expansion = new PanelExpansion(
 );
 
 let renderer: CharacterRenderer | undefined;
-// メニューに並べる組み込みのキャラクター。manifest を読めたものだけを index.json の順に持つ。
+// manifest を読めなかったキャラクターは選んでも出せないので、読めたものだけをメニューに並べる。
 let characters: { info: CharacterInfo; manifest: Manifest }[] = [];
 let characterId: string | undefined;
+// 立ち絵の画像を読む間に別のキャラクターが選ばれることがあるので、最後に頼んだものだけを出す。
+let requestedCharacter: string | undefined;
+let characterRequest = 0;
 let snapshot: Snapshot | null = null;
 // snapshot を、見たと示された完了を除いて集約し直したもの。表情、吹き出し、パネルはこちらを使う。
 let shown: Snapshot | null = null;
@@ -133,7 +145,7 @@ function placeBubble(): void {
   const box = stage.getBoundingClientRect();
   const bottom = box.top - BUBBLE_GAP_PX;
   const left = box.right - bubbleNode.offsetWidth;
-  const tops = [rectOf(panelElements.panel), rectOf(panelElements.toggle)]
+  const tops = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)]
     .filter((r): r is Rect => r !== null && r.x + r.w > left)
     .map((r) => r.y - BUBBLE_GAP_PX);
   const lift = Math.max(0, Math.min(bottom - Math.min(bottom, ...tops), bottom - bubbleNode.offsetHeight));
@@ -156,8 +168,8 @@ async function reactToTouch(): Promise<void> {
 }
 
 function collectHitRegions(): HitRegions {
-  // 切り替えのボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
-  const rects = [rectOf(panelElements.panel), rectOf(panelElements.toggle)];
+  // 切り替えと並べ方のボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
+  const rects = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)];
   // 広げた層はパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
@@ -167,7 +179,7 @@ function collectHitRegions(): HitRegions {
 }
 
 function redrawPanel(): void {
-  const view = panelView(shown, acknowledged, panelDisplay.panel_style, Date.now());
+  const view = panelView(shown, acknowledged, panelDisplay.panel_style, panelDisplay.row_order, Date.now());
   const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null, usage: usageStatus };
   renderPanel(panelElements, view, limits, appIcons, Date.now(), selectSession);
   placeBubble();
@@ -194,7 +206,9 @@ async function loadCharacters(): Promise<unknown> {
   const index = await fetch(new URL("index.json", CHARACTER_ROOT))
     .then((r) => (r.ok ? (r.json() as Promise<unknown>) : []))
     .catch(() => []);
-  const ids = Array.isArray(index) ? index.filter((x): x is string => typeof x === "string") : [];
+  const listed = Array.isArray(index) ? index.filter((x): x is string => typeof x === "string") : [];
+  // 一覧を読めなくても、characterCandidates が選ぶ既定のキャラクターの素材は無事なことがある。
+  const ids = listed.length > 0 ? listed : [DEFAULT_CHARACTER];
   const loaded = await Promise.all(
     ids.map((id) =>
       loadManifest(characterBase(id)).then(
@@ -211,19 +225,33 @@ async function loadCharacters(): Promise<unknown> {
 }
 
 // 新しい立ち絵を読み終えてから古いものと入れ替えるので、読めなかったときは今の立ち絵が残る。
+// 読んでいる間に次の依頼が来ていたら、読み終えたものを捨てて何も変えない。
 // 枠の高さは素材の縦横比で決まり、窓の大きさも合わせるよう Rust に知らせる。
-async function showCharacter(id: string): Promise<boolean> {
+async function showCharacter(id: string): Promise<"shown" | "failed" | "superseded"> {
+  const request = ++characterRequest;
+  requestedCharacter = id;
+  const superseded = () => request !== characterRequest;
   const entry = characters.find((c) => c.info.id === id);
-  if (!entry) return false;
   const base = characterBase(id);
-  let next: CharacterRenderer;
+  let next: CharacterRenderer | undefined;
   try {
+    if (!entry) throw new Error("not in the character index");
     next = createRenderer(entry.manifest, base);
     next.onShapeChange = () => hits.schedule();
     await next.mount(stage);
   } catch (e) {
     console.error("character", id, e);
-    return false;
+    next?.destroy();
+    if (superseded()) return "superseded";
+    requestedCharacter = characterId;
+    return "failed";
+  }
+  const nextDialogue = await fetch(new URL("dialogue.json", base))
+    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
+    .catch(() => ({}));
+  if (superseded()) {
+    next.destroy();
+    return "superseded";
   }
   document.documentElement.style.setProperty("--stage-aspect", String(entry.info.aspect));
   stage.classList.toggle("pixelated", entry.info.pixelated);
@@ -231,17 +259,15 @@ async function showCharacter(id: string): Promise<boolean> {
   renderer?.destroy();
   renderer = next;
   characterId = id;
+  defaultDialogue = nextDialogue;
   if (shown) renderer.update({ status: shown.aggregate, tool: focusedTool(shown) });
-  defaultDialogue = await fetch(new URL("dialogue.json", base))
-    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
-    .catch(() => ({}));
   await reloadDialogue();
   hits.schedule();
-  return true;
+  return "shown";
 }
 
 async function switchCharacter(id: string): Promise<void> {
-  if (id === characterId || !(await showCharacter(id))) return;
+  if (id === requestedCharacter || (await showCharacter(id)) !== "shown") return;
   void invoke("set_character", { id }).catch((e) => console.error("character", e));
 }
 
@@ -256,17 +282,21 @@ async function loadPanelDisplay(): Promise<PanelDisplay> {
   }
   if (!legacyHidden) return DEFAULT_PANEL_DISPLAY;
   // 行を隠す設定は、行を出さない表示が無くなったので、立ち絵を残して最も場所を取らない件数だけへ読み替える。
-  const display: PanelDisplay = { show_character: true, panel_style: "counts" };
+  const display: PanelDisplay = { ...DEFAULT_PANEL_DISPLAY, panel_style: "counts" };
   void invoke("set_panel_display", { display }).catch(() => {});
   return display;
 }
 
-function setPanelDisplay(display: PanelDisplay): void {
+function applyPanelDisplay(display: PanelDisplay): void {
   panelDisplay = display;
-  void invoke("set_panel_display", { display }).catch((e) => console.error("panel display", e));
   applyCharacterVisibility();
   showSpeech();
   redrawPanel();
+}
+
+function setPanelDisplay(display: PanelDisplay): void {
+  applyPanelDisplay(display);
+  void invoke("set_panel_display", { display }).catch((e) => console.error("panel display", e));
 }
 
 function setShowCharacter(show: boolean): void {
@@ -275,6 +305,10 @@ function setShowCharacter(show: boolean): void {
 
 function setPanelStyle(style: PanelStyle): void {
   setPanelDisplay({ ...panelDisplay, panel_style: style });
+}
+
+function setRowOrder(order: RowOrder): void {
+  setPanelDisplay({ ...panelDisplay, row_order: order });
 }
 
 // 立ち絵は隠している間も描き続け、瞬きや表情の切り替えの時計も止めない。戻したときに今の状態の
@@ -286,6 +320,12 @@ function applyCharacterVisibility(): void {
 const PANEL_STYLE_LABEL: Record<PanelStyle, string> = {
   detail: "詳細を表示",
   counts: "件数だけ表示",
+};
+
+const ROW_ORDER_LABEL: Record<RowOrder, string> = {
+  started: "始まった順に並べる",
+  status: "状態の順に並べる",
+  updated: "更新の新しい順に並べる",
 };
 
 async function openMenu(): Promise<void> {
@@ -335,6 +375,16 @@ async function openMenu(): Promise<void> {
         ),
       )),
       await PredefinedMenuItem.new({ item: "Separator" }),
+      ...(await Promise.all(
+        ROW_ORDERS.map((order) =>
+          CheckMenuItem.new({
+            text: ROW_ORDER_LABEL[order],
+            checked: order === panelDisplay.row_order,
+            action: () => setRowOrder(order),
+          }),
+        ),
+      )),
+      await PredefinedMenuItem.new({ item: "Separator" }),
       ...sizeItems,
       await PredefinedMenuItem.new({ item: "Separator" }),
       await Submenu.new({ text: "キャラクター", enabled: characterItems.length > 0, items: characterItems }),
@@ -359,23 +409,29 @@ async function openMenu(): Promise<void> {
   await menu.popup();
 }
 
-function bindPanelToggle(): void {
+function bindPanelTabs(): void {
+  const pressed = (e: MouseEvent, key: string) =>
+    (e.target as HTMLElement | null)?.closest<HTMLElement>(`button[data-${key}]`)?.dataset[key];
   panelElements.toggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    const style = (e.target as HTMLElement | null)?.closest<HTMLElement>("button[data-style]")?.dataset.style;
-    const known = PANEL_STYLES.find((s) => s === style);
-    if (known && known !== panelDisplay.panel_style) setPanelStyle(known);
+    const style = PANEL_STYLES.find((s) => s === pressed(e, "style"));
+    if (style && style !== panelDisplay.panel_style) setPanelStyle(style);
+  });
+  panelElements.order.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const order = ROW_ORDERS.find((o) => o === pressed(e, "order"));
+    if (order && order !== panelDisplay.row_order) setRowOrder(order);
   });
 }
 
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
   // ドラッグはすぐには始めず、押したまま少し動いてから始める。動かずに離したら、立ち絵を押した
-  // ことになる。行と吹き出しは押して操作するので、そこからはドラッグを始めない。
+  // ことになる。行と吹き出しとボタンとスクロールバーは押して操作するので、そこからはドラッグを始めない。
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.button !== 0 || target?.closest(".row, .counts-group, #panel-toggle, #bubble")) {
+    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .counts-group, #panel-toggle, #row-order, #bubble")) {
       press = null;
       return;
     }
@@ -400,14 +456,16 @@ function bindWindowControls(): void {
 
 async function start(): Promise<void> {
   bindWindowControls();
-  bindPanelToggle();
-  panelDisplay = await loadPanelDisplay();
-  // トレイのメニューで選んだ表示も、右クリックメニューと同じ関数で反映して保存する。保存のコマンドが
-  // トレイの印を付け直す。
-  await listen<{ show_character: boolean | null; panel_style: PanelStyle | null }>("tray-panel-display", (e) => {
-    if (e.payload.show_character !== null) setShowCharacter(e.payload.show_character);
-    if (e.payload.panel_style !== null) setPanelStyle(e.payload.panel_style);
+  bindPanelTabs();
+  // トレイのメニューで選んだ表示は Rust が保存してから届くので、反映だけをする。起動中に選ばれたものを
+  // 取りこぼさないよう保存済みの表示を読む前に聞き始め、読んでいる間に届いていたらそちらを残す。
+  let trayChose = false;
+  await listen<PanelDisplay>("tray-panel-display", (e) => {
+    trayChose = true;
+    applyPanelDisplay(e.payload);
   });
+  const savedDisplay = await loadPanelDisplay();
+  if (!trayChose) panelDisplay = savedDisplay;
   appIcons = await invoke<AppIcons>("app_icons").catch((e) => {
     console.error("app icons", e);
     return appIcons;
@@ -422,7 +480,7 @@ async function start(): Promise<void> {
   const index = await loadCharacters();
   const saved = await invoke<string>("get_character").catch(() => null);
   for (const id of characterCandidates(saved, index)) {
-    if (await showCharacter(id)) break;
+    if ((await showCharacter(id)) !== "failed") break;
   }
   // マウスが立ち絵の上にあるかは Rust 側がクリックを通す判定のついでに調べて知らせる。透明な部分では
   // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。

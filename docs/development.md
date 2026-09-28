@@ -8,6 +8,7 @@ marimo をソースからビルドする人、`install` が何を書き換える
 - [プライバシーとセキュリティ](#プライバシーとセキュリティ)
 - [リポジトリの構成](#リポジトリの構成)
 - [テストと検査](#テストと検査)
+- [アイコンを描き直す](#アイコンを描き直す)
 - [仕組みの概要](#仕組みの概要)
 
 ## ソースからビルドする
@@ -19,17 +20,17 @@ marimo をソースからビルドする人、`install` が何を書き換える
 | ツール | バージョン | 使う場面 |
 | --- | --- | --- |
 | Rust（rustc と cargo） | 1.90 以降（`Cargo.toml` の `rust-version`）、edition 2024 | フックのコマンド `marimo-hook` とアプリ本体のビルド |
-| Node.js と npm | Node.js 22.12 以降 | アプリの画面部分のビルドとテスト |
+| Node.js と npm | Node.js 22.12 以上の 22 系、24 系、または 26 以降 | アプリの画面部分のビルドとテスト |
 
-Node.js のバージョンは、依存しているビルドツールの Vite と、テストツールの Vitest が求める範囲から決めています。アプリ本体は Tauri v2（Web の技術で画面を作り、Rust で OS の機能を呼ぶデスクトップアプリの枠組み）で作られています。
+Node.js のバージョンは、依存しているビルドツールの Vite と、テストツールの Vitest の両方が求める範囲から決めています。23 系と 25 系は Vitest の範囲に入りません。アプリ本体は Tauri v2（Web の技術で画面を作り、Rust で OS の機能を呼ぶデスクトップアプリの枠組み）で作られています。
 
-アプリは利用量の API との通信の暗号化に、macOS と Linux では OS の TLS の実装を、Windows では Rust で書かれた実装の rustls を使います。Linux では、そのための Rust のライブラリ native-tls が OpenSSL を使うので、ビルドの前に OpenSSL の開発用パッケージ（Debian や Ubuntu では `libssl-dev`、Fedora では `openssl-devel`）を入れてください。macOS では OS に含まれる実装を使うので、追加で入れるものはありません。Windows では rustls が使う暗号のライブラリ ring が C のコードを含みますが、Tauri のビルドに要る Visual Studio の C++ のビルドツールでそのままビルドできます。
+アプリは利用量の API（アプリが外部のサービスを呼び出すための窓口）との通信の暗号化に、macOS と Linux では OS の TLS（通信を暗号化する仕組み）の実装を、Windows では Rust で書かれた実装の rustls を使います。Linux では、そのための Rust のライブラリ native-tls が OpenSSL を使うので、ビルドの前に OpenSSL の開発用パッケージ（Debian や Ubuntu では `libssl-dev`、Fedora では `openssl-devel`）を入れてください。macOS では OS に含まれる実装を使うので、追加で入れるものはありません。Windows では rustls が使う暗号のライブラリ ring が C のコードを含みますが、Tauri のビルドに要る Visual Studio の C++ のビルドツールでそのままビルドできます。
 
 ### ビルドの成果物
 
-`cargo build --release -p marimo-hook` でできる実行ファイルは `target/release/marimo-hook` に置かれます。`npm run tauri -- build` を実行すると、macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<版>_x64-setup.exe` と `target/release/bundle/msi/marimo_<版>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
+`cargo build --release -p marimo-hook` でできる実行ファイルは `target/release/marimo-hook`（Windows では `marimo-hook.exe`）に置かれます。`npm run tauri -- build` は、`app/src-tauri/tauri.conf.json` の `beforeBuildCommand` に従って先に `npm run build` を実行します。macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<版>_x64-setup.exe` と `target/release/bundle/msi/marimo_<版>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
 
-`target\release\marimo.exe` を直接起動しても動きますが、ふだん使いには向きません。起動している間は実行ファイルが使用中になり、ビルドし直すと上書きに失敗するためです。MSI のインストーラはすべての利用者向けに Program Files へ入れるもので、管理者の権限が要ります。
+`target\release\marimo.exe` を直接起動しても動きますが、ふだん使いには向きません。起動している間は実行ファイルが使用中になり、ビルドし直すと上書きに失敗するためです。MSI（Windows に標準で備わるインストーラの形式）のインストーラは、すべての利用者向けに Program Files へ入れるもので、管理者の権限が要ります。
 
 ### ad-hoc 署名について
 
@@ -50,20 +51,20 @@ Node.js のバージョンは、依存しているビルドツールの Vite と
 2. 設定ファイルの `hooks` に、次の 16 のイベントそれぞれについて、`~/.marimo/bin/marimo-hook` に `hook` という引数を渡して呼ぶフックを追加します。タイムアウトは 5 秒です。
    SessionStart、UserPromptSubmit、PreToolUse、PermissionRequest、PermissionDenied、PostToolUse、PostToolUseFailure、Notification、Elicitation、ElicitationResult、Stop、StopFailure、SessionEnd、MessageDisplay、SubagentStart、SubagentStop
 
-   追加するフックは、macOS では次の形になります。`command` には実行ファイルの絶対パスが入り、Windows では `C:\Users\<ユーザー名>\.marimo\bin\marimo-hook.exe` のような `\` 区切りのパスになります。
+   追加するフックは、macOS では次の形になります。`command` には実行ファイルの絶対パスが入り、Windows では `C:\Users\user\.marimo\bin\marimo-hook.exe` のような `\` 区切りのパスになります。
 
    ```json
    {
      "type": "command",
-     "command": "/Users/<ユーザー名>/.marimo/bin/marimo-hook",
+     "command": "/Users/user/.marimo/bin/marimo-hook",
      "args": ["hook"],
      "timeout": 5
    }
    ```
 
-   `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを通さずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを通さないので、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form は Claude Code 2.1.139 で加わった書き方です（必要な版は README の[動作環境](../README.md#動作環境)を参照）。
+   `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを通さずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを通さないので、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form に対応した Claude Code の版は、README の[動作環境](../README.md#動作環境)に書いています。
 
-   以前の marimo は、`~/.marimo/bin/marimo-hook hook` という文字列をシェルに渡す形でフックを登録していました。この形の登録が残っている状態で `install` を実行し直すと、同じグループの同じ位置のまま exec form へ書き換えます。
+   `~/.marimo/bin/marimo-hook hook` という文字列をシェルに渡す形のフックが登録されている状態で `install` を実行すると、同じグループの同じ位置のまま exec form へ書き換えます。
 
 3. statusLine を登録します（[statusLine の包み方](#statusline-の包み方)を参照）。
 
@@ -73,9 +74,9 @@ statusLine がまだ無ければ `marimo-hook statusline` だけを登録しま�
 
 Windows の Claude Code は、Git Bash が入っていれば Git Bash で、なければ PowerShell で statusLine を実行します。どちらで動くかが環境によって変わり、両者で引用の規則も違うので、引用符を使わずにどちらのシェルでも同じように読める形だけで書きます。marimo-hook のパスは、実行ファイルがホームフォルダの下にあれば `~/.marimo/bin/marimo-hook.exe statusline` のように `~/` で始め、そうでなければ `/` 区切りの絶対パスを書きます。パスに空白などが含まれていてどちらの形でも書けない場合は、statusLine を登録せず、既存の statusLine も包みません。
 
-既存の statusLine は、`bash C:/Users/<ユーザー名>/.claude/statusline.sh` のように、引用符や記号を含まない語を空白一つずつで区切って並べたコマンドの場合だけ包みます。このときは `sh -c` を使わず、`~/.marimo/bin/marimo-hook.exe statusline -- bash C:/Users/<ユーザー名>/.claude/statusline.sh` のように元のコマンドをそのまま後ろへ続けます。引用符、`$`、`|`、`;`、`\` などを含むコマンドや、`~` で始まる語を含むコマンドは、二つのシェルで読み方が変わるので包まずにそのまま残し、利用制限は「利用制限を API から取得」で出すよう表示します。`bash ~/.claude/statusline.sh` のように `~` で始まる語だけが理由で包めない場合は、`~` を `C:/Users/<ユーザー名>` に書き換えてから `install` を実行し直すと包めます。
+既存の statusLine は、`bash C:/Users/user/.claude/statusline.sh` のように、引用符や記号を含まない語を空白一つずつで区切って並べたコマンドの場合だけ包みます。このときは `sh -c` を使わず、`~/.marimo/bin/marimo-hook.exe statusline -- bash C:/Users/user/.claude/statusline.sh` のように元のコマンドをそのまま後ろへ続けます。引用符、`$`、`|`、`;`、`\` などを含むコマンドや、`~` で始まる語を含むコマンドは、二つのシェルで読み方が変わるので包まずにそのまま残し、利用制限は「利用制限を API から取得」で出すよう表示します。`bash ~/.claude/statusline.sh` のように `~` で始まる語だけが理由で包めない場合は、`~` を `C:/Users/user` に書き換えてから `install` を実行し直すと包めます。
 
-包んだコマンドの最初の語が `bash` のような名前だけのときは、marimo-hook が環境変数 `PATH` の並びの順に探して起動します。Rust の標準の探し方は `PATH` より先に System32 などを探すので、WSL を入れていると System32 の `bash.exe` が見つかり、Git Bash や PowerShell が起動するものと違ってしまうためです。
+包んだコマンドの最初の語が `bash` のような名前だけのときは、marimo-hook が環境変数 `PATH` の並びの順に探して起動します。Rust の標準の探し方は `PATH` より先に System32 などを探すので、WSL（Windows の上で Linux を動かす仕組み）を入れていると System32 の `bash.exe` が見つかり、Git Bash や PowerShell が起動するものと違ってしまうためです。
 
 ### 既存の設定の守り方
 
@@ -83,8 +84,8 @@ Windows の Claude Code は、Git Bash が入っていれば Git Bash で、な�
 
 - 書き換える前に、同じフォルダへ `settings.json.marimo-backup-<日時>` という名前でバックアップを取ります。日時は UTC（協定世界時）の `YYYYMMDD-HHMMSS` の形で、同じ名前があれば末尾に `-1` などの番号が付きます。設定ファイルがまだ無かった場合は、バックアップを取らずに新しく作ります。
 - 既存のフックや marimo に関係しない項目は、キーの順序も含めてそのまま残します。ファイルの権限も引き継ぎます。settings.json がシンボリックリンクなら、リンク先のファイルを書き換えます。
-- 何度実行しても結果は同じです。すでに登録されていれば「変更はありません（すでにインストール済みです）」と表示し、settings.json にもバックアップにも手を付けません。ビルドし直したあとに実行すると、`~/.marimo/bin/marimo-hook` だけが新しいものに差し替わります。以前の形のフックが残っていた場合だけ、exec form へ書き換えます。[更新用のスクリプト](usage.md#更新する)も、ビルドのあとにこの `install` を実行します。
-- settings.json が JSON として読めないときなどは、何も変更せずに理由を表示し、0 以外の終了コードで終わります。
+- 何度実行しても結果は同じです。すでに登録されていれば「変更はありません（すでにインストール済みです）」と表示し、settings.json にもバックアップにも手を付けません。ビルドし直したあとに実行すると、`~/.marimo/bin/marimo-hook` だけが新しいものに差し替わります。シェルに渡す形のフックが残っていた場合だけ、exec form へ書き換えます。[更新用のスクリプト](usage.md#更新する)も、ビルドのあとにこの `install` を実行します。
+- settings.json が JSON（データを文字で書き表す形式）として読めないときなどは、何も変更せずに理由を表示し、0 以外の終了コードで終わります。
 
 ### サブコマンドと設定ファイルの場所
 
@@ -103,20 +104,20 @@ Codex のフックには exec form が無く、コマンドは常に利用者の
 ```json
 {
   "type": "command",
-  "command": "/Users/<ユーザー名>/.marimo/bin/marimo-hook codex-hook",
+  "command": "/Users/user/.marimo/bin/marimo-hook codex-hook",
   "timeout": 5
 }
 ```
 
 Windows の Codex は、利用者の設定によって PowerShell かコマンドプロンプトでフックを実行し、両者で引用の規則が違います。そこで、実行ファイルのパスに空白や記号が無く、引用符なしでどちらでも同じように読める場合だけ、`\` 区切りのパスのまま登録します。そう書けない場合は、Codex のフックを登録せずにその旨を表示します。
 
-Codex は、管理者が配ったもの以外のフックを、利用者が Codex CLI の `/hooks` で内容を確かめて信頼するまで実行しません。信頼はフックの定義から計算した値で記録されるので、登録した後に Codex CLI で `/hooks` を開き、marimo のフックを信頼してください。marimo は Codex の信頼の記録がある `config.toml` を書き換えず、信頼を省く起動のオプションも使いません。`install` を同じ場所の実行ファイルでやり直しても `hooks.json` は変わらないので、信頼し直す必要はありません。`MARIMO_HOME` を変えるなどして実行ファイルの場所が変わったときは、もう一度 `/hooks` で信頼します。
+Codex は、管理者が配ったもの以外のフックを、利用者が Codex CLI（端末で動かす Codex のコマンドラインインターフェース）の `/hooks` で内容を確かめて信頼するまで実行しません。信頼はフックの定義から計算した値で記録されます。信頼する操作は、README の [2. フックと statusLine を登録する](../README.md#2-フックと-statusline-を登録する)に書いています。marimo は Codex の信頼の記録がある `config.toml` を書き換えず、信頼を省く起動のオプションも使いません。`install` を同じ場所の実行ファイルでやり直しても `hooks.json` は変わらないので、信頼し直す必要はありません。`MARIMO_HOME` を変えるなどして実行ファイルの場所が変わったときは、もう一度 `/hooks` で信頼します。
 
 `hooks.json` の書き換えでも、settings.json と同じように、書き換える前に `hooks.json.marimo-backup-<日時>` という名前でバックアップを取り、既存のフックや項目はキーの順序も含めてそのまま残します。ファイルが無ければ新しく作ります。
 
 ### uninstall が行うこと
 
-`uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。Codex のフォルダがあれば、Codex の `hooks.json` からも marimo のフックだけを取り除きます。取り除くのは marimo が足したものだけで、以前のシェルを通す形で登録したフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
+`uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。Codex のフォルダがあれば、Codex の `hooks.json` からも marimo のフックだけを取り除きます。取り除くのは marimo が足したものだけで、シェルを通す形で登録されたフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
 
 ## ファイルとデータ
 
@@ -125,20 +126,20 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | パス | 用途 |
 | --- | --- |
 | `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。24 時間更新のないファイルは、アプリが消します |
-| `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
+| `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID（セッションに振られる識別子）の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine と API からの取得の両方がここへ書きます |
 | `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
-| `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、API からの取得を使うかどうかの `usage_api`、選んだキャラクターの名前の `character` を持ちます。以前の版が書いた `panel_mode` は、表示を切り替えて新しい二つの鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
+| `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、API からの取得を使うかどうかの `usage_api`、選んだキャラクターの名前の `character`、選んだキャラクターの立ち絵の枠の縦横比（高さを幅で割った値）の `stage_aspect` を持ちます。`stage_aspect` は画面部分が値を知らせるたびに保存し、次の起動では窓を最初からこの縦横比で開くので、起動の直後に窓が動きません。無いときや値が正しくないときは 1.5 を使い、0.25 から 4.0 の範囲に収めます。古い形式の鍵 `panel_mode` が残っている場合は、表示を切り替えて新しい鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
 | `window.json` | 窓の位置です |
 | `acknowledged.json` | 既読にした完了などのきっかけの記録です |
 | `dialogue.json` | 利用者が書くセリフの上書きです。marimo はこのファイルを作りません |
-| `dialogue.json.unused-default` | marimo の古い版が書き出した既定のセリフを、起動時に退避したものです |
-| `bin/marimo-hook` | `install` がコピーしたフックのコマンドです。settings.json はこのパスを指しています |
-| `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。以前の版が書いた `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
-| `logs/usage.log` | 「利用制限を API から取得」の問い合わせの状態が変わるたびに、アプリが手元の時刻を付けて一行ずつ追記するファイルです。トークンと応答の中身は書きません。64 KB を超えたら新しい方の半分だけを残します |
+| `dialogue.json.unused-default` | marimo の古い版が書き出した既定のセリフと中身が同じだった `dialogue.json` を、起動時に退避したものです |
+| `bin/marimo-hook` | `install` がコピーしたフックのコマンドです。Windows では `marimo-hook.exe` です。settings.json はこのパスを指しています |
+| `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。日付の無い名前の `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
+| `logs/usage.log` | 「利用制限を API から取得」の問い合わせの状態が変わるたびに、アプリが手元の時刻を付けて一行ずつ追記するファイルです。同じ状態が続く間と、次に問い合わせる時刻だけが変わったときは書きません。トークンと応答の中身は書きません。64 KB を超えたら、古い方を行の区切りで捨てて新しい方の半分だけを残します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
 
-セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude` か `codex` です。この項目を持たない以前の版のファイルは、Claude Code のセッションとして読みます。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。
+セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude` か `codex` です。この項目を持たないファイルは、Claude Code のセッションとして読みます。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
 
@@ -172,9 +173,9 @@ marimo は Claude Code の作業を一切妨げないことを最優先にして
 
 ### marimo が書くもの
 
-- `~/.marimo` の中のファイル（[ファイルとデータ](#ファイルとデータ)を参照）。状態ファイルには、実行したコマンド、ファイルのパス、応答の冒頭などの要約が最大 500 文字まで入ります。リポジトリ名と、チャットの題名も最大 200 文字まで入ります。
-- `install` と `uninstall` を実行したときの Claude Code の settings.json と、そのバックアップ。Codex のフォルダがあれば、Codex の `hooks.json` と、そのバックアップ。
-- 「ログイン時に起動」を有効にしたときの、macOS では `~/Library/LaunchAgents/com.marimo.desktop.plist`、Windows ではレジストリの `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` にある marimo の値。
+- アプリとフックは、`~/.marimo` の中のファイルを書きます（[ファイルとデータ](#ファイルとデータ)を参照）。状態ファイルには、実行したコマンド、ファイルのパス、応答の冒頭などの要約が最大 500 文字まで入ります。リポジトリ名と、チャットの題名も最大 200 文字まで入ります。
+- `install` と `uninstall` は、Claude Code の settings.json とそのバックアップを書きます。Codex のフォルダがある場合は、Codex の `hooks.json` とそのバックアップも書きます。
+- 「ログイン時に起動」を有効にすると、macOS では LaunchAgent の plist を、Windows ではレジストリの値を書きます（場所は[ログイン時に起動する](usage.md#ログイン時に起動する)を参照）。
 
 ### marimo が送るもの
 
@@ -184,12 +185,12 @@ marimo は、状態ファイルも会話の内容も、手元のコンピュー�
 
 | パス | 内容 |
 | --- | --- |
-| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
+| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
 | `crates/marimo-hook` | Claude Code と Codex から呼ばれるコマンド。`hook`、`codex-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます |
 | `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、窓の制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、利用量の API の取得、macOS でのアプリのアイコンの読み取りを受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
-| `assets/character/index.json` | 組み込みのキャラクターの一覧。先頭が既定のキャラクターです |
-| `assets/character/koharu` | 小春の素材。24 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` |
+| `assets/character/index.json` | 組み込みのキャラクターの一覧です（[自分のキャラクターを作る](customize.md#自分のキャラクターを作る)を参照） |
+| `assets/character/koharu` | 小春の素材。24 枚の PNG（画像の形式）、`manifest.json`、既定のセリフの `dialogue.json` |
 | `assets/character/clawd` | Clawd の素材。23 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` |
 | `art/koharu` | 小春の素材の元になった画像 |
 | `tools/character` | 小春の素材を作るスクリプト `build.py` とその設定 `koharu.json`、Clawd の素材を描くスクリプト `clawd.py`、Python の依存 `requirements.txt` |
@@ -203,13 +204,7 @@ Rust 側のテストと静的検査は、リポジトリの直下で実行しま
 
 ```bash
 cargo test --workspace
-```
-
-```bash
 cargo clippy --workspace --all-targets
-```
-
-```bash
 cargo fmt --check
 ```
 
@@ -223,17 +218,26 @@ cargo clippy -p marimo-core -p marimo-hook --all-targets --target x86_64-pc-wind
 
 ```bash
 npx tsc --noEmit
-```
-
-```bash
 npm test
-```
-
-```bash
 npm run build
 ```
 
 開発中にアプリを動かすときは、`app/` で `npm run tauri -- dev` を使うと、画面部分の開発用サーバー（ポート 1420）を立ち上げてアプリを起動します。本来の `~/.marimo` に触れずに試したいときは、`MARIMO_HOME` を別のフォルダに向けておきます（[ファイルとデータ](#ファイルとデータ)を参照）。
+
+## アイコンを描き直す
+
+アイコンを描くスクリプトは、[素材を作り直す](customize.md#素材を作り直す)の手順で作った Python の仮想環境で実行します。アイコンはビルドのときにアプリへ埋め込まれるので、描き直したらアプリをビルドし直します。
+
+メニューバーと通知領域のアイコンは、`tools/tray_icon.py` が Pillow だけでまりもの形に描きます。実行すると `app/src-tauri/icons/` へ四つの PNG を書き出します。`tray-template.png` は macOS のふだんのアイコン、`tray-color.png` は Windows のふだんのアイコン、`tray-waiting.png` と `tray-error.png` は承認待ちとエラーのときにどちらの OS でも使うアイコンです（見え方は[メニューバーと通知領域のアイコン](usage.md#メニューバーと通知領域のアイコン)を参照）。メニューバーは画像の高さを 18 ポイントに縮めて置くので、どれも 2 倍の画面で等倍になる 36×36 ピクセルにしています。
+
+アプリのアイコンは、`tools/app_icon.py` が水槽の中の顔のあるまりもを描きます。毛並みは乱数で置いた短い線を数万本重ねて描き、乱数の種を固定しているので、何度実行しても同じ画像になります。実行すると `app/src-tauri/icons/` へ `icon.icns`、`icon.ico`、`icon.png`、`32x32.png`、`128x128.png`、`128x128@2x.png` を書き出します。macOS 用の `icon.icns` は、1024×1024 ピクセルの画像の中央 824 ピクセルに角の丸い板を描いて周りを透明にし、Dock に並ぶ他のアプリと大きさを揃えます。Windows と Linux 用の残りのファイルは、同じ絵から板だけを切り出して画像いっぱいに描きます。
+
+どちらもリポジトリの直下で実行します。
+
+```bash
+.venv/bin/python tools/tray_icon.py
+.venv/bin/python tools/app_icon.py
+```
 
 ## 仕組みの概要
 
@@ -256,14 +260,14 @@ npm run build
 
 デスクトップアプリの Code タブでは statusLine が動かないため、marimo はコンテキスト使用率を会話ログ（transcript。Claude Code がセッションごとに書く JSON Lines 形式の記録）から数えます。このときモデルのコンテキストの上限は分かりません。
 
-題名は二つの場所から取ります。CLI では statusLine の入力にある `session_name` を使います。これは `--name` や `/rename` で付けた名前か、それが無ければ Claude Code が自動で付けた題名です。statusLine が呼ばれないデスクトップアプリの Code タブでは、PostToolUse と Stop のときに読む会話ログの末尾から題名の行を探します。この行の形式は Claude Code のドキュメントに載っていないので、Claude Code の更新で題名が出なくなることがあります。どちらの場合も、題名が付く前や最初の読み取りの前は名前だけが出ます。
+題名は二つの場所から取ります。CLI では statusLine の入力にある `session_name` を使います。これは `--name` や `/rename` で付けた名前か、それが無ければ Claude Code が自動で付けた題名です。statusLine が呼ばれないデスクトップアプリの Code タブでは、PostToolUse と Stop のときに読む会話ログの末尾から題名の行を探します。この行の形式は Claude Code のドキュメントに載っていません。どちらの場合も、題名が付く前や最初の読み取りの前は名前だけが出ます。
 
 ### Codex のフックから記録するもの
 
 Codex のフックから記録するものは次のとおりです。
 
 - **状態** セッションの開始、プロンプトの送信、ツールの実行の前後、実行許可の確認（PermissionRequest）、応答の終了（Stop）、サブエージェントの開始と終了を、Claude Code と同じ状態に対応させます。Codex の質問のツール `request_user_input` は、Claude Code の AskUserQuestion と同じく承認待ちにします。Codex がサンドボックスの外への書き込みなどの権限を `request_permissions` で求めたときは、PermissionRequest が届かないので、このツールの PreToolUse で承認待ちにし、許可か拒否が済んで PostToolUse が届くと作業中へ戻します。利用者がターンを中断したときに届く Interrupt では、作業中や承認待ちから待機へ戻します。
-- **作業の要約** シェルのコマンド（Codex はツール名 `Bash` で送ります）、ファイルの編集（`apply_patch`。パッチに書かれたファイルの名前を出します）、MCP のツール、サブエージェントの起動（`spawn_agent`）、画像の表示（`view_image`）、質問（`request_user_input`）を要約します。それ以外のツールは、ツール名と引数をそのまま短く出します。
+- **作業の要約** シェルのコマンド（Codex はツール名 `Bash` で送ります）、ファイルの編集（`apply_patch`。パッチに書かれたファイルの名前を出します）、MCP（Model Context Protocol。外部のツールを AI につなぐ仕組み）のツール、サブエージェントの起動（`spawn_agent`）、画像の表示（`view_image`）、質問（`request_user_input`）を要約します。それ以外のツールは、ツール名と引数をそのまま短く出します。
 - **コンテキスト使用率** Codex が会話ごとに書く記録（rollout。`~/.codex/sessions/` の下の JSON Lines 形式のファイル）の末尾から最後の `token_count` を読み、Codex の画面の下に出る残りの割合と同じ式で計算します。Codex は、システムプロンプトなどで常に使われる 12000 トークンをコンテキストの上限と使用量の両方から引いて割合を出すので、marimo も同じように引き、100 からその残りの割合を引いた値を使用率として記録します。読むのはセッションの開始、PostToolUse、Stop のときだけです。
 - **題名** セッションの開始、プロンプトの送信、Stop のときに、`~/.codex/session_index.jsonl` の末尾からそのセッションの最後の `thread_name` を読みます。Codex のデスクトップアプリは、プロジェクトを選ばずに始めた会話ごとに `~/Documents/Codex/<日付>/<最初のプロンプトから作った名前>` という作業フォルダを作ります。このフォルダ名は題名の言い換えでしかないので、行の名前と吹き出しの `{folder}` には、フォルダ名の代わりに題名を使います。
 - **利用制限** rollout の同じ `token_count` にある利用制限を、`~/.marimo/codex_rate_limits.json` に書きます。Codex の利用制限の窓は、プランによって 5 時間と 7 日の二つだったり 7 日の一つだけだったりするので、窓の長さを分単位のまま記録します。複数のセッションの rollout はそれぞれ別の時点の値を持つので、すでに記録した値より新しい時点の値だけで書き換えます。
@@ -275,3 +279,13 @@ macOS のフックは、どのアプリから起動されたかを環境変数 `
 ### クリックの透過
 
 クリックの透過は次のように実現しています。窓がクリックを下へ通す状態になると、マウスの移動のイベントも窓に届かなくなります。そこで、画面部分がクリックを受け取る領域（パネルと吹き出しの矩形と、立ち絵の画像のアルファ値から作った横 40 マスの粗い格子。縦のマス数は素材の縦横比で決まり、小春では 40×60）を Rust 側へ送り、Rust 側はカーソルの位置を定期的に読んで、領域の上にあるときだけ窓がクリックを受け取るように切り替えます。カーソルを読む周期は、窓の上にあるとき 40 ミリ秒、外にあるとき 150 ミリ秒です。アイコンから窓を隠している間はカーソルを読まず、500 ミリ秒ごとに窓が出し直されたかだけを確かめます。立ち絵の上にマウスがあるかどうかも、同じ判定のついでに画面部分へ知らせます。
+
+### 利用量の API への問い合わせ
+
+「利用制限を API から取得」を有効にすると、アプリは `https://api.anthropic.com/api/oauth/usage` を呼び、応答の `five_hour` と `seven_day` の使用率とリセットの時刻を、statusLine と同じ形で `rate_limits.json` に保存します。問い合わせの間隔は[API からの取得のしくみ](usage.md#api-からの取得のしくみ)に、トークンの扱いは[トークンの扱い](usage.md#トークンの扱い)に書いています。
+
+このエンドポイントは公開された API ではなく、文書もありません。応答の形が想定と違うときは、保存している利用制限の値を書き換えず、取得失敗として扱って次の周期を待ちます。
+
+要求は 10 秒で打ち切り、暗号化した通信（HTTPS）でしか送らず、リダイレクト（応答が指す別の場所への転送）は追いません。リダイレクト先へトークンを送らないためです。
+
+問い合わせの結果が変わるたびに、アプリは今の状態を画面部分へ知らせ、画面部分は利用制限の行に理由を出します。状態が変わったときは、`logs/usage.log` にも書きます（[ファイルとデータ](#ファイルとデータ)を参照）。

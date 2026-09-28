@@ -19,6 +19,7 @@ export interface PanelElements {
   rows: HTMLElement;
   limits: HTMLElement;
   toggle: HTMLElement;
+  order: HTMLElement;
 }
 
 const PROVIDER_NAME: Record<Provider, string> = {
@@ -47,7 +48,7 @@ const STATUS_LABEL: Record<Status, string> = {
 };
 
 export function renderPanel(
-  { panel, rows, limits, toggle }: PanelElements,
+  { panel, rows, limits, toggle, order }: PanelElements,
   view: PanelView,
   rateLimits: PanelLimits,
   icons: AppIcons,
@@ -61,14 +62,71 @@ export function renderPanel(
   if (!hasContent(view)) children = [el("div", "empty", EMPTY_LIST_TEXT)];
   else if (view.style === "counts") children = [renderCounts(view, icons, now, onSelect)];
   else children = detailChildren(view.plan, icons, now, onSelect);
+  const kept = keepScroll(rows);
   rows.replaceChildren(...children);
+  // 件数の行の層は #rows の外へ伸びるので、件数だけの表示では #rows をスクロールの枠にしない。
+  // スクロールの枠は中身を枠の外へはみ出させず、層が切れてしまうからである。
+  rows.classList.toggle("row-scroll", view.style === "detail");
   limits.hidden = line === null && note === null;
   panel.hidden = false;
-  for (const button of toggle.querySelectorAll<HTMLElement>("button[data-style]")) {
-    const active = button.dataset.style === view.style;
+  fitLayers(rows);
+  restoreScroll(rows, kept);
+  markActive(toggle, "style", view.style);
+  markActive(order, "order", view.order);
+}
+
+function markActive(group: HTMLElement, key: string, value: string): void {
+  for (const button of group.querySelectorAll<HTMLElement>(`button[data-${key}]`)) {
+    const active = button.dataset[key] === value;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   }
+}
+
+interface KeptScroll {
+  top: number;
+  /** 開いていた件数の行の印ごとに、その層の中のスクロールの位置を持つ。 */
+  layers: Map<string, number>;
+}
+
+// 描き直すたびに行を作り直すので、何もしなければスクロールの位置が一番上へ戻ってしまう。作り直す前に
+// 位置を覚えておき、作り直した後に戻す。行が減って届かなくなった位置は、ブラウザが一番下へ詰める。
+function keepScroll(rows: HTMLElement): KeptScroll {
+  const layers = new Map<string, number>();
+  for (const group of rows.querySelectorAll<HTMLElement>("[data-expand-id].open")) {
+    layers.set(group.dataset.expandId ?? "", group.querySelector(".row-scroll")?.scrollTop ?? 0);
+  }
+  return { top: rows.scrollTop, layers };
+}
+
+// 開いていた層は、登録を待たずにそのまま開いて見せる。描き直すたびに測り直すと層がちらつき、行の増減で
+// 大きさが変わった分は、描き直しの後に送り直す領域で追いつくからである。見えていない層にはスクロールの
+// 位置を戻せないので、先に開いてから戻す。
+function restoreScroll(rows: HTMLElement, kept: KeptScroll): void {
+  rows.scrollTop = kept.top;
+  for (const group of rows.querySelectorAll<HTMLElement>("[data-expand-id]")) {
+    const top = kept.layers.get(group.dataset.expandId ?? "");
+    if (top === undefined) continue;
+    group.classList.add("open");
+    const scroller = group.querySelector<HTMLElement>(".row-scroll");
+    if (scroller) scroller.scrollTop = top;
+  }
+}
+
+// 層は件数の行の下端から上へ伸びるので、窓の上端までに収め、収まらない行は層の中でスクロールさせる。
+// 窓の高さが変わっても、パネルは下端を固定しているので層の下端から窓の下端までの距離は変わらない。
+// その距離を CSS へ渡し、窓の高さからの計算は CSS に任せる。
+function fitLayers(rows: HTMLElement): void {
+  for (const layer of rows.querySelectorAll<HTMLElement>(".hover-layer")) {
+    const anchor = layer.parentElement?.getBoundingClientRect();
+    if (anchor) layer.style.setProperty("--layer-below", `${window.innerHeight - anchor.bottom}px`);
+  }
+}
+
+/** スクロールバーの操作を、行を押したことや窓のドラッグと取り違えないために見分ける。 */
+export function onScrollbar(e: MouseEvent): boolean {
+  const target = e.target;
+  return target instanceof HTMLElement && target.classList.contains("row-scroll") && e.offsetX >= target.clientWidth;
 }
 
 function detailChildren(
@@ -77,11 +135,7 @@ function detailChildren(
   now: number,
   onSelect: (session: SessionState) => void,
 ): HTMLElement[] {
-  const children: HTMLElement[] = plan.rows.map((s) =>
-    renderRow(s, plan.read.has(sessionKey(s)), icons, now, onSelect),
-  );
-  if (plan.moreRows > 0) children.push(el("div", "more", `ほか ${plan.moreRows} 件`));
-  return children;
+  return plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, now, onSelect));
 }
 
 // 件数だけの表示は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
@@ -105,12 +159,17 @@ function renderCounts(
   const wrap = el("div", "counts-group");
   wrap.dataset.expandId = "counts";
   const layer = el("div", "counts-detail hover-layer");
-  layer.append(...detailChildren(view.plan, icons, now, onSelect), line());
+  // 件数の行まで一緒に流れないよう、スクロールの枠はその上の行だけにする。
+  const list = el("div", "layer-rows row-scroll");
+  list.append(...detailChildren(view.plan, icons, now, onSelect));
+  layer.append(list, line());
   wrap.append(line(), layer);
   const target = view.target;
   if (target) {
     wrap.classList.add("clickable");
-    wrap.addEventListener("click", () => onSelect(target));
+    wrap.addEventListener("click", (e) => {
+      if (!onScrollbar(e)) onSelect(target);
+    });
   }
   return wrap;
 }

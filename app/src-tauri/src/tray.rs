@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 
 use marimo_core::Status;
-use serde::Serialize;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -10,9 +9,10 @@ use tauri::{AppHandle, Emitter, Manager, Wry};
 use crate::AppState;
 use crate::scale::{self, PanelDisplay, PanelStyle};
 
-/// 表示の切り替えを選んだことをフロントエンドへ知らせるイベント。フロントエンドは右クリックメニューと
-/// 同じ関数で反映し、保存のコマンドを通じて印を付け直させる。
-pub const PANEL_DISPLAY_EVENT: &str = "tray-panel-display";
+/// トレイで選んだ表示を保存したあと、その表示の全体をフロントエンドへ送るイベント。フロントエンドは
+/// 反映だけをして保存し直さない。保存をフロントエンドの折り返しに任せると、聞き始める前の選択が消え、
+/// 続けて選んだ反転が同じ保存値から作られて一回分になるからである。
+const PANEL_DISPLAY_EVENT: &str = "tray-panel-display";
 
 // 右クリックメニューの項目もこのアイコンの on_menu_event に届くので、自動で振られる ID と重ならない
 // 接頭辞を付けて見分ける。
@@ -84,12 +84,6 @@ pub fn show_status(app: &AppHandle, aggregate: Status) {
     {
         tray.show_attention(attention(aggregate));
     }
-}
-
-#[derive(Clone, Serialize)]
-struct PanelDisplayChange {
-    show_character: Option<bool>,
-    panel_style: Option<PanelStyle>,
 }
 
 fn toggle_label(visible: bool) -> &'static str {
@@ -188,39 +182,51 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
     })
 }
 
-fn on_menu_event(app: &AppHandle, event: MenuEvent) {
-    let change = |current: PanelDisplay| match event.id().as_ref() {
-        SHOW_CHARACTER => Some(PanelDisplayChange {
-            show_character: Some(!current.show_character),
-            panel_style: None,
+fn chosen_display(id: &str, current: PanelDisplay) -> Option<PanelDisplay> {
+    match id {
+        SHOW_CHARACTER => Some(PanelDisplay {
+            show_character: !current.show_character,
+            ..current
         }),
-        STYLE_DETAIL => Some(PanelDisplayChange {
-            show_character: None,
-            panel_style: Some(PanelStyle::Detail),
+        STYLE_DETAIL => Some(PanelDisplay {
+            panel_style: PanelStyle::Detail,
+            ..current
         }),
-        STYLE_COUNTS => Some(PanelDisplayChange {
-            show_character: None,
-            panel_style: Some(PanelStyle::Counts),
+        STYLE_COUNTS => Some(PanelDisplay {
+            panel_style: PanelStyle::Counts,
+            ..current
         }),
         _ => None,
-    };
+    }
+}
+
+fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
         TOGGLE => toggle(app),
         QUIT => app.exit(0),
-        _ => {
+        id => {
             let Some(state) = app.try_state::<AppState>() else {
                 return;
             };
             let current = scale::load_panel_display(&state.home).unwrap_or_default();
-            let Some(change) = change(current) else {
+            let Some(next) = chosen_display(id, current) else {
                 return;
             };
-            // 押した印はメニューが自分で反転させるので、保存してある状態へいったん戻す。
-            // フロントエンドが反映して保存すると、そのコマンドが新しい状態で付け直す。
+            // 押した印はメニューが自分で反転させるので、保存できたかどうかに合わせて付け直す。
+            // 保存できなかったときは、次の選択も今の保存値から作られるよう画面にも反映しない。
+            let saved = match scale::save_panel_display(&state.home, next) {
+                Ok(()) => next,
+                Err(e) => {
+                    eprintln!("marimo: cannot save the tray choice: {e}");
+                    current
+                }
+            };
             if let Some(tray) = state.tray.get() {
-                tray.reflect(current);
+                tray.reflect(saved);
             }
-            if let Err(e) = app.emit(PANEL_DISPLAY_EVENT, change) {
+            if saved == next
+                && let Err(e) = app.emit(PANEL_DISPLAY_EVENT, saved)
+            {
                 eprintln!("marimo: cannot send the tray choice: {e}");
             }
         }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { Acknowledged, triggerKey } from "./acknowledged";
-import { hasContent, type PanelStyle, panelView, planPanel, READ_LINGER_MS } from "./panelModel";
+import { hasContent, type PanelStyle, panelView, planPanel, READ_LINGER_MS, type RowOrder } from "./panelModel";
 import { session, snap } from "./testFixtures";
 import type { Snapshot } from "./types";
 
@@ -21,7 +21,6 @@ describe("planPanel", () => {
       new Acknowledged(),
     );
     expect(ids(plan.rows)).toEqual(["e1", "d1", "ask", "w2", "w1"]);
-    expect(plan.moreRows).toBe(0);
   });
 
   it("keeps rows in started_at order through status changes and puts legacy sessions at the bottom", () => {
@@ -56,11 +55,28 @@ describe("planPanel", () => {
     expect(ids(legacy.rows)).toEqual(["b", "a", "old1", "old2"]);
   });
 
-  it("keeps an old waiting session when capping, still in started_at order", () => {
-    const working = Array.from({ length: 6 }, (_, i) => session(`w${i}`, "working", 10 + i, 10 + i, 10 + i));
-    const plan = planPanel(snap(session("ask", "waiting", 50, 50, 1), ...working), new Acknowledged());
-    expect(ids(plan.rows)).toEqual(["w5", "w4", "w3", "w2", "ask"]);
-    expect(plan.moreRows).toBe(2);
+  it("shows every row in the chosen order, unread before seen for status, ties broken by session key", () => {
+    const ack = new Acknowledged();
+    const seen = session("c", "done", 70, 70, 7);
+    ack.add(triggerKey(seen), 1000);
+    const sessions = snap(
+      session("a", "waiting", 90, 90, 1),
+      session("b", "working", 60, 60, 6),
+      seen,
+      session("d", "done", 30, 30, 3),
+      session("e", "error", 20, 20, 2),
+      session("g", "working", 50, 50, 5),
+      session("f", "working", 50, 50, 5),
+      session("h", "waiting", 40, 40, 4),
+    );
+    const cases: [RowOrder, string[]][] = [
+      ["started", ["c", "b", "f", "g", "h", "d", "e", "a"]],
+      ["status", ["a", "h", "e", "b", "f", "g", "d", "c"]],
+      ["updated", ["a", "c", "b", "f", "g", "h", "d", "e"]],
+    ];
+    for (const [order, expected] of cases) {
+      expect(ids(planPanel(sessions, ack, order, 2000).rows), order).toEqual(expected);
+    }
   });
 });
 
@@ -73,12 +89,12 @@ describe("acknowledged sessions", () => {
         session("seen", "done", 50, 50, 2),
         session("new", "done", 10, 10, 3),
       );
-    expect(ids(planPanel(sessions(), ack, 2000).rows)).toEqual(["new", "seen", "w"]);
+    expect(ids(planPanel(sessions(), ack, "started", 2000).rows)).toEqual(["new", "seen", "w"]);
     ack.add(triggerKey(session("seen", "done", 50)), 1000);
-    const dimmed = planPanel(sessions(), ack, 1000 + READ_LINGER_MS - 1);
+    const dimmed = planPanel(sessions(), ack, "started", 1000 + READ_LINGER_MS - 1);
     expect(ids(dimmed.rows)).toEqual(["new", "seen", "w"]);
     expect([...dimmed.read]).toEqual(["seen"]);
-    expect(ids(planPanel(sessions(), ack, 1000 + READ_LINGER_MS).rows)).toEqual(["new", "w"]);
+    expect(ids(planPanel(sessions(), ack, "started", 1000 + READ_LINGER_MS).rows)).toEqual(["new", "w"]);
   });
 
   it("shows the next completion of the same session as unread", () => {
@@ -87,7 +103,7 @@ describe("acknowledged sessions", () => {
     // 次のプロンプトで作業中を経て、再び完了した。
     const again = session("a", "done", 20);
     ack.prune(snap(again));
-    const next = planPanel(snap(again), ack, 1001);
+    const next = planPanel(snap(again), ack, "started", 1001);
     expect(ids(next.rows)).toEqual(["a"]);
     expect(next.read.has("a")).toBe(false);
   });
@@ -99,16 +115,6 @@ describe("acknowledged sessions", () => {
     expect(ids(planPanel(snap(done), ack).rows)).toEqual([]);
   });
 
-  it("gives up room for seen done rows first when capping", () => {
-    const ack = new Acknowledged();
-    const seen = session("seen", "done", 1, 1, 100);
-    ack.add(triggerKey(seen), 1000);
-    const working = Array.from({ length: 5 }, (_, i) => session(`w${i}`, "working", i));
-    const plan = planPanel(snap(seen, ...working), ack, 2000);
-    expect(ids(plan.rows)).toEqual(["w4", "w3", "w2", "w1", "w0"]);
-    expect(plan.moreRows).toBe(1);
-  });
-
   it("keeps a Claude Code and a Codex session with the same id apart", () => {
     const ack = new Acknowledged();
     const claudeDone = session("same", "done", 10, 10, 1);
@@ -117,10 +123,10 @@ describe("acknowledged sessions", () => {
     expect([triggerKey(claudeDone), triggerKey(codexDone)]).toEqual(["same:done:10", "codex:same:done:10"]);
     expect(planPanel(snap(claudeDone, codexDone), ack).rows).toHaveLength(2);
     ack.add(triggerKey(claudeDone), 1000);
-    const plan = planPanel(snap(claudeDone, codexDone), ack, 1001);
+    const plan = planPanel(snap(claudeDone, codexDone), ack, "started", 1001);
     expect([...plan.read]).toEqual(["same"]);
     ack.add(triggerKey(codexDone), 1000);
-    expect([...planPanel(snap(claudeDone, codexDone), ack, 1001).read]).toEqual(["same", "codex:same"]);
+    expect([...planPanel(snap(claudeDone, codexDone), ack, "started", 1001).read]).toEqual(["same", "codex:same"]);
   });
 
   it("keeps waiting and error rows even when seen", () => {

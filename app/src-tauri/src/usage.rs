@@ -50,11 +50,10 @@ pub enum Outcome {
     Failed(String),
 }
 
-/// 取得がうまくいっているかを画面へ知らせる。再試行の時刻は Unix ミリ秒。
+/// 再試行の時刻は、フロントエンドが Date にそのまま渡せるよう Unix ミリ秒で持つ。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum UsageStatus {
-    /// 有効になってから、まだ一度も結果が出ていない。
     Pending,
     Disabled,
     Ok,
@@ -62,16 +61,9 @@ pub enum UsageStatus {
     MissingScope,
     NotFound,
     KeychainDenied,
-    RateLimited {
-        retry_at: u64,
-    },
-    Rejected {
-        code: u16,
-    },
-    Failed {
-        detail: String,
-        retry_at: u64,
-    },
+    RateLimited { retry_at: u64 },
+    Rejected { code: u16 },
+    Failed { detail: String, retry_at: u64 },
 }
 
 impl UsageStatus {
@@ -244,7 +236,6 @@ fn lock(shared: &Shared) -> MutexGuard<'_, Control> {
         .unwrap_or_else(PoisonError::into_inner)
 }
 
-/// 状態が変わったときだけ画面へ知らせ、再試行の時刻のほかも変わったときだけログへ書く。
 struct Reporter<E> {
     home: MarimoHome,
     emit: E,

@@ -83,7 +83,7 @@ export interface CodexRateLimits {
   updated_at: number;
 }
 
-// usage.rs の UsageStatus を serde で直列化した形。再試行の時刻は Unix ミリ秒。
+// usage.rs の UsageStatus を serde で直列化した形と揃える必要がある。再試行の時刻は Unix ミリ秒で届く。
 export type UsageStatus =
   | {
       kind:

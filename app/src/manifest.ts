@@ -11,7 +11,7 @@ export interface ExpressionAssets {
 export interface StandingManifest {
   mode: "standing";
   name?: string;
-  /** メニューに出す名前。無ければ name を使う。 */
+  /** メニューにはこの名前を出し、無ければ name を使う。 */
   display_name?: string;
   /** ドット絵の素材なら true にし、拡大縮小しても画素をぼかさずに描かせる。 */
   pixelated?: boolean;
@@ -57,7 +57,7 @@ export interface Character {
   rules: ExpressionRules;
 }
 
-/** index.json が読めないときにも使う、既定のキャラクターの名前。 */
+/** index.json を読めないときにも、この名前の素材を試す。 */
 export const DEFAULT_CHARACTER = "koharu";
 // 縦横比の書かれていない素材の枠は、既定のキャラクターと同じにする。scale.rs の DEFAULT_ASPECT と揃える。
 const DEFAULT_ASPECT = 1.5;
@@ -66,7 +66,7 @@ export interface CharacterInfo {
   id: string;
   displayName: string;
   pixelated: boolean;
-  /** 立ち絵の枠の縦横比（高さ ÷ 幅）。枠の幅は固定で、高さをこれで決める。 */
+  /** 縦横比は高さ ÷ 幅で持つ。枠の幅は固定なので、高さをこれで決める。 */
   aspect: number;
 }
 
@@ -78,8 +78,8 @@ export function characterInfo(id: string, manifest: Manifest): CharacterInfo {
 }
 
 /**
- * 立ち絵を読み込む順。保存された名前が組み込みの一覧にあればそれを先に、読めなかったときのために
- * 一覧の先頭（既定のキャラクター）を後に並べる。
+ * 保存されたキャラクターを読めなかったときに立ち絵の無い状態で起動しないよう、一覧の先頭（既定の
+ * キャラクター）を後に続ける。
  */
 export function characterCandidates(saved: string | null, index: unknown): string[] {
   const ids = Array.isArray(index) ? index.filter((x): x is string => typeof x === "string") : [];

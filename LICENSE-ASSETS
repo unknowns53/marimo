@@ -2,12 +2,12 @@ The artwork and text assets in this repository are licensed under the
 Creative Commons Attribution 4.0 International License (CC BY 4.0).
 To view a copy of this license, visit https://creativecommons.org/licenses/by/4.0/
 
-This applies to the following paths:
+This applies to the following paths, except assets/character/clawd/:
 
-  assets/                          character images, manifest and default dialogue
+  assets/                          character images, manifests and default dialogue
   art/                             source images for the character assets
   docs/images/                     screenshots and the expression sheet
-  app/src-tauri/icons/             application icons
+  app/src-tauri/icons/             application icons and tray icons
   app/src-tauri/shipped-dialogue/  dialogue shipped by earlier versions
 
 Attribution: "marimo contributors", with a link to this repository if possible.
@@ -16,13 +16,23 @@ The images of the character koharu were created with OpenAI's image
 generation model and then edited and composited with tools/character/build.py.
 The source images in art/ keep the generator's embedded metadata.
 
-The pixel art of Clawd in assets/character/clawd/ is drawn by
-tools/character/clawd.py after the Claude Code startup logo. Clawd is
-Anthropic's mascot, and this license grants no rights to Anthropic's design or
-trademarks.
+The drawings of a marimo moss ball are original to this project. They
+cover the tray icons app/src-tauri/icons/tray-*.png drawn by
+tools/tray_icon.py, and the application icons icon.icns, icon.ico, icon.png,
+32x32.png, 128x128.png and 128x128@2x.png in app/src-tauri/icons/, which
+show the moss ball in a water tank and are drawn by tools/app_icon.py.
 
-The tray icons app/src-tauri/icons/tray-*.png are an original drawing of a
-marimo moss ball made by tools/tray_icon.py.
+Clawd (assets/character/clawd/)
 
-All other files in this repository are licensed under either of
-LICENSE-APACHE or LICENSE-MIT, at your option.
+The files in assets/character/clawd/ are excluded from the CC BY 4.0 grant
+above and from the code licenses below. The pixel art there is an
+unofficial fan rendition of Clawd, the mascot of Anthropic's Claude Code,
+drawn by tools/character/clawd.py after the Claude Code startup logo. The
+design of Clawd belongs to Anthropic. This repository grants no rights to
+Anthropic's design or trademarks, and the rendition does not imply
+endorsement by or affiliation with Anthropic. The script
+tools/character/clawd.py itself is code and is licensed under
+LICENSE-APACHE or LICENSE-MIT like the other code.
+
+All other files in this repository, apart from assets/character/clawd/, are
+licensed under either of LICENSE-APACHE or LICENSE-MIT, at your option.
