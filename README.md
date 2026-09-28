@@ -159,7 +159,7 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。Windows 
 
 ## インストール
 
-インストールは三つの段階に分かれています。フックの登録は一度で済み、そのあと繰り返し必要なのはアプリの起動だけです。ここからのコマンドは、リポジトリの直下で実行します。ビルドの手順で `app/` へ移動した場合は、一つ上のフォルダへ戻ってください。
+インストールは三つの段階に分かれています。フックの登録は一度で済み、そのあと繰り返し必要なのはアプリの起動だけです。新しい版へ更新するときは、[4. 更新する](#4-更新する)のスクリプトを使うと、ビルドから起動し直すまでを一つのコマンドで済ませられます。ここからのコマンドは、リポジトリの直下で実行します。ビルドの手順で `app/` へ移動した場合は、一つ上のフォルダへ戻ってください。
 
 ### 1. フックと statusLine を登録する
 
@@ -212,7 +212,7 @@ macOS では `target/release/bundle/macos/marimo.app` ができます。Windows 
 
 対象の設定ファイルは `--settings <パス>` で指定できます。省略すると、環境変数 `CLAUDE_CONFIG_DIR` が設定されていればその下の `settings.json` を、なければ `~/.claude/settings.json` を使います。
 
-marimo を新しくビルドし直したときも、同じ `install` を実行すれば `~/.marimo/bin/marimo-hook` だけが新しいものに差し替わります。settings.json はすでに登録済みなので変わりません。以前の形のフックが残っていた場合だけ、exec form へ書き換えます。
+marimo を新しくビルドし直したときも、同じ `install` を実行すれば `~/.marimo/bin/marimo-hook` だけが新しいものに差し替わります。settings.json はすでに登録済みなので変わりません。以前の形のフックが残っていた場合だけ、exec form へ書き換えます。[4. 更新する](#4-更新する)のスクリプトは、ビルドのあとにこの `install` も実行します。
 
 #### Codex のフック
 
@@ -250,13 +250,15 @@ Finder から開くか、次のコマンドで起動します。
 open /Applications/marimo.app
 ```
 
+新しい版にするときは、`cp` で上書きせずに [4. 更新する](#4-更新する)のスクリプトを使ってください。
+
 Windows では、NSIS のインストーラで入れます。利用者ごとのインストールなので、管理者の権限は要りません。
 
 ```powershell
 .\target\release\bundle\nsis\marimo_0.1.0_x64-setup.exe
 ```
 
-`%LOCALAPPDATA%\marimo\marimo.exe` に入り、スタートメニューにショートカットができるので、そこから起動します。新しい版にするときは、ビルドし直してからもう一度インストーラを実行します。インストーラを使った導入は、まだ確かめていません。
+`%LOCALAPPDATA%\marimo\marimo.exe` に入り、スタートメニューにショートカットができるので、そこから起動します。新しい版にするときは、[4. 更新する](#4-更新する)のスクリプトを使うか、ビルドし直してからもう一度インストーラを実行します。インストーラを使った導入は、まだ確かめていません。
 
 `target\release\marimo.exe` を直接起動しても動きますが、ふだん使いには向きません。起動している間は実行ファイルが使用中になり、ビルドし直すと上書きに失敗するためです。MSI のインストーラはすべての利用者向けに Program Files へ入れるもので、管理者の権限が要ります。
 
@@ -273,6 +275,39 @@ macOS では、`~/Library/LaunchAgents/com.marimo.desktop.plist` に LaunchAgent
 Windows では、レジストリの `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` に、有効にした時点で動いている `marimo.exe` のパスを登録します。`target\release\marimo.exe` から起動したまま有効にすると、ビルド用のフォルダの実行ファイルが登録されてしまうので、インストーラで入れた方から起動してください。
 
 どちらの OS でも既定では無効で、marimo が勝手にログイン項目を増やすことはありません。
+
+### 4. 更新する
+
+新しい版へ更新するときは、リポジトリに入っている更新用のスクリプトを使います。スクリプトは自分の置き場所からリポジトリを見つけるので、どのフォルダから実行してもかまいません。ここではリポジトリの直下で実行します。macOS では次のコマンドを実行します。
+
+```bash
+tools/update.sh
+```
+
+Windows では、PowerShell で次のコマンドを実行します。スクリプトの実行が既定で禁じられている環境でも動くよう、このコマンドの間だけ実行ポリシーを緩めて起動します。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\update.ps1
+```
+
+スクリプトは次のことを順に行います。
+
+1. `git pull --ff-only` で main の最新を取り込みます。
+2. `marimo-hook` とアプリをビルドします。アプリは、macOS では `marimo.app` だけを、Windows では NSIS のインストーラだけを作ります。環境変数 `CARGO_TARGET_DIR` を設定していれば、できあがったものをその下から探します。
+3. 両方のビルドが成功したら、起動している marimo を終了します。macOS では、10 秒ほど待っても終わらなければ、アプリを差し替えずに止まります。
+4. アプリを差し替えます。macOS では、新しい `marimo.app` を `/Applications` の中へ別の名前でコピーしてから、古い `/Applications/marimo.app` と入れ替えます。Windows では、NSIS のインストーラを画面を出さずに（`/S`）実行して、`%LOCALAPPDATA%\marimo\marimo.exe` を入れ直します。
+5. ビルドしたばかりの `marimo-hook` で `install` を実行し、`~/.marimo/bin/marimo-hook` を新しいものに差し替えます。
+6. marimo を起動し直します。
+
+ビルドに失敗したときは、marimo を終了せず、アプリも差し替えません。`install` が失敗したときは、アプリを差し替えて起動し直したうえで、0 以外の終了コードで終わります。表示された理由を確かめてから、`install` を実行し直してください。
+
+取り込む前に、今のブランチが `main` であることと、Git で管理しているファイルにコミットしていない変更が無いことを確かめます。どちらかを満たさなければ、何もせずに理由を表示して終わります。Git で管理していないファイルがあってもかまいません。main 以外のブランチを試すときは、macOS では `--no-pull` を、Windows では `-NoPull` を付けて実行します。このときは確認と取り込みを省き、今チェックアウトしているものをそのままビルドします。
+
+`install` は同じ場所の実行ファイルでやり直すだけなので、すでに登録済みなら settings.json も Codex の `hooks.json` も変わりません。Codex の `/hooks` で信頼し直す必要もありません。
+
+macOS では、ビルドし直したアプリの [ad-hoc 署名](#ad-hoc-署名について)が変わるので、[利用制限を API から取得](#利用制限の表示)を使っている場合は、キーチェーンの確認がもう一度出ることがあります（[キーチェーンの確認がまた出る](#キーチェーンの確認がまた出る)を参照）。
+
+Windows 用のスクリプトは、まだ実機で試していません。
 
 ## アンインストール
 
@@ -674,6 +709,7 @@ marimo を終了してから、次のファイルを必要に応じて削除し�
 | `assets/character/default` | 既定のキャラクターの素材。18 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` |
 | `art/default` | 既定のキャラクターの素材の元になった画像 |
 | `tools/character` | 素材を作るスクリプト `build.py`、既定のキャラクターの設定 `default.json`、Python の依存 `requirements.txt` |
+| `tools/update.sh`、`tools/update.ps1` | 取り込み、ビルド、アプリの差し替え、`install`、起動し直しをまとめて行う更新用のスクリプト。`update.sh` は macOS 用、`update.ps1` は Windows 用です |
 
 ### テストと検査
 
