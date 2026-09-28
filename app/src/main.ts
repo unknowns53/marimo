@@ -270,12 +270,16 @@ async function loadPanelDisplay(): Promise<PanelDisplay> {
   return display;
 }
 
-function setPanelDisplay(display: PanelDisplay): void {
+function applyPanelDisplay(display: PanelDisplay): void {
   panelDisplay = display;
-  void invoke("set_panel_display", { display }).catch((e) => console.error("panel display", e));
   applyCharacterVisibility();
   showSpeech();
   redrawPanel();
+}
+
+function setPanelDisplay(display: PanelDisplay): void {
+  applyPanelDisplay(display);
+  void invoke("set_panel_display", { display }).catch((e) => console.error("panel display", e));
 }
 
 function setShowCharacter(show: boolean): void {
@@ -436,13 +440,15 @@ function bindWindowControls(): void {
 async function start(): Promise<void> {
   bindWindowControls();
   bindPanelTabs();
-  panelDisplay = await loadPanelDisplay();
-  // トレイのメニューで選んだ表示も、右クリックメニューと同じ関数で反映して保存する。保存のコマンドが
-  // トレイの印を付け直す。
-  await listen<{ show_character: boolean | null; panel_style: PanelStyle | null }>("tray-panel-display", (e) => {
-    if (e.payload.show_character !== null) setShowCharacter(e.payload.show_character);
-    if (e.payload.panel_style !== null) setPanelStyle(e.payload.panel_style);
+  // トレイのメニューで選んだ表示は Rust が保存してから届くので、反映だけをする。起動中に選ばれたものを
+  // 取りこぼさないよう保存済みの表示を読む前に聞き始め、読んでいる間に届いていたらそちらを残す。
+  let trayChose = false;
+  await listen<PanelDisplay>("tray-panel-display", (e) => {
+    trayChose = true;
+    applyPanelDisplay(e.payload);
   });
+  const savedDisplay = await loadPanelDisplay();
+  if (!trayChose) panelDisplay = savedDisplay;
   appIcons = await invoke<AppIcons>("app_icons").catch((e) => {
     console.error("app icons", e);
     return appIcons;

@@ -83,8 +83,8 @@ fn set_panel_display(
     display: scale::PanelDisplay,
 ) -> Result<(), String> {
     scale::save_panel_display(&state.home, display).map_err(|e| e.to_string())?;
-    // 表示はトレイのメニューからも、右クリックメニューやパネルの切り替えからも変わるので、
-    // どれで変えても必ず通るここでトレイの印を付け直す。
+    // 右クリックメニューやパネルの切り替えで変えた表示を、トレイのメニューの印にも揃える。
+    // トレイで選んだ表示はトレイ自身が保存して印を付けるので、ここは通らない。
     if let Some(tray) = state.tray.get() {
         tray.reflect(display);
     }
