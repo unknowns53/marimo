@@ -432,11 +432,13 @@ body {
   visibility: hidden;
 }
 
+/* Claude Code と Codex の値が並んで API から取れていない理由が入りきらないときは、理由を次の行の右端へ送る。 */
 #limits {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
   font-size: 10px;
   white-space: nowrap;
   opacity: 0.85;
@@ -467,4 +469,14 @@ body {
 
 #limits.stale {
   opacity: 0.4;
+}
+
+/* API から取れていない理由は、古い値と同じ濃さで更新の時刻の位置に出す。行全体が古くて薄いときは重ねて薄くしない。 */
+.limit-note {
+  margin-left: auto;
+  opacity: 0.47;
+}
+
+#limits.stale .limit-note {
+  opacity: 1;
 }
