@@ -3,7 +3,16 @@
 set -euo pipefail
 
 usage() {
-  echo "使い方: tools/update.sh [--no-pull]" >&2
+  cat >&2 <<'EOF'
+使い方: tools/update.sh [--no-pull] [--wait] [--build]
+
+既定では、main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきて入れ替えます。
+
+  --no-pull  ブランチが main であることの確認と取り込みを省き、今チェックアウトしているコミットを使います。
+             --build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
+  --wait     CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
+  --build    取ってくる代わりに手元でビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
+EOF
 }
 
 fail() {
@@ -12,9 +21,13 @@ fail() {
 }
 
 pull=1
+wait=0
+build=0
 for arg in "$@"; do
   case "$arg" in
     --no-pull) pull=0 ;;
+    --wait) wait=1 ;;
+    --build) build=1 ;;
     -h | --help) usage; exit 0 ;;
     *) usage; fail "知らない引数です: $arg" ;;
   esac
@@ -44,7 +57,7 @@ running_pattern="$app_dest/Contents/MacOS/"
 if [[ $pull -eq 1 ]]; then
   branch="$(git branch --show-current)"
   if [[ "$branch" != "main" ]]; then
-    fail "今のブランチは「${branch:-（ブランチなし）}」です。main へ切り替えてから実行してください。ほかのブランチを試すときは --no-pull を付けます。"
+    fail "今のブランチは「${branch:-（ブランチなし）}」です。main へ切り替えてから実行してください。ほかのブランチを試すときは --no-pull と --build を付けます。"
   fi
   dirty="$(git status --porcelain --untracked-files=no)"
   if [[ -n "$dirty" ]]; then
@@ -53,24 +66,105 @@ if [[ $pull -eq 1 ]]; then
   fi
   echo "最新の main を取り込んでいます"
   git pull --ff-only
-else
+elif [[ $build -eq 1 ]]; then
   echo "--no-pull が指定されたので、今のチェックアウト（$(git branch --show-current || true)）をそのままビルドします"
+else
+  echo "--no-pull が指定されたので、今のチェックアウト（$(git branch --show-current || true)）のコミットのビルドを取ってきます"
 fi
 
-echo "marimo-hook をビルドしています"
-cargo build --release -p marimo-hook
+# フォークから使ったときに、フォーク自身のリリースを取りに行けるよう、origin が GitHub ならそこから決める。
+repo_slug() {
+  local url re
+  url="$(git remote get-url origin 2>/dev/null || true)"
+  re='^(https://([^@/]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)$'
+  url="${url%/}"
+  url="${url%.git}"
+  if [[ "$url" =~ $re ]]; then
+    echo "${BASH_REMATCH[3]}"
+  else
+    echo "unknowns53/marimo"
+  fi
+}
 
-echo "アプリの依存をインストールしています"
-# npm install は npm の版や OS によって package-lock.json を書き直し、次の実行を変更ありで止めてしまう。
-(cd app && npm ci --no-audit --no-fund)
+fetch() {
+  local url="$1" dest="$2" code
+  code="$(curl -sSL --retry 3 --connect-timeout 20 -o "$dest" -w '%{http_code}' "$url")" ||
+    fail "$url を取得できませんでした。ネットワークにつながっているかを確かめてください。つながらないときは --build で手元でビルドできます。"
+  case "$code" in
+    200) return 0 ;;
+    404) return 1 ;;
+    *) fail "$url を取得できませんでした（HTTP $code）。" ;;
+  esac
+}
 
-echo "アプリをビルドしています"
-(cd app && npm run tauri -- build --bundles app)
+download_build() {
+  local slug sha tag base archive not_ready started deadline expected actual
+  # CI がビルドするのは arm64 だけで、Intel の Mac では動かない。
+  [[ "$(uname -m)" == "arm64" ]] || fail "CI のビルドは arm64 の Mac 用だけです。この Mac では --build を付けて手元でビルドしてください。"
+  slug="$(repo_slug)"
+  sha="$(git rev-parse HEAD)"
+  tag="build-${sha:0:12}"
+  base="https://github.com/$slug/releases/download/$tag"
+  archive="marimo-macos-arm64.tar.gz"
+  not_ready="コミット ${sha:0:12} のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確かめてください。アプリは差し替えていません。"
 
-bundle="$target/release/bundle/macos/marimo.app"
-hook="$target/release/marimo-hook"
-[[ -d "$bundle" ]] || fail "ビルドしたアプリが見つかりません: $bundle"
-[[ -x "$hook" ]] || fail "ビルドした marimo-hook が見つかりません: $hook"
+  work="$(mktemp -d "${TMPDIR:-/tmp}/marimo-update.XXXXXX")"
+  trap 'rm -rf "$work"' EXIT
+
+  echo "$tag のビルドを取ってきています"
+  started=$SECONDS
+  deadline=$((SECONDS + 1800))
+  while :; do
+    if fetch "$base/SHA256SUMS" "$work/SHA256SUMS" && fetch "$base/$archive" "$work/$archive"; then
+      break
+    fi
+    if [[ $wait -eq 0 ]]; then
+      fail "${not_ready}--wait を付けると、できあがるまで最大 30 分待ちます。"
+    fi
+    if [[ $SECONDS -ge $deadline ]]; then
+      fail "30 分待ってもできあがりませんでした。$not_ready"
+    fi
+    echo "CI のビルドを待っています（$(((SECONDS - started) / 60)) 分経過、最大 30 分）"
+    sleep 30
+  done
+
+  expected="$(awk -v f="$archive" '$2 == f || $2 == "*" f { print $1 }' "$work/SHA256SUMS")"
+  actual="$(shasum -a 256 "$work/$archive" | awk '{ print $1 }')"
+  [[ -n "$expected" ]] || fail "SHA256SUMS に $archive の行がありません。"
+  [[ "$expected" == "$actual" ]] || fail "$archive のチェックサムが SHA256SUMS と合いません。アプリは差し替えていません。"
+
+  mkdir "$work/extract"
+  tar -xzf "$work/$archive" -C "$work/extract"
+  # curl で取ったものには quarantine が付かないが、付いていると初回の起動で Gatekeeper に止められるので、念のため外す。
+  xattr -dr com.apple.quarantine "$work/extract" 2>/dev/null || true
+
+  bundle="$work/extract/marimo.app"
+  hook="$work/extract/marimo-hook"
+  [[ -d "$bundle" ]] || fail "取ってきたものの中にアプリが見つかりません: $archive"
+  [[ -x "$hook" ]] || fail "取ってきたものの中に marimo-hook が見つかりません: $archive"
+  # 一時フォルダは終わると消えるので、install をやり直すときはスクリプトごと実行し直してもらう。
+  retry_install="tools/update.sh をもう一度実行してください"
+}
+
+if [[ $build -eq 1 ]]; then
+  echo "marimo-hook をビルドしています"
+  cargo build --release -p marimo-hook
+
+  echo "アプリの依存をインストールしています"
+  # npm install は npm の版や OS によって package-lock.json を書き直し、次の実行を変更ありで止めてしまう。
+  (cd app && npm ci --no-audit --no-fund)
+
+  echo "アプリをビルドしています"
+  (cd app && npm run tauri -- build --bundles app)
+
+  bundle="$target/release/bundle/macos/marimo.app"
+  hook="$target/release/marimo-hook"
+  [[ -d "$bundle" ]] || fail "ビルドしたアプリが見つかりません: $bundle"
+  [[ -x "$hook" ]] || fail "ビルドした marimo-hook が見つかりません: $hook"
+  retry_install="$hook install を実行し直してください"
+else
+  download_build
+fi
 
 if pgrep -f "$running_pattern" >/dev/null; then
   echo "起動中の marimo を終了しています"
@@ -105,6 +199,6 @@ echo "marimo を起動しています"
 open "$app_dest"
 
 if [[ $install_ok -eq 0 ]]; then
-  fail "marimo-hook install が失敗しました。アプリはすでに新しいものに差し替えて起動しています。上のメッセージを確かめてから、$hook install を実行し直してください。"
+  fail "marimo-hook install が失敗しました。アプリはすでに新しいものに差し替えて起動しています。上のメッセージを確かめてから、$retry_install。"
 fi
 echo "更新が終わりました"

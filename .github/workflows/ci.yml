@@ -10,8 +10,10 @@ permissions:
   contents: read
 
 # 同じブランチに続けて push したときは、古い方の実行を止めてランナーを空ける。
+# main への push では、公開の途中で実行ごと止めると作りかけのリリースが残るので、実行ごとに別のグループにする。
+# main で古いビルドを止めるかどうかは、下のジョブごとの concurrency で決める。
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_id || 'latest' }}
   cancel-in-progress: true
 
 jobs:
@@ -59,3 +61,177 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace
+
+      # 更新用のスクリプトは利用者の端末でしか動かないので、ここでは構文だけを確かめる。
+      # Windows では、利用者が使う Windows PowerShell 5.1 と PowerShell 7 の両方で読む。
+      - name: Parse the update script (macOS)
+        if: runner.os == 'macOS'
+        run: bash -n tools/update.sh
+
+      - name: Parse the update script (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          foreach ($exe in 'powershell', 'pwsh') {
+            & $exe -NoProfile -Command '$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path tools/update.ps1).ProviderPath, [ref]$null, [ref]$e); if ($e) { $e | Out-String | Write-Host; exit 1 }'
+            if ($LASTEXITCODE -ne 0) { throw "$exe で tools/update.ps1 の構文の誤りが見つかりました" }
+          }
+
+  # 更新用のスクリプトは main の各コミットのビルドを取りに来るので、ビルドと公開は main への push でだけ行う。
+  # 利用者の Mac は arm64 なので、arm64 のランナーである macos-latest でビルドする。
+  build-macos:
+    name: build (macOS arm64)
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    # 新しいコミットのビルドが始まったら、古いコミットのビルドは要らなくなるので止める。
+    concurrency:
+      group: build-macos-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build marimo-hook
+        run: cargo build --release -p marimo-hook
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the app bundle
+        working-directory: app
+        run: npm run tauri -- build --bundles app
+
+      # zip や upload-artifact はシンボリックリンクと実行権を保てないので、tar で固めてから渡す。
+      # COPYFILE_DISABLE は、macOS の tar が拡張属性を ._ で始まるファイルとして混ぜるのを止める。
+      - name: Package
+        run: |
+          mkdir -p dist stage
+          ditto target/release/bundle/macos/marimo.app stage/marimo.app
+          cp target/release/marimo-hook stage/marimo-hook
+          COPYFILE_DISABLE=1 tar -czf dist/marimo-macos-arm64.tar.gz -C stage marimo.app marimo-hook
+          tar -tzvf dist/marimo-macos-arm64.tar.gz | head -n 20
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: marimo-macos-arm64
+          path: dist/marimo-macos-arm64.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+
+  build-windows:
+    name: build (Windows x64)
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    concurrency:
+      group: build-windows-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build marimo-hook
+        run: cargo build --release -p marimo-hook
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: npm ci --no-audit --no-fund
+
+      # npm.ps1 を経由すると PowerShell が引数の -- を取り除くことがあるので、npm.cmd を直接呼ぶ。
+      - name: Build the NSIS installer
+        working-directory: app
+        run: npm.cmd run tauri -- build --bundles nsis
+
+      - name: Package
+        run: |
+          $installer = @(Get-ChildItem -Path target\release\bundle\nsis -Filter 'marimo_*_x64-setup.exe')
+          if ($installer.Count -ne 1) { throw "インストーラがちょうど一つではありません: $($installer.Count) 個" }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path $installer[0].FullName, target\release\marimo-hook.exe -DestinationPath dist\marimo-windows-x64.zip
+          Get-Item dist\marimo-windows-x64.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: marimo-windows-x64
+          path: dist/marimo-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  # 両方のビルドが成功したときだけリリースを作るよう、公開は別のジョブにまとめる。
+  # リリースを書き換えられる権限は、このジョブにだけ渡す。
+  publish:
+    name: publish
+    needs: [build-macos, build-windows]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # 公開と古いビルドの片付けは途中で止めると半端なリリースが残るので、次の push が来ても最後まで走らせる。
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    # 既定の bash は pipefail を付けないので、gh release list の失敗が while に隠れないよう明示する。
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: marimo-*
+          path: dist
+          merge-multiple: true
+
+      - name: Write SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum marimo-macos-arm64.tar.gz marimo-windows-x64.zip > SHA256SUMS
+          cat SHA256SUMS
+
+      # 更新用のスクリプトは build-<コミットの先頭 12 文字> のタグからビルドを探す。
+      # 失敗した実行をやり直したときにも通るよう、リリースがあれば中身だけを差し替える。
+      - name: Publish the prerelease
+        working-directory: dist
+        run: |
+          tag="build-${GITHUB_SHA::12}"
+          files=(marimo-macos-arm64.tar.gz marimo-windows-x64.zip SHA256SUMS)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber
+          else
+            gh release create "$tag" "${files[@]}" \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --title "main build ${GITHUB_SHA::12}" \
+              --notes "main のコミット ${GITHUB_SHA} を自動でビルドしたものです。tools/update.sh と tools/update.ps1 がこのビルドを取りに来ます。"
+          fi
+
+      # build- で始まらないリリースとタグには触れない。
+      - name: Delete old builds
+        run: |
+          gh release list --limit 200 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease and (.tagName | startswith("build-")))] | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' |
+            while read -r old; do
+              echo "古いビルド $old を消します"
+              gh release delete "$old" --yes --cleanup-tag
+            done
