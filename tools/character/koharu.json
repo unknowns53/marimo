@@ -1,0 +1,95 @@
+{
+  "base": "art/koharu/base.png",
+  "out_dir": "assets/character/koharu",
+  "canvas": [
+    800,
+    1200
+  ],
+  "rembg_model": "isnet-anime",
+  "face_ellipse": {
+    "cx": 505,
+    "cy": 500,
+    "rx": 265,
+    "ry": 215
+  },
+  "states": {
+    "idle": {
+      "source": "base"
+    },
+    "idle_blink": {
+      "face": "art/koharu/idle_blink.png"
+    },
+    "working": {
+      "face": "art/koharu/working.png"
+    },
+    "working_blink": {
+      "face": "art/koharu/working_blink.png",
+      "onto": "working"
+    },
+    "waiting": {
+      "whole": "art/koharu/waiting.png"
+    },
+    "done": {
+      "face": "art/koharu/done.png"
+    },
+    "error": {
+      "face": "art/koharu/error.png"
+    },
+    "working_focus": {
+      "face": "art/koharu/working_focus.png"
+    },
+    "working_focus_blink": {
+      "face": "art/koharu/working_focus_blink.png",
+      "onto": "working_focus"
+    },
+    "working_curious": {
+      "face": "art/koharu/working_curious.png"
+    },
+    "working_curious_blink": {
+      "face": "art/koharu/working_curious_blink.png",
+      "onto": "working_curious"
+    },
+    "working_read": {
+      "face": "art/koharu/working_read.png"
+    },
+    "working_read_blink": {
+      "face": "art/koharu/working_read_blink.png",
+      "onto": "working_read"
+    },
+    "working_think": {
+      "face": "art/koharu/working_think.png"
+    },
+    "working_think_blink": {
+      "face": "art/koharu/working_think_blink.png",
+      "onto": "working_think"
+    },
+    "working_delegate": {
+      "face": "art/koharu/working_delegate.png"
+    },
+    "working_delegate_blink": {
+      "face": "art/koharu/working_delegate_blink.png",
+      "onto": "working_delegate"
+    },
+    "idle_look_away": {
+      "face": "art/koharu/idle_look_away.png"
+    },
+    "react_shy": {
+      "face": "art/koharu/react_shy.png"
+    },
+    "idle_hair": {
+      "whole": "art/koharu/idle_hair.png"
+    },
+    "idle_yawn": {
+      "whole": "art/koharu/idle_yawn.png"
+    },
+    "idle_tea": {
+      "whole": "art/koharu/idle_tea.png"
+    },
+    "idle_chin": {
+      "whole": "art/koharu/idle_chin.png"
+    },
+    "idle_stretch": {
+      "whole": "art/koharu/idle_stretch.png"
+    }
+  }
+}

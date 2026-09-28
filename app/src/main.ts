@@ -17,7 +17,7 @@ import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
 import type { AppIcons, Dialogue, SessionState, Snapshot } from "./types";
 
-const CHARACTER_BASE = new URL("/character/default/", window.location.href).href;
+const CHARACTER_BASE = new URL("/character/koharu/", window.location.href).href;
 // 以前は行を隠す設定だけをこの名前で localStorage に持っていた。段階の保存先を MARIMO_HOME へ
 // 移したので、初回だけ読み替えて引き継ぐ。
 const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";

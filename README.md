@@ -1,6 +1,6 @@
 # marimo
 
-marimo は、Claude Code の作業状況を画面の隅で知らせるデスクトップウィジェットです。20 代半ばの女性の立ち絵がふんわりとしたイラストで画面の隅に立ち、各セッションが作業中なのか、承認を待っているのか、終わったのかを表情と吹き出しで伝えます。横に並ぶ小さなパネルには、セッションごとのコンテキスト使用率と、アカウント全体の 5 時間と 7 日の利用制限も出ます。
+marimo は、Claude Code の作業状況を画面の隅で知らせるデスクトップウィジェットです。20 代半ばの女性、小春（こはる）の立ち絵がふんわりとしたイラストで画面の隅に立ち、各セッションが作業中なのか、承認を待っているのか、終わったのかを表情と吹き出しで伝えます。横に並ぶ小さなパネルには、セッションごとのコンテキスト使用率と、アカウント全体の 5 時間と 7 日の利用制限も出ます。
 
 <p align="center">
   <img src="docs/images/screenshot-detail.png" width="516" alt="marimo の画面。立ち絵の頭の上に承認待ちを知らせる吹き出しが出て、左のパネルに四つのセッションと利用制限が並んでいる">
@@ -513,15 +513,15 @@ macOS では、有効にしたあと最初にトークンを読むとき、キ�
 | `{folder}` | リポジトリ名。リポジトリの外では作業フォルダ名（パスの最後の部分） |
 | `{duration}` | 完了までにかかった時間。「25 分」「1 時間 10 分」の形で、1 分未満は「1 分足らず」になります。分からないときは空になります |
 
-既定のセリフの全体は `assets/character/default/dialogue.json` で見られます。自分のファイルを書くときの手本になります。
+既定のセリフの全体は `assets/character/koharu/dialogue.json` で見られます。自分のファイルを書くときの手本になります。
 
 marimo の古い版は、既定のセリフを `~/.marimo/dialogue.json` へ丸ごと書き出していました。そのままでは既定のセリフを直しても手元に届かないので、起動時に `dialogue.json` がその古い既定と中身がまったく同じだった場合は、編集されていないものとみなして `dialogue.json.unused-default` へ名前を変えて退避します。
 
 ### 自分のキャラクターを作る
 
-立ち絵の素材はリポジトリの `assets/character/default/` にあり、アプリのビルド時にアプリの中へ組み込まれます。別のキャラクターに変えるには、このフォルダの画像と `manifest.json` を差し替えて、アプリをビルドし直します。
+立ち絵の素材はリポジトリの `assets/character/koharu/` にあり、アプリのビルド時にアプリの中へ組み込まれます。別のキャラクターに変えるには、このフォルダの画像と `manifest.json` を差し替えて、アプリをビルドし直します。
 
-素材は、すべて同じキャンバスサイズの透過 PNG にします。既定のキャラクターは 800×1200 ピクセルで、立ち絵の表示枠（倍率 1.0 で 180×270）と同じ 2 対 3 の比率です。クリックを受け取る範囲は、各画像のアルファ値（不透明度）から自動で作られるので、別に用意する必要はありません。
+素材は、すべて同じキャンバスサイズの透過 PNG にします。既定のキャラクターの小春は 800×1200 ピクセルで、立ち絵の表示枠（倍率 1.0 で 180×270）と同じ 2 対 3 の比率です。クリックを受け取る範囲は、各画像のアルファ値（不透明度）から自動で作られるので、別に用意する必要はありません。
 
 `manifest.json` には、どの画像をどの場面で使うかを書きます。コードを変えずに表情を増やしたりキャラクターを替えたりできるよう、表情の名前はすべてここに持たせています。既定のキャラクターの `manifest.json` を例に、項目の意味を説明します。
 
@@ -557,19 +557,19 @@ python3 -m venv .venv
 .venv/bin/pip install -r tools/character/requirements.txt
 ```
 
-設定ファイルを渡して実行すると、設定ファイルの `out_dir`（既定のキャラクターでは `assets/character/default`）へ PNG を書き出します。
+設定ファイルを渡して実行すると、設定ファイルの `out_dir`（小春では `assets/character/koharu`）へ PNG を書き出します。
 
 ```bash
-.venv/bin/python tools/character/build.py tools/character/default.json
+.venv/bin/python tools/character/build.py tools/character/koharu.json
 ```
 
 `--preview` に保存先を渡すと、暗い背景と明るい背景の両方に重ねた一覧画像も書き出します。髪の縁に背景のグレーが残っていないかを目で確かめるのに使います。
 
 ```bash
-.venv/bin/python tools/character/build.py tools/character/default.json --preview preview.png
+.venv/bin/python tools/character/build.py tools/character/koharu.json --preview preview.png
 ```
 
-設定ファイル（既定のキャラクターは `tools/character/default.json`）には、次の項目を書きます。
+設定ファイル（小春は `tools/character/koharu.json`）には、次の項目を書きます。
 
 | 項目 | 意味 |
 | --- | --- |
@@ -710,9 +710,9 @@ marimo を終了してから、次のファイルを必要に応じて削除し�
 | `crates/marimo-hook` | Claude Code と Codex から呼ばれるコマンド。`hook`、`codex-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます |
 | `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、窓の制御、クリックの透過、セッションへの移動、利用量の API の取得、macOS でのアプリのアイコンの読み取りを受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
-| `assets/character/default` | 既定のキャラクターの素材。18 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` |
-| `art/default` | 既定のキャラクターの素材の元になった画像 |
-| `tools/character` | 素材を作るスクリプト `build.py`、既定のキャラクターの設定 `default.json`、Python の依存 `requirements.txt` |
+| `assets/character/koharu` | 既定のキャラクターの小春の素材。24 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` |
+| `art/koharu` | 小春の素材の元になった画像 |
+| `tools/character` | 素材を作るスクリプト `build.py`、小春の設定 `koharu.json`、Python の依存 `requirements.txt` |
 | `tools/update.sh`、`tools/update.ps1` | 取り込み、ビルド、アプリの差し替え、`install`、起動し直しをまとめて行う更新用のスクリプト。`update.sh` は macOS 用、`update.ps1` は Windows 用です |
 
 ### テストと検査
@@ -783,4 +783,4 @@ npm run build
 
 立ち絵などの画像とセリフは、[クリエイティブ・コモンズ 表示 4.0 国際ライセンス（CC BY 4.0）](https://creativecommons.org/licenses/by/4.0/deed.ja)で公開しています。対象は `assets/`、`art/`、`docs/images/`、`app/src-tauri/icons/`、`app/src-tauri/shipped-dialogue/` です。詳しくは [LICENSE-ASSETS](LICENSE-ASSETS) を見てください。
 
-立ち絵は OpenAI の画像生成モデルで作った画像を元に、`tools/character/build.py` で顔の差分の合成と背景の除去をして仕上げています。`art/` の元の画像には、生成したサービスが埋め込んだメタデータがそのまま残っています。
+小春の立ち絵は OpenAI の画像生成モデルで作った画像を元に、`tools/character/build.py` で顔の差分の合成と背景の除去をして仕上げています。`art/` の元の画像には、生成したサービスが埋め込んだメタデータがそのまま残っています。

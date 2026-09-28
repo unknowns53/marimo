@@ -1,8 +1,8 @@
 """立ち絵の素材一式を、生成した基準画像と表情差分から作る。
 
 使い方（リポジトリ直下で実行する）:
-    .venv/bin/python tools/character/build.py tools/character/default.json
-    .venv/bin/python tools/character/build.py tools/character/default.json --preview preview.png
+    .venv/bin/python tools/character/build.py tools/character/koharu.json
+    .venv/bin/python tools/character/build.py tools/character/koharu.json --preview preview.png
 
 設定ファイルの states には、状態ごとに次のどれか一つを書く。
     {"source": "base"}                  基準画像をそのまま使う
