@@ -85,7 +85,7 @@ function markActive(group: HTMLElement, key: string, value: string): void {
 
 interface KeptScroll {
   top: number;
-  /** 開いていた件数の行の印と、その層の中のスクロールの位置。 */
+  /** 開いていた件数の行の印ごとに、その層の中のスクロールの位置を持つ。 */
   layers: Map<string, number>;
 }
 
@@ -123,7 +123,7 @@ function fitLayers(rows: HTMLElement): void {
   }
 }
 
-/** スクロールバーの上で押したかどうか。スクロールバーの操作は、行を押したこととも窓のドラッグとも扱わない。 */
+/** スクロールバーの操作を、行を押したことや窓のドラッグと取り違えないために見分ける。 */
 export function onScrollbar(e: MouseEvent): boolean {
   const target = e.target;
   return target instanceof HTMLElement && target.classList.contains("row-scroll") && e.offsetX >= target.clientWidth;
@@ -159,7 +159,7 @@ function renderCounts(
   const wrap = el("div", "counts-group");
   wrap.dataset.expandId = "counts";
   const layer = el("div", "counts-detail hover-layer");
-  // 件数の行は層の下端に置いたまま、その上の行だけをスクロールさせる。
+  // 件数の行まで一緒に流れないよう、スクロールの枠はその上の行だけにする。
   const list = el("div", "layer-rows row-scroll");
   list.append(...detailChildren(view.plan, icons, now, onSelect));
   layer.append(list, line());

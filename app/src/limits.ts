@@ -71,9 +71,7 @@ export function limitLine(rl: RateLimits | null, codex: CodexRateLimits | null, 
 }
 
 export interface UsageNote {
-  /** 行の幅に収まる短い理由。 */
   text: string;
-  /** ツールチップに出す、理由と直し方の説明。 */
   title: string;
 }
 

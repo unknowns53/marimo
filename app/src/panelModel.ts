@@ -4,7 +4,7 @@ import type { SessionState, Snapshot, Status } from "./types";
 // 見たと示した完了の行を、薄くして残しておく時間。
 export const READ_LINGER_MS = 3 * 60 * 1000;
 
-/** 行の並べ方。詳細と件数のどちらの出し方にも効く。 */
+/** 並べ方は詳細と件数のどちらの出し方にも効く。 */
 export type RowOrder = "started" | "status" | "updated";
 
 export const ROW_ORDERS: readonly RowOrder[] = ["started", "status", "updated"];
@@ -19,16 +19,15 @@ export interface PanelPlan {
 const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
 
 /**
- * 詳細の表示で出す行を決める。待機以外のセッションを 1 セッション 1 行で並べ、作業中も畳まない。
- * 行の数に上限は設けず、パネルに収まらない分はスクロールして見せる。
+ * 待機以外のセッションは作業中も畳まずに 1 行ずつ並べ、パネルに収まらない分はスクロールで見せるので、
+ * 行の数に上限を設けない。
  * 見たと示された完了は畳むが、押した直後に行が消えると何を押したのか見失うので、READ_LINGER_MS の
  * 間だけその場で薄くして残す。完了のまま放っておかれるセッションは多く、いつまでも残すと古い既読で埋まる。
  *
  * started は started_at の新しい順に並べる。パネルは下端を固定して上へ伸びるので、新しいセッションが
  * 一番上に加わっても既にある行は画面上の位置が変わらず、状態が変わっても行は動かない。started_at を
  * 持たない古いファイルのセッションは最も古いものとして一番下に置き、更新のたびに動かないようにする。
- * status は未読を既読より、状態の優先度の高いものを低いものより、同じなら更新の新しいものを先に置き、
- * updated は更新の新しい順に置く。どの並べ方でも最後は sessionKey で決め、描き直すたびに同じ順にする。
+ * どの並べ方でも最後は sessionKey で決め、描き直すたびに同じ順にする。
  */
 export function planPanel(
   snapshot: Snapshot | null,
@@ -65,7 +64,7 @@ export function isEmpty(plan: PanelPlan): boolean {
   return plan.rows.length === 0;
 }
 
-/** パネルの行の出し方。立ち絵を出すかどうかとは独立に選ぶ。 */
+/** 行の出し方は、立ち絵を出すかどうかとは独立に選べる。 */
 export type PanelStyle = "detail" | "counts";
 
 export const PANEL_STYLES: readonly PanelStyle[] = ["detail", "counts"];
@@ -96,8 +95,8 @@ export interface PanelView {
 const ATTENTION: ReadonlySet<Status> = new Set(["waiting", "error", "done"]);
 
 /**
- * 行の出し方ごとに何を出すかを決める。件数だけの表示でも数え方は詳細と同じにし、見たと示された完了は
- * 数えない。吹き出しや表情を決める仕組みは表示によらず同じで、立ち絵を隠している間はそれを見せないだけにする。
+ * 件数だけの表示でも数え方は詳細と同じにし、見たと示された完了は数えない。吹き出しや表情を決める
+ * 仕組みは表示によらず同じで、立ち絵を隠している間はそれを見せないだけにする。
  */
 export function panelView(
   snapshot: Snapshot | null,
@@ -118,7 +117,7 @@ export function panelView(
 }
 
 /**
- * 今の出し方で出す行があるかどうか。無いときも、パネルは無いことを示す 1 行を出して残す。
+ * 出す行が無いときも、パネルは無いことを示す 1 行を出して残す。
  * パネルごと消えると、詳細と件数を切り替える場所も、立ち絵を隠しているときに右クリックやドラッグを
  * 受ける場所も無くなるからである。
  */

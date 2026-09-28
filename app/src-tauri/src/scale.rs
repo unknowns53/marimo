@@ -24,7 +24,6 @@ const BUBBLE_ROOM: f64 = 120.0;
 // パネルは行の増減や、件数の行に詳細を重ねたときに上へ伸びる。その最大の高さ。
 const PANEL_COLUMN_H: f64 = 380.0;
 
-/// パネルの行の出し方。行を 1 セッションずつ並べる詳細か、状態ごとの件数の 1 行に畳むか。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelStyle {
@@ -43,16 +42,14 @@ impl PanelStyle {
     }
 }
 
-/// パネルの行の並べ方。詳細と件数のどちらの出し方にも効く。
+/// 並べ方は詳細と件数のどちらの出し方にも効く。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RowOrder {
-    /// 始まった時刻の新しい順。状態が変わっても行が動かない。
+    /// 始まった時刻で並べるので、状態が変わっても行が動かない。
     #[default]
     Started,
-    /// 状態の優先度の順。
     Status,
-    /// 最後の更新の新しい順。
     Updated,
 }
 
@@ -75,7 +72,7 @@ impl RowOrder {
     }
 }
 
-/// 立ち絵を出すかどうかと、パネルの行の出し方と並べ方。どれも独立に選べ、パネルはどれでも常に出る。
+/// 立ち絵の有無と行の出し方と並べ方はどれも独立に選べ、どの組み合わせでもパネルは常に出る。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PanelDisplay {
     pub show_character: bool,
@@ -215,7 +212,7 @@ pub fn default_character() -> String {
         .unwrap_or_else(|| FALLBACK_CHARACTER.to_owned())
 }
 
-/// 保存されていない、または一覧に無い名前なら既定のキャラクターを返す。
+/// 組み込みの一覧から外れた名前が残っていても立ち絵の無い状態で起動しないよう、既定のキャラクターへ戻す。
 pub fn load_character(home: &MarimoHome) -> String {
     read_display(home)
         .character

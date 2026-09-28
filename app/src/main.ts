@@ -33,7 +33,7 @@ const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";
 // 利用制限の「古い」「リセット済み」と既読の行を畳む時期は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
 const REACTION_SPEECH_MS = 2500;
-// style.css の #bubble の bottom に足している、立ち絵と吹き出しの間の隙間。
+// style.css の #bubble の bottom に足している、立ち絵と吹き出しの間の隙間と揃える必要がある。
 const BUBBLE_GAP_PX = 2;
 // 押してからこれ以上動いたらドラッグとみなし、立ち絵の反応は出さない。
 const DRAG_THRESHOLD_PX = 4;
@@ -69,7 +69,7 @@ const expansion = new PanelExpansion(
 );
 
 let renderer: CharacterRenderer | undefined;
-// メニューに並べる組み込みのキャラクター。manifest を読めたものだけを index.json の順に持つ。
+// manifest を読めなかったキャラクターは選んでも出せないので、読めたものだけをメニューに並べる。
 let characters: { info: CharacterInfo; manifest: Manifest }[] = [];
 let characterId: string | undefined;
 // 立ち絵の画像を読む間に別のキャラクターが選ばれることがあるので、最後に頼んだものだけを出す。

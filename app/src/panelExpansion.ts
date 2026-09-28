@@ -4,7 +4,8 @@ import { rectOf, type Rect } from "./hitArea";
 const EXPAND_ATTR = "data-expand-id";
 
 /**
- * 件数だけの表示の畳んだ行を、Rust から届くカーソル位置で開閉する。
+ * 窓の透明な部分にはマウスのイベントが届かないので、件数だけの表示の畳んだ行は Rust から届く
+ * カーソル位置で開閉する。
  * 開く順序は、層を見えない状態で置いて大きさを測り、その領域をクリックを受け取る領域として
  * Rust へ登録し終えてから見せる。見せた瞬間に層の上のカーソルが下のウィンドウへ抜けないためである。
  * 層の中にさらに開ける行を置けば、同じ仕組みで入れ子に開ける。
@@ -19,7 +20,7 @@ export class PanelExpansion {
   constructor(
     private readonly panel: HTMLElement,
     private readonly registerRegions: () => Promise<void>,
-    // 層を閉じたときに、領域を送り直してもらう。
+    // 閉じた層の場所のクリックを下のウィンドウへ通せるよう、閉じたら領域を送り直してもらう。
     private readonly onLayoutChange: () => void,
   ) {}
 
