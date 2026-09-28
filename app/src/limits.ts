@@ -84,7 +84,7 @@ export function usageNote(status: UsageStatus | null): UsageNote | null {
       return {
         text: "トークン期限切れ",
         title:
-          "Claude Code のトークンの期限が切れています。ターミナルで claude を一度起動すると更新され、数分で再開します。",
+          "Claude Code のトークンの期限が切れています。ターミナルで claude を一度起動するとトークンが更新され、次の問い合わせで再開します。",
       };
     case "missing_scope":
       return {
@@ -96,7 +96,7 @@ export function usageNote(status: UsageStatus | null): UsageNote | null {
       return {
         text: "ログイン情報なし",
         title:
-          "Claude Code のログイン情報が見つかりません。ターミナルで claude を起動してログインすると、数分で取得を始めます。",
+          "Claude Code のログイン情報が見つかりません。ターミナルで claude を起動してログインすると、次の問い合わせで取得を始めます。",
       };
     case "keychain_denied":
       return {
