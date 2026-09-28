@@ -77,13 +77,13 @@ marimo は macOS で動作を確かめており、Windows 11 でも大半の機�
 | macOS の端末で動かす CLI（コマンドラインインターフェース） | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます |
 | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限を出すには[利用制限を API から取得](#利用制限の表示)を有効にします |
 | VS Code の拡張機能の画面 | 未確認 | statusLine が動くかどうかを確かめていません |
-| Windows | 一部確認済み | Windows 11 で、ビルド、`install`、フックの発火、自動起動、クリック透過を確かめています。statusLine が無い場合に `install` が `~/.marimo/bin/marimo-hook.exe statusline` のような形で登録し、これが Git Bash と PowerShell のどちらでも動くことを確かめています。既存の statusLine を包む動作は、まだ Windows の実機で試していません。既存の statusLine を使っている場合も、利用制限は「利用制限を API から取得」で出せ、`~/.claude/.credentials.json` のトークンで取得できることを確かめています。行を押してセッションへ移動する機能は、デスクトップアプリの Code タブのセッションで確かめています。Windows Terminal、conhost、VS Code の統合ターミナルでは確かめていません（[セッションへ移動する](#セッションへ移動する)を参照） |
+| Windows | 一部確認済み | Windows 11 で、ビルド、`install`、フックの発火、自動起動、クリック透過を確かめています。statusLine が無い場合に `install` が `~/.marimo/bin/marimo-hook.exe statusline` のような形で登録し、これが Git Bash と PowerShell のどちらでも動くことを確かめています。`bash C:/Users/<ユーザー名>/.claude/statusline.sh` のような既存の statusLine を `install` が包み、元の表示を変えずに、CLI のセッションでコンテキスト使用率がパーセントで出ることも確かめています。包めない statusLine を使っている場合も、利用制限は「利用制限を API から取得」で出せ、`~/.claude/.credentials.json` のトークンで取得できることを確かめています。行を押してセッションへ移動する機能は、デスクトップアプリの Code タブのセッションで確かめています。Windows Terminal、conhost、VS Code の統合ターミナルでは確かめていません（[セッションへ移動する](#セッションへ移動する)を参照） |
 | Linux | 未確認 | 動作を確かめていません |
 | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | 手元の `~/.claude/settings.json` を読まないので、フックが届きません |
 | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
 | macOS の Codex のデスクトップアプリ | 確認済み | `/hooks` で信頼したフックが届き、作業中、`request_permissions` による承認待ち、完了、題名、コンテキスト使用率がパネルに出ることと、行を押すとデスクトップアプリが前面に出ること、利用制限が `codex_rate_limits.json` に記録されることを確かめています（[Codex への対応](#codex-への対応)を参照） |
-| macOS の端末で動かす Codex CLI | 未確認 | デスクトップアプリと同じフックの仕組みで動く作りですが、端末では確かめていません |
-| Windows の Codex CLI | 未確認 | 実行ファイルのパスに空白などが無い場合だけフックを登録します。実際の Codex で動くかどうかは確かめていません |
+| macOS の端末で動かす Codex CLI | 確認済み | Terminal.app で、フックが届いて作業中と承認待ちが出ることと、行を押すと端末が前面に出ることを確かめています |
+| Windows の Codex CLI | 一部確認済み | 実行ファイルのパスに空白などが無い場合だけフックを登録します。Codex のフックが届いてパネルの行が動くことと、アプリのアイコンが出ることを確かめています |
 
 デスクトップアプリの Code タブでは statusLine が動かないため、marimo はコンテキスト使用率を会話ログ（transcript。Claude Code がセッションごとに書く JSON Lines 形式の記録）から数えます。このときモデルのコンテキストの上限が分からないので、パーセントではなくトークン数を出します。同じ会話を CLI で開いて statusLine から上限が一度届くと、それ以降はパーセントで出せるようになります。
 
