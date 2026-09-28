@@ -2088,6 +2088,7 @@ name = "marimo-app"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "marimo-core",
  "notify",
  "objc2",

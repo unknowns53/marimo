@@ -1,4 +1,5 @@
-import type { CodexRateLimits, Provider, RateLimits } from "./types";
+import { formatClock } from "./format";
+import type { CodexRateLimits, Provider, RateLimits, UsageStatus } from "./types";
 
 // statusLine はアシスタントの応答ごとに走り、Codex の値も応答ごとに rollout へ書かれるので、
 // これより古い値は手元の作業が止まっている間に実際の値から離れている可能性が高い。
@@ -67,4 +68,62 @@ export function limitLine(rl: RateLimits | null, codex: CodexRateLimits | null, 
   }
   if (groups.length === 0) return null;
   return { groups, marked: codex != null, updatedAt: Math.max(...groups.map((g) => g.updatedAt)) };
+}
+
+export interface UsageNote {
+  /** 行の幅に収まる短い理由。 */
+  text: string;
+  /** ツールチップに出す、理由と直し方の説明。 */
+  title: string;
+}
+
+// 理由は 312 px のパネルの 10 px の文字の行に利用制限の値と並べるので、行には短い言葉だけを出し、直し方はツールチップに回す。
+export function usageNote(status: UsageStatus | null): UsageNote | null {
+  switch (status?.kind) {
+    case "token_expired":
+      return {
+        text: "トークン期限切れ",
+        title:
+          "Claude Code のトークンの期限が切れています。ターミナルで claude を一度起動すると更新され、数分で再開します。",
+      };
+    case "missing_scope":
+      return {
+        text: "トークンの権限不足",
+        title:
+          "Claude Code のトークンに user:profile の権限がありません。ターミナルで claude を起動し、/login でログインし直してください。",
+      };
+    case "not_found":
+      return {
+        text: "ログイン情報なし",
+        title:
+          "Claude Code のログイン情報が見つかりません。ターミナルで claude を起動してログインすると、数分で取得を始めます。",
+      };
+    case "keychain_denied":
+      return {
+        text: "キーチェーンで拒否",
+        title:
+          "キーチェーンへのアクセスが拒否されたので、取得を止めています。右クリックメニューの「利用制限を API から取得」を一度無効にしてから有効にし直し、確認の画面で許可してください。",
+      };
+    case "rate_limited": {
+      const at = formatClock(status.retry_at);
+      return {
+        text: `API 混雑 ${at} に再試行`,
+        title: `利用量の API が混み合っています（HTTP 429）。${at} にもう一度問い合わせます。`,
+      };
+    }
+    case "rejected":
+      return {
+        text: "トークン拒否",
+        title: `利用量の API がトークンを受け付けませんでした（HTTP ${status.code}）。次の周期でトークンを読み直します。ターミナルで claude を一度起動すると直ることがあります。`,
+      };
+    case "failed": {
+      const at = formatClock(status.retry_at);
+      return {
+        text: `取得失敗 ${at} に再試行`,
+        title: `利用量の API から取得できませんでした（${status.detail}）。${at} にもう一度問い合わせます。`,
+      };
+    }
+    default:
+      return null;
+  }
 }

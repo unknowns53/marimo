@@ -22,6 +22,11 @@ export function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k` : String(n);
 }
 
+export function formatClock(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 // パネルは 30 秒ごとにしか描き直さないので、1 分より細かくは出さない。
 export function formatAge(updatedAt: number, now: number): string {
   const minutes = Math.floor(Math.max(0, now - updatedAt) / 60_000);

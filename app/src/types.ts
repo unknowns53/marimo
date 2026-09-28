@@ -83,6 +83,22 @@ export interface CodexRateLimits {
   updated_at: number;
 }
 
+// usage.rs の UsageStatus を serde で直列化した形。再試行の時刻は Unix ミリ秒。
+export type UsageStatus =
+  | {
+      kind:
+        | "pending"
+        | "disabled"
+        | "ok"
+        | "token_expired"
+        | "missing_scope"
+        | "not_found"
+        | "keychain_denied";
+    }
+  | { kind: "rate_limited"; retry_at: number }
+  | { kind: "rejected"; code: number }
+  | { kind: "failed"; detail: string; retry_at: number };
+
 export interface Snapshot {
   aggregate: Status;
   sessions: SessionState[];
