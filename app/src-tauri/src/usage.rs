@@ -18,6 +18,12 @@ const BETA: &str = "oauth-2025-04-20";
 const TIMEOUT: Duration = Duration::from_secs(10);
 const BODY_LIMIT: u64 = 1024 * 1024;
 
+// Windows だけ rustls にする理由は app/src-tauri/Cargo.toml に書いてある。
+#[cfg(windows)]
+const TLS_PROVIDER: TlsProvider = TlsProvider::Rustls;
+#[cfg(not(windows))]
+const TLS_PROVIDER: TlsProvider = TlsProvider::NativeTls;
+
 pub const INTERVAL: Duration = Duration::from_secs(5 * 60);
 pub const MAX_BACKOFF: Duration = Duration::from_secs(30 * 60);
 // Retry-After が桁違いに大きくても、設定を入れ直さずに再開できるよう上限を設ける。
@@ -264,7 +270,7 @@ fn agent() -> ureq::Agent {
         // プロキシが OS に証明書を入れている環境で、トークンがそのプロキシに見えないようにするためである。
         .tls_config(
             TlsConfig::builder()
-                .provider(TlsProvider::NativeTls)
+                .provider(TLS_PROVIDER)
                 .root_certs(RootCerts::WebPki)
                 .build(),
         )

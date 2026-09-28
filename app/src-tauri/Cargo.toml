@@ -22,10 +22,17 @@ tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 time = { version = "0.3", features = ["parsing"] }
+
 # 利用制限の API を 5 分おきに一度呼ぶだけなので、非同期ランタイムを持たない小さなクライアントにする。
-# TLS は OS のもの（Windows は SChannel、macOS は Security framework）を使う。rustls が使う ring は
-# C のコードを含み、Windows 向けのビルドに MSVC の SDK が要るためである。
+# TLS は macOS と Linux では OS のもの（Security framework と OpenSSL）を使う。
+[target.'cfg(not(windows))'.dependencies]
 ureq = { version = "3", default-features = false, features = ["native-tls"] }
+
+# Windows の SChannel は、同梱の Mozilla のルート証明書を渡しても OS の証明書ストアにあるルートまで
+# 連なりを組むことがあり、native-tls はその連なりに渡したルートが無いと拒む。api.anthropic.com の
+# クロス署名された中間証明書で実際にそうなるので、渡したルートで連なりを組む rustls を使う。
+[target.'cfg(windows)'.dependencies]
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Claude Code の資格情報は macOS ではキーチェーンにしかない。

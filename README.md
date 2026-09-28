@@ -76,7 +76,7 @@ marimo は macOS で動作を確かめています。Claude Code のどの画面
 | macOS の端末で動かす CLI（コマンドラインインターフェース） | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます |
 | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限を出すには[利用制限を API から取得](#利用制限の表示)を有効にします |
 | VS Code の拡張機能の画面 | 未確認 | statusLine が動くかどうかを確かめていません |
-| Windows | 未確認 | ビルドとインストールのためのコードはありますが、動作を確かめていません。`install` は Windows では既存の statusLine を書き換えません。statusLine が無い場合だけ、Git Bash と PowerShell のどちらでも同じように読める `~/.marimo/bin/marimo-hook.exe statusline` のような形で登録しますが、これが動くかどうかは確かめていません。既存の statusLine を使っている場合も、利用制限は「利用制限を API から取得」を使えば出せる作りですが、これも確かめていません。行を押してセッションへ移動する機能も Windows 向けのコードはありますが、実機では確かめていません（[セッションへ移動する](#セッションへ移動する)を参照） |
+| Windows | 未確認 | ビルドとインストールのためのコードはありますが、動作を確かめていません。`install` は Windows では既存の statusLine を書き換えません。statusLine が無い場合だけ、Git Bash と PowerShell のどちらでも同じように読める `~/.marimo/bin/marimo-hook.exe statusline` のような形で登録しますが、これが動くかどうかは確かめていません。既存の statusLine を使っている場合も、利用制限は「利用制限を API から取得」で出せます。Windows 11 で、`~/.claude/.credentials.json` のトークンを使って取得できることを確かめています。行を押してセッションへ移動する機能も Windows 向けのコードはありますが、実機では確かめていません（[セッションへ移動する](#セッションへ移動する)を参照） |
 | Linux | 未確認 | 動作を確かめていません |
 | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | 手元の `~/.claude/settings.json` を読まないので、フックが届きません |
 | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
@@ -98,7 +98,7 @@ marimo は配布用のバイナリを用意していないので、リポジト�
 
 Node.js のバージョンは、依存しているビルドツールの Vite と、テストツールの Vitest が求める範囲から決めています。アプリ本体は Tauri v2（Web の技術で画面を作り、Rust で OS の機能を呼ぶデスクトップアプリの枠組み）で作られています。
 
-アプリは利用量の API との通信の暗号化に OS の TLS の実装を使います。Linux では、そのための Rust のライブラリ native-tls が OpenSSL を使うので、ビルドの前に OpenSSL の開発用パッケージ（Debian や Ubuntu では `libssl-dev`、Fedora では `openssl-devel`）を入れてください。macOS と Windows では OS に含まれる実装を使うので、追加で入れるものはありません。
+アプリは利用量の API との通信の暗号化に、macOS と Linux では OS の TLS の実装を、Windows では Rust で書かれた実装の rustls を使います。Linux では、そのための Rust のライブラリ native-tls が OpenSSL を使うので、ビルドの前に OpenSSL の開発用パッケージ（Debian や Ubuntu では `libssl-dev`、Fedora では `openssl-devel`）を入れてください。macOS では OS に含まれる実装を使うので、追加で入れるものはありません。Windows では rustls が使う暗号のライブラリ ring が C のコードを含みますが、Tauri のビルドに要る Visual Studio の C++ のビルドツールでそのままビルドできます。
 
 ### ビルドの手順
 
