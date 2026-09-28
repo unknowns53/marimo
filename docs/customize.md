@@ -85,17 +85,14 @@ marimo の古い版は、既定のセリフを `~/.marimo/dialogue.json` へ丸�
 
 ## 素材を作り直す
 
-素材の作り直しには Python の仮想環境（プロジェクト専用に依存パッケージを入れる、独立した Python の環境）を使います。リポジトリの直下で、仮想環境を作ります。
+素材の作り直しには Python の仮想環境（プロジェクト専用に依存パッケージを入れる、独立した Python の環境）を使います。リポジトリの直下で仮想環境を作り、依存パッケージを入れます。バージョンは `tools/character/requirements.txt` で固定しています。
 
 ```bash
 python3 -m venv .venv
-```
-
-依存パッケージを入れます。バージョンは `tools/character/requirements.txt` で固定しています。
-
-```bash
 .venv/bin/pip install -r tools/character/requirements.txt
 ```
+
+この仮想環境は、アイコンを描き直すときにも使います（[アイコンを描き直す](development.md#アイコンを描き直す)を参照）。
 
 ### 小春の素材
 
@@ -144,17 +141,3 @@ Clawd の素材は、`tools/character/clawd.py` がドット絵を描いて作�
 ```
 
 `clawd.py` も PNG だけを書き出すので、表情を増やしたときは `assets/character/clawd/manifest.json` も自分で編集します。
-
-### アイコンを描き直す
-
-メニューバーと通知領域のアイコンは、`tools/tray_icon.py` が Pillow だけでまりもの形に描きます。実行すると `app/src-tauri/icons/` へ四つの PNG を書き出します。`tray-template.png` は macOS のふだんのアイコン、`tray-color.png` は Windows のふだんのアイコン、`tray-waiting.png` と `tray-error.png` は承認待ちとエラーのときにどちらの OS でも使うアイコンです（見え方は[メニューバーと通知領域のアイコン](usage.md#メニューバーと通知領域のアイコン)を参照）。メニューバーは画像の高さを 18 ポイントに縮めて置くので、どれも 2 倍の画面で等倍になる 36×36 ピクセルにしています。アイコンはビルドのときにアプリへ埋め込まれるので、描き直したらアプリをビルドし直します。
-
-```bash
-.venv/bin/python tools/tray_icon.py
-```
-
-アプリのアイコンは、`tools/app_icon.py` が水槽の中の顔のあるまりもを描きます。毛並みは乱数で置いた短い線を数万本重ねて描き、乱数の種を固定しているので、何度実行しても同じ画像になります。実行すると `app/src-tauri/icons/` へ `icon.icns`、`icon.ico`、`icon.png`、`32x32.png`、`128x128.png`、`128x128@2x.png` を書き出します。macOS 用の `icon.icns` は、1024×1024 ピクセルの画像の中央 824 ピクセルに角の丸い板を描いて周りを透明にし、Dock に並ぶ他のアプリと大きさを揃えます。Windows と Linux 用の残りのファイルは、同じ絵から板だけを切り出して画像いっぱいに描きます。こちらも描き直したらアプリをビルドし直します。
-
-```bash
-.venv/bin/python tools/app_icon.py
-```
