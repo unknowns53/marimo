@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
+import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
@@ -8,22 +8,25 @@ import { Bubble } from "./bubble";
 import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
 import { BubbleModel } from "./bubbleModel";
 import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
-import { HitReporter, hitRegions, rectOf, type HitRegions } from "./hitArea";
+import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
+import { characterCandidates, characterInfo, type CharacterInfo } from "./manifest";
 import { renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
 import { PANEL_MODES, panelView, showsCharacter, type PanelMode } from "./panelModel";
-import { createRenderer, loadManifest, type CharacterRenderer } from "./renderer";
+import { createRenderer, loadManifest, type CharacterRenderer, type Manifest } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
 import type { AppIcons, Dialogue, SessionState, Snapshot } from "./types";
 
-const CHARACTER_BASE = new URL("/character/koharu/", window.location.href).href;
+const CHARACTER_ROOT = new URL("/character/", window.location.href).href;
 // 以前は行を隠す設定だけをこの名前で localStorage に持っていた。段階の保存先を MARIMO_HOME へ
 // 移したので、初回だけ読み替えて引き継ぐ。
 const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";
 // 利用制限の「古い」「リセット済み」と既読の行を畳む時期は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
 const REACTION_SPEECH_MS = 2500;
+// style.css の #bubble の bottom に足している、立ち絵と吹き出しの間の隙間。
+const BUBBLE_GAP_PX = 2;
 // 押してからこれ以上動いたらドラッグとみなし、立ち絵の反応は出さない。
 const DRAG_THRESHOLD_PX = 4;
 
@@ -57,6 +60,9 @@ const expansion = new PanelExpansion(
 );
 
 let renderer: CharacterRenderer | undefined;
+// メニューに並べる組み込みのキャラクター。manifest を読めたものだけを index.json の順に持つ。
+let characters: { info: CharacterInfo; manifest: Manifest }[] = [];
+let characterId: string | undefined;
 let snapshot: Snapshot | null = null;
 // snapshot を、見たと示された完了を除いて集約し直したもの。表情、吹き出し、パネルはこちらを使う。
 let shown: Snapshot | null = null;
@@ -115,7 +121,22 @@ function showSpeech(): void {
   const text = showsCharacter(panelMode) ? speech.current(bubbleModel.view, performance.now()) : null;
   if (text) bubble.show(text);
   else bubble.hide();
+  placeBubble();
   hits.schedule();
+}
+
+// 背の低い立ち絵では、頭の上に出した吹き出しが左のパネルに重なることがある。重なるときだけ
+// パネルの上端より上へ持ち上げ、窓の上端からははみ出させない。吹き出しには動きの transform が
+// 掛かるので、大きさは transform の影響を受けない offset の値で測る。
+function placeBubble(): void {
+  const box = stage.getBoundingClientRect();
+  const bottom = box.top - BUBBLE_GAP_PX;
+  const left = box.right - bubbleNode.offsetWidth;
+  const tops = [rectOf(panelElements.panel), rectOf(panelElements.toggle)]
+    .filter((r): r is Rect => r !== null && r.x + r.w > left)
+    .map((r) => r.y - BUBBLE_GAP_PX);
+  const lift = Math.max(0, Math.min(bottom - Math.min(bottom, ...tops), bottom - bubbleNode.offsetHeight));
+  bubbleNode.style.setProperty("--bubble-lift", `${lift}px`);
 }
 
 async function reactToTouch(): Promise<void> {
@@ -148,6 +169,7 @@ function redrawPanel(): void {
   const view = panelView(shown, acknowledged, panelMode, Date.now());
   const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null };
   renderPanel(panelElements, view, limits, appIcons, Date.now(), selectSession);
+  placeBubble();
   expansion.evaluate();
   hits.schedule();
 }
@@ -161,6 +183,65 @@ function selectSession(session: SessionState): void {
   acknowledged.add(triggerKey(session));
   if (bubbleModel.view?.key === triggerKey(session)) bubbleModel.dismiss();
   refreshAcknowledged();
+}
+
+function characterBase(id: string): string {
+  return new URL(`${id}/`, CHARACTER_ROOT).href;
+}
+
+async function loadCharacters(): Promise<unknown> {
+  const index = await fetch(new URL("index.json", CHARACTER_ROOT))
+    .then((r) => (r.ok ? (r.json() as Promise<unknown>) : []))
+    .catch(() => []);
+  const ids = Array.isArray(index) ? index.filter((x): x is string => typeof x === "string") : [];
+  const loaded = await Promise.all(
+    ids.map((id) =>
+      loadManifest(characterBase(id)).then(
+        (manifest) => ({ info: characterInfo(id, manifest), manifest }),
+        (e) => {
+          console.error("character", id, e);
+          return null;
+        },
+      ),
+    ),
+  );
+  characters = loaded.filter((c) => c !== null);
+  return index;
+}
+
+// 新しい立ち絵を読み終えてから古いものと入れ替えるので、読めなかったときは今の立ち絵が残る。
+// 枠の高さは素材の縦横比で決まり、窓の大きさも合わせるよう Rust に知らせる。
+async function showCharacter(id: string): Promise<boolean> {
+  const entry = characters.find((c) => c.info.id === id);
+  if (!entry) return false;
+  const base = characterBase(id);
+  let next: CharacterRenderer;
+  try {
+    next = createRenderer(entry.manifest, base);
+    next.onShapeChange = () => hits.schedule();
+    await next.mount(stage);
+  } catch (e) {
+    console.error("character", id, e);
+    return false;
+  }
+  document.documentElement.style.setProperty("--stage-aspect", String(entry.info.aspect));
+  stage.classList.toggle("pixelated", entry.info.pixelated);
+  void invoke("set_stage_aspect", { aspect: entry.info.aspect }).catch((e) => console.error("stage aspect", e));
+  renderer?.destroy();
+  renderer = next;
+  characterId = id;
+  if (shown) renderer.update({ status: shown.aggregate, tool: focusedTool(shown) });
+  defaultDialogue = await fetch(new URL("dialogue.json", base))
+    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
+    .catch(() => ({}));
+  await reloadDialogue();
+  hits.schedule();
+  return true;
+}
+
+async function switchCharacter(id: string): Promise<void> {
+  if (id === characterId || !(await showCharacter(id))) return;
+  void invoke("set_character", { id }).catch((e) => console.error("character", e));
 }
 
 async function loadPanelMode(): Promise<PanelMode> {
@@ -219,6 +300,15 @@ async function openMenu(): Promise<void> {
     console.error("usage api", e);
     return undefined;
   });
+  const characterItems = await Promise.all(
+    characters.map(({ info }) =>
+      CheckMenuItem.new({
+        text: info.displayName,
+        checked: info.id === characterId,
+        action: () => void switchCharacter(info.id),
+      }),
+    ),
+  );
   const menu = await Menu.new({
     items: [
       ...(await Promise.all(
@@ -232,6 +322,8 @@ async function openMenu(): Promise<void> {
       )),
       await PredefinedMenuItem.new({ item: "Separator" }),
       ...sizeItems,
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await Submenu.new({ text: "キャラクター", enabled: characterItems.length > 0, items: characterItems }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await CheckMenuItem.new({
         text: "利用制限を API から取得",
@@ -306,17 +398,10 @@ async function start(): Promise<void> {
   } catch (e) {
     console.error("scale", e);
   }
-  defaultDialogue = await fetch(new URL("dialogue.json", CHARACTER_BASE))
-    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
-    .catch(() => ({}));
-  dialogue = { ...defaultDialogue };
-  try {
-    const manifest = await loadManifest(CHARACTER_BASE);
-    renderer = createRenderer(manifest, CHARACTER_BASE);
-    renderer.onShapeChange = () => hits.schedule();
-    await renderer.mount(stage);
-  } catch (e) {
-    console.error("character", e);
+  const index = await loadCharacters();
+  const saved = await invoke<string>("get_character").catch(() => null);
+  for (const id of characterCandidates(saved, index)) {
+    if (await showCharacter(id)) break;
   }
   // マウスが立ち絵の上にあるかは Rust 側がクリックを通す判定のついでに調べて知らせる。透明な部分では
   // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
@@ -333,7 +418,10 @@ async function start(): Promise<void> {
   queueSnapshot(await invoke<Snapshot>("get_snapshot"));
   window.setInterval(redrawPanel, PANEL_REFRESH_MS);
   // 倍率の変更や行の増減で形が変わったら、クリックを受け取る領域を送り直す。
-  const observer = new ResizeObserver(() => hits.schedule());
+  const observer = new ResizeObserver(() => {
+    placeBubble();
+    hits.schedule();
+  });
   for (const el of [stage, panelElements.panel, bubbleNode]) observer.observe(el);
   window.addEventListener("resize", () => hits.schedule());
 }

@@ -1,10 +1,11 @@
 {
   "mode": "standing",
-  "name": "koharu",
-  "display_name": "小春",
+  "name": "clawd",
+  "display_name": "Clawd",
+  "pixelated": true,
   "canvas": {
-    "width": 800,
-    "height": 1200
+    "width": 360,
+    "height": 180
   },
   "expressions": {
     "idle": {
@@ -44,20 +45,17 @@
     "error": {
       "image": "error.png"
     },
-    "idle_look_away": {
-      "image": "idle_look_away.png"
+    "idle_look_left": {
+      "image": "idle_look_left.png"
     },
-    "idle_hair": {
-      "image": "idle_hair.png"
+    "idle_look_right": {
+      "image": "idle_look_right.png"
     },
-    "idle_yawn": {
-      "image": "idle_yawn.png"
+    "idle_hop": {
+      "image": "idle_hop.png"
     },
-    "idle_tea": {
-      "image": "idle_tea.png"
-    },
-    "idle_chin": {
-      "image": "idle_chin.png"
+    "idle_sleep": {
+      "image": "idle_sleep.png"
     },
     "idle_stretch": {
       "image": "idle_stretch.png"
@@ -120,35 +118,28 @@
       ],
       "gestures": [
         {
-          "expression": "idle_look_away",
+          "expression": "idle_look_left",
           "duration_ms": [
             3000,
             5000
           ]
         },
         {
-          "expression": "idle_hair",
+          "expression": "idle_look_right",
           "duration_ms": [
             3000,
             5000
           ]
         },
         {
-          "expression": "idle_yawn",
+          "expression": "idle_hop",
           "duration_ms": [
             3000,
             5000
           ]
         },
         {
-          "expression": "idle_tea",
-          "duration_ms": [
-            3000,
-            5000
-          ]
-        },
-        {
-          "expression": "idle_chin",
+          "expression": "idle_sleep",
           "duration_ms": [
             3000,
             5000

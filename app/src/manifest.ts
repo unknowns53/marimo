@@ -1,3 +1,4 @@
+import type { Manifest } from "./renderer";
 import type { Status } from "./types";
 
 export interface ExpressionAssets {
@@ -10,6 +11,10 @@ export interface ExpressionAssets {
 export interface StandingManifest {
   mode: "standing";
   name?: string;
+  /** メニューに出す名前。無ければ name を使う。 */
+  display_name?: string;
+  /** ドット絵の素材なら true にし、拡大縮小しても画素をぼかさずに描かせる。 */
+  pixelated?: boolean;
   canvas: { width: number; height: number };
   /** 状態ごとの画像だけを持つ古い形式。expressions が無ければこれを使う。 */
   states?: Partial<Record<Status, ExpressionAssets>>;
@@ -50,6 +55,37 @@ export interface ExpressionRules {
 export interface Character {
   expressions: Record<string, ExpressionAssets>;
   rules: ExpressionRules;
+}
+
+/** index.json が読めないときにも使う、既定のキャラクターの名前。 */
+export const DEFAULT_CHARACTER = "koharu";
+// 縦横比の書かれていない素材の枠は、既定のキャラクターと同じにする。scale.rs の DEFAULT_ASPECT と揃える。
+const DEFAULT_ASPECT = 1.5;
+
+export interface CharacterInfo {
+  id: string;
+  displayName: string;
+  pixelated: boolean;
+  /** 立ち絵の枠の縦横比（高さ ÷ 幅）。枠の幅は固定で、高さをこれで決める。 */
+  aspect: number;
+}
+
+export function characterInfo(id: string, manifest: Manifest): CharacterInfo {
+  const size = manifest.mode === "sprite" ? manifest.frame : manifest.canvas;
+  const aspect = size.width > 0 && size.height > 0 ? size.height / size.width : DEFAULT_ASPECT;
+  const name = manifest.display_name?.trim() || manifest.name?.trim() || id;
+  return { id, displayName: name, pixelated: manifest.pixelated === true, aspect };
+}
+
+/**
+ * 立ち絵を読み込む順。保存された名前が組み込みの一覧にあればそれを先に、読めなかったときのために
+ * 一覧の先頭（既定のキャラクター）を後に並べる。
+ */
+export function characterCandidates(saved: string | null, index: unknown): string[] {
+  const ids = Array.isArray(index) ? index.filter((x): x is string => typeof x === "string") : [];
+  const fallback = ids[0] ?? DEFAULT_CHARACTER;
+  const first = saved && ids.includes(saved) ? saved : fallback;
+  return first === fallback ? [first] : [first, fallback];
 }
 
 const DEFAULT_MIN_SWITCH_MS = 4000;
