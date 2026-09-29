@@ -15,7 +15,7 @@
 ```json
 {
   "done.long": [
-    "{folder}、{duration}かかって終わったよ。お茶でもどう？"
+    "{folder} の作業、{duration}かかって終わったよ。お茶でもどう？"
   ],
   "reaction": [
     "ここにいるよ。",
@@ -73,7 +73,8 @@
 | `canvas` | 素材のキャンバスの `width` と `height` です。立ち絵の枠の縦横比に使います |
 | `expressions` | 表情の名前ごとに、画像ファイル `image` と、瞬きの差分 `blink` を書きます。`blink` を書いた表情だけが瞬きします |
 | `rules.status` | 五つの状態（`idle`、`working`、`waiting`、`done`、`error`）ごとの基本の表情です |
-| `rules.working_tools` | 作業中に、ツール名の一覧 `tools` のどれかを使っていたら表情 `expression` に切り替えます。既定では Bash、PowerShell、Edit、Write、NotebookEdit、Codex のファイルの編集の apply_patch で `working_focus`、Read、Grep、Glob で `working_read`、WebSearch と WebFetch で `working_curious`、サブエージェントを起動する Agent、Task、spawn_agent（Codex）で `working_delegate` を使います。`max_ms` を書くと、その表情を続けて見せる時間の上限（ミリ秒）になり、過ぎたら作業中の基本の表情へ戻します。サブエージェントが動く間は同じツールが何分も続き、ウインクが張り付くと不自然なので、既定では `working_delegate` を 30000 にしています |
+| `rules.variants` | セリフの分類名（[セリフを変える](#セリフを変える)の表にあるもの）ごとに、その分類のときに使う表情を書きます。たとえば `"done.long": "idle_stretch"` と書くと、15 分以上かかって終わったときに `idle_stretch` を出します。状態の基本の表情より優先し、細かい分類が無ければ基本の表情になります（セリフと違い、親の分類には戻りません）。画像を読めない表情も基本の表情で代用します。既定では、小春が `done.long` と `error.rate_limit` に使っています |
+| `rules.working_tools` | 作業中に、ツール名の一覧 `tools` のどれかを使っていたら表情 `expression` に切り替えます。既定では Bash、PowerShell、Edit、Write、NotebookEdit、Codex のファイルの編集の apply_patch で `working_focus`、Read、Grep、Glob で `working_read`、WebSearch と WebFetch で `working_curious`、サブエージェントを起動する Agent、Task、spawn_agent（Codex）で `working_delegate` を使います。ツール名の末尾に `*` を付けると、その前までが一致するツールすべてに効きます。MCP のツールは `mcp__<サーバー名>__<ツール名>` の名前で届くので、`mcp__*` と書けばまとめて指定できます。完全一致の指定があれば、そちらを優先します。`max_ms` を書くと、その表情を続けて見せる時間の上限（ミリ秒）になり、過ぎたら作業中の基本の表情へ戻します。サブエージェントが動く間は同じツールが何分も続き、ウインクが張り付くと不自然なので、既定では `working_delegate` を 30000 にしています |
 | `rules.working_no_tool` | 作業中に、ツールを使っていないとき（考えているときや応答を書いているとき）の表情です。既定では `working_think` を使います。書かなければ `rules.status` の作業中の表情のままです |
 | `rules.min_switch_ms` | 作業中の表情を切り替える最短の間隔（ミリ秒）です。ツールは数秒ごとに変わるので、ちらつかないように間を空けます。既定は 4000 です |
 | `rules.idle_gestures` | 待機中の仕草です。`interval_ms` は仕草の間隔の最小と最大、`gestures` は仕草の表情と、見せる時間 `duration_ms` の最小と最大です。直前と同じ仕草は続けて選ばれません |

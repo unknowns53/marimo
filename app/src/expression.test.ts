@@ -26,7 +26,7 @@ const FULL: StandingManifest = {
     status: { idle: "idle", working: "working", waiting: "waiting", done: "done", error: "error" },
     working_tools: [
       { tools: ["Bash", "Edit"], expression: "working_focus" },
-      { tools: ["WebSearch", "WebFetch"], expression: "working_curious" },
+      { tools: ["WebSearch", "WebFetch", "mcp__*"], expression: "working_curious" },
       { tools: ["Agent"], expression: "working_delegate", max_ms: 30000 },
     ],
     working_no_tool: "working_think",
@@ -39,6 +39,7 @@ const FULL: StandingManifest = {
       ],
     },
     reaction: { expression: "react_shy", duration_ms: 2500 },
+    variants: { "done.long": "idle_hair", "error.rate_limit": "idle_yawn" },
     hover: { working: "idle" },
     hover_release_ms: 600,
   },
@@ -58,6 +59,9 @@ describe("ExpressionDirector", () => {
     const e = director();
     e.setInput({ status: "working", tool: "WebFetch" });
     expect(e.current(0)).toBe("working_curious");
+    const m = director();
+    m.setInput({ status: "working", tool: "mcp__mashu__memory_list" });
+    expect(m.current(0)).toBe("working_curious");
     const f = director();
     f.setInput({ status: "working", tool: "Read" });
     expect(f.current(0)).toBe("working");
@@ -67,6 +71,20 @@ describe("ExpressionDirector", () => {
     const h = director(["working_think"]);
     h.setInput({ status: "working", tool: null });
     expect(h.current(0)).toBe("working");
+  });
+
+  it("uses the variant for a dialogue category and falls back when it has no image", () => {
+    // idle_yawn は FULL に無いので、error.rate_limit は状態の基本の表情になる。
+    for (const [status, category, expected] of [
+      ["done", "done.long", "idle_hair"],
+      ["done", "done.short", "done"],
+      ["done", null, "done"],
+      ["error", "error.rate_limit", "error"],
+    ] as const) {
+      const d = director();
+      d.setInput({ status, tool: null, category });
+      expect(d.current(0), `${status} ${category}`).toBe(expected);
+    }
   });
 
   it("does not switch working expressions more often than the minimum interval", () => {

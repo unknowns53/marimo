@@ -6,8 +6,14 @@ import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
 import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
-import { BubbleModel } from "./bubbleModel";
-import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
+import { BubbleModel, type BubbleView } from "./bubbleModel";
+import {
+  BUBBLE_SECONDS_CHOICES,
+  bubbleEnabled,
+  DEFAULT_BUBBLE_SETTINGS,
+  type BubbleSettings,
+} from "./bubbleSettings";
+import { categoryFor, fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
 import { union } from "./expander";
 import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
@@ -23,7 +29,7 @@ import {
   type PanelStyle,
   type RowOrder,
 } from "./panelModel";
-import { createRenderer, loadManifest, type CharacterRenderer, type Manifest } from "./renderer";
+import { createRenderer, loadManifest, type CharacterRenderer, type Manifest, type RendererInput } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
 import type { AppIcons, Dialogue, SessionState, Snapshot } from "./types";
@@ -54,7 +60,8 @@ const bubbleNode = $("bubble");
 const acknowledged = new Acknowledged((keys) =>
   void invoke("set_acknowledged", { keys }).catch((e) => console.error("acknowledged", e)),
 );
-const bubbleModel = new BubbleModel(acknowledged);
+let bubbleSettings: BubbleSettings = DEFAULT_BUBBLE_SETTINGS;
+const bubbleModel = new BubbleModel(acknowledged, undefined, (status) => bubbleEnabled(bubbleSettings, status));
 // 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も既読として薄くしてから畳む。
 // 完了の吹き出しを閉じるのは知らせを受け取ったという意思表示だからである。
 const speech = new Speech();
@@ -109,7 +116,7 @@ async function applySnapshot(next: Snapshot): Promise<void> {
   snapshot = next;
   acknowledged.prune(next);
   shown = withAcknowledged(next, acknowledged);
-  renderer?.update({ status: shown.aggregate, tool: focusedTool(shown) });
+  renderer?.update(rendererInput(shown));
   // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
   if (bubbleModel.needsText(shown)) await reloadDialogue();
   bubbleModel.update(shown, dialogue);
@@ -121,15 +128,17 @@ async function applySnapshot(next: Snapshot): Promise<void> {
 function refreshAcknowledged(): void {
   if (snapshot) {
     shown = withAcknowledged(snapshot, acknowledged);
-    renderer?.update({ status: shown.aggregate, tool: focusedTool(shown) });
+    renderer?.update(rendererInput(shown));
     bubbleModel.update(shown, dialogue);
   }
   showSpeech();
   redrawPanel();
 }
 
-function focusedTool(s: Snapshot): string | null {
-  return s.sessions.find((x) => x.status === s.aggregate)?.activity?.tool ?? null;
+// 表情は、集約で選ばれたセッションの使っているツールと、吹き出しのセリフと同じ分類から決める。
+function rendererInput(s: Snapshot): RendererInput {
+  const focus = s.sessions.find((x) => x.status === s.aggregate);
+  return { status: s.aggregate, tool: focus?.activity?.tool ?? null, category: focus ? categoryFor(focus) : null };
 }
 
 async function reloadDialogue(): Promise<void> {
@@ -143,11 +152,32 @@ async function reloadDialogue(): Promise<void> {
 // 立ち絵を隠している間は吹き出しを出さない。知らせの吹き出しはきっかけが続く間 bubbleModel に残るので、
 // 立ち絵を戻したときにまだ続いていれば、そのとき出る。
 function showSpeech(): void {
-  const text = panelDisplay.show_character ? speech.current(bubbleModel.view, performance.now()) : null;
+  const visible = panelDisplay.show_character;
+  const text = visible ? speech.current(bubbleModel.view, performance.now()) : null;
+  scheduleExpiry(visible ? bubbleModel.view : null);
   if (text) bubble.show(text);
   else bubble.hide();
   placeBubble();
   hits.schedule();
+}
+
+// 知らせの吹き出しの表示時間は、出ている間だけ数える。立ち絵を隠している間は数えず、戻したときに
+// 数え直す。秒数の設定を変えたときも数え直す。
+let expiry: { key: string; seconds: number; timer: number } | undefined;
+
+function scheduleExpiry(view: BubbleView | null): void {
+  const seconds = bubbleSettings.bubble_seconds;
+  if (view && seconds > 0 && expiry?.key === view.key && expiry.seconds === seconds) return;
+  if (expiry) window.clearTimeout(expiry.timer);
+  expiry = undefined;
+  if (!view || seconds <= 0) return;
+  const key = view.key;
+  const timer = window.setTimeout(() => {
+    expiry = undefined;
+    bubbleModel.expire(key);
+    showSpeech();
+  }, seconds * 1000);
+  expiry = { key, seconds, timer };
 }
 
 // 背の低い立ち絵では、頭の上に出した吹き出しが左のパネルに重なることがある。重なるときだけ
@@ -278,7 +308,7 @@ async function showCharacter(id: string): Promise<"shown" | "failed" | "supersed
   renderer = next;
   characterId = id;
   defaultDialogue = nextDialogue;
-  if (shown) renderer.update({ status: shown.aggregate, tool: focusedTool(shown) });
+  if (shown) renderer.update(rendererInput(shown));
   await reloadDialogue();
   hits.schedule();
   return "shown";
@@ -319,6 +349,13 @@ function setPanelDisplay(display: PanelDisplay): void {
   void invoke("set_panel_display", { display }).catch((e) => console.error("panel display", e));
 }
 
+function setBubbleSettings(next: BubbleSettings): void {
+  bubbleSettings = next;
+  void invoke("set_bubble_settings", { settings: next }).catch((e) => console.error("bubble settings", e));
+  if (shown) bubbleModel.update(shown, dialogue);
+  showSpeech();
+}
+
 function setShowCharacter(show: boolean): void {
   setPanelDisplay({ ...panelDisplay, show_character: show });
 }
@@ -354,6 +391,9 @@ const PANEL_STYLE_LABEL: Record<PanelStyle, string> = {
   counts: "件数だけ表示",
 };
 
+const bubbleSecondsLabel = (seconds: number): string =>
+  seconds === 0 ? "押すまで表示" : seconds < 60 ? `${seconds} 秒で閉じる` : `${seconds / 60} 分で閉じる`;
+
 const ROW_ORDER_LABEL: Record<RowOrder, string> = {
   started: "始まった順に並べる",
   status: "状態の順に並べる",
@@ -386,6 +426,32 @@ async function openMenu(): Promise<void> {
       }),
     ),
   );
+  const bubbleKinds: { text: string; key: "bubble_waiting" | "bubble_done" | "bubble_error" }[] = [
+    { text: "承認待ちを出す", key: "bubble_waiting" },
+    { text: "完了を出す", key: "bubble_done" },
+    { text: "エラーを出す", key: "bubble_error" },
+  ];
+  const bubbleItems = [
+    ...(await Promise.all(
+      bubbleKinds.map(({ text, key }) =>
+        CheckMenuItem.new({
+          text,
+          checked: bubbleSettings[key],
+          action: () => setBubbleSettings({ ...bubbleSettings, [key]: !bubbleSettings[key] }),
+        }),
+      ),
+    )),
+    await PredefinedMenuItem.new({ item: "Separator" }),
+    ...(await Promise.all(
+      BUBBLE_SECONDS_CHOICES.map((seconds) =>
+        CheckMenuItem.new({
+          text: bubbleSecondsLabel(seconds),
+          checked: seconds === bubbleSettings.bubble_seconds,
+          action: () => setBubbleSettings({ ...bubbleSettings, bubble_seconds: seconds }),
+        }),
+      ),
+    )),
+  ];
   const menu = await Menu.new({
     items: [
       await CheckMenuItem.new({
@@ -403,6 +469,7 @@ async function openMenu(): Promise<void> {
         ),
       )),
       await MenuItem.new({ text: "背景の不透明度…", action: openOpacityPopover }),
+      await Submenu.new({ text: "吹き出し", items: bubbleItems }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       ...(await Promise.all(
         ROW_ORDERS.map((order) =>
@@ -488,6 +555,10 @@ async function start(): Promise<void> {
   });
   const savedDisplay = await loadPanelDisplay();
   if (!trayChose) panelDisplay = savedDisplay;
+  bubbleSettings = await invoke<BubbleSettings>("get_bubble_settings").catch((e) => {
+    console.error("bubble settings", e);
+    return DEFAULT_BUBBLE_SETTINGS;
+  });
   appIcons = await invoke<AppIcons>("app_icons").catch((e) => {
     console.error("app icons", e);
     return appIcons;

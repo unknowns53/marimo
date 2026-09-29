@@ -74,6 +74,10 @@
       "done": "done",
       "error": "error"
     },
+    "variants": {
+      "done.long": "idle_stretch",
+      "error.rate_limit": "idle_tea"
+    },
     "working_tools": [
       {
         "tools": [

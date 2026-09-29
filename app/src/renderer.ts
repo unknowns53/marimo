@@ -7,6 +7,8 @@ export interface RendererInput {
   status: Status;
   // 集約で選ばれたセッションが今使っているツール。作業内容に合わせて表情を変えるのに使う。
   tool: string | null;
+  // セリフの分類。同じ状態の中で表情を変えるのに使う。
+  category?: string | null;
 }
 
 // 絵の描き方はすべてこの口を実装し、main.ts は描き方の違いを知らずに済むようにする。

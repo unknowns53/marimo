@@ -4,6 +4,8 @@ import type { Status } from "./types";
 export interface DirectorInput {
   status: Status;
   tool: string | null;
+  /** セリフの分類（dialogue.ts の categoryFor）。状態の中の違い（長い作業の完了など）を表情に映すのに使う。 */
+  category?: string | null;
 }
 
 /**
@@ -70,7 +72,8 @@ export class ExpressionDirector {
   }
 
   private statusExpression(status: Status): string | null {
-    for (const name of [this.rules.status[status], status, this.rules.status.idle, "idle"]) {
+    const variant = this.input.category ? this.rules.variants.get(this.input.category) : undefined;
+    for (const name of [variant, this.rules.status[status], status, this.rules.status.idle, "idle"]) {
       if (name && this.available(name)) return name;
     }
     return null;
@@ -80,9 +83,7 @@ export class ExpressionDirector {
   private baseExpression(now: number): string | null {
     const base = this.statusExpression(this.input.status);
     if (this.input.status !== "working") return base;
-    const mapped = this.input.tool
-      ? this.rules.workingTools.get(this.input.tool)
-      : (this.rules.workingNoTool ?? undefined);
+    const mapped = this.input.tool ? this.toolExpression(this.input.tool) : (this.rules.workingNoTool ?? undefined);
     if (mapped !== this.mapped) {
       this.mapped = mapped;
       this.mappedSince = now;
@@ -103,6 +104,13 @@ export class ExpressionDirector {
       this.workingSince = now;
     }
     return this.workingExpression;
+  }
+
+  private toolExpression(tool: string): string | undefined {
+    return (
+      this.rules.workingTools.get(tool) ??
+      this.rules.workingToolPrefixes.find(([prefix]) => tool.startsWith(prefix))?.[1]
+    );
   }
 
   private advanceGesture(now: number): void {

@@ -74,6 +74,33 @@ describe("BubbleModel", () => {
   });
 });
 
+describe("BubbleModel settings", () => {
+  it("stays silent for a disabled kind and shows it again once enabled", () => {
+    let done = false;
+    const m = new BubbleModel(new Acknowledged(), (lines) => lines[0], (status) => status !== "done" || done);
+    expect(m.update(snap(session("a", "done", 5)), DIALOGUE)).toBeNull();
+    expect(m.needsText(snap(session("a", "done", 5)))).toBe(false);
+    // 出さない種類は既読にもならないので、出す設定へ戻せば同じきっかけで出る。
+    done = true;
+    expect(m.update(snap(session("a", "done", 5)), DIALOGUE)?.text).toBe("a の作業が終わったわ");
+  });
+
+  it("folds an expired bubble without acknowledging it", () => {
+    const ack = new Acknowledged();
+    const m = new BubbleModel(ack, (lines) => lines[0]);
+    const shown = m.update(snap(session("a", "waiting", 2)), DIALOGUE);
+    m.expire("stale-key");
+    expect(m.view).toBe(shown);
+    m.expire(shown!.key);
+    expect(m.view).toBeNull();
+    // 同じきっかけの間は出し直さず、既読にもしない。
+    expect(m.update(snap(session("a", "waiting", 2, 9)), DIALOGUE)).toBeNull();
+    expect(ack.has(session("a", "waiting", 2))).toBe(false);
+    // 別のきっかけになれば出る。
+    expect(m.update(snap(session("a", "waiting", 2), session("b", "waiting", 3)), DIALOGUE)?.sessionKey).toBe("b");
+  });
+});
+
 describe("Speech", () => {
   it("lets notification bubbles win over the touch reaction", async () => {
     const { Speech } = await import("./speech");

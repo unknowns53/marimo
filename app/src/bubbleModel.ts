@@ -22,10 +22,14 @@ const randomPick: Pick = (lines) => lines[Math.floor(Math.random() * lines.lengt
  */
 export class BubbleModel {
   private current: BubbleView | null = null;
+  // 時間が来て畳んだきっかけ。見たとは限らないので既読にはせず、きっかけが続く間だけ出さずにおく。
+  private expiredKey: string | null = null;
 
   constructor(
     private readonly ack: Acknowledged,
     private readonly pick: Pick = randomPick,
+    // 吹き出しを出さない設定の状態では、きっかけがあっても出さない。
+    private readonly enabled: (status: Status) => boolean = () => true,
   ) {}
 
   get view(): BubbleView | null {
@@ -39,6 +43,9 @@ export class BubbleModel {
   }
 
   update(snapshot: Snapshot | null, dialogue: Dialogue): BubbleView | null {
+    if (this.expiredKey && !snapshot?.sessions.some((s) => triggerKey(s) === this.expiredKey)) {
+      this.expiredKey = null;
+    }
     const next = this.candidate(snapshot);
     if (!next) {
       this.current = null;
@@ -53,6 +60,13 @@ export class BubbleModel {
     return this.current;
   }
 
+  /** 時間が来て吹き出しを畳む。同じきっかけの間は出し直さず、別のきっかけに切り替わったら出す。 */
+  expire(key: string): void {
+    if (this.current?.key !== key) return;
+    this.expiredKey = key;
+    this.current = null;
+  }
+
   dismiss(): void {
     if (this.current) this.ack.add(this.current.key);
     this.current = null;
@@ -62,9 +76,9 @@ export class BubbleModel {
   // 更新の新しい順は通知などで入れ替わり、吹き出しが行き来してしまうからである。
   // それ以外は集約で選ばれる順（優先度、同じなら新しい順）に、閉じられていない最初のものを選ぶ。
   private candidate(snapshot: Snapshot | null): SessionState | null {
-    if (!snapshot || !SPEAKING.has(snapshot.aggregate)) return null;
+    if (!snapshot || !SPEAKING.has(snapshot.aggregate) || !this.enabled(snapshot.aggregate)) return null;
     const eligible = snapshot.sessions.filter(
-      (s) => s.status === snapshot.aggregate && !this.ack.has(s),
+      (s) => s.status === snapshot.aggregate && !this.ack.has(s) && triggerKey(s) !== this.expiredKey,
     );
     return eligible.find((s) => triggerKey(s) === this.current?.key) ?? eligible[0] ?? null;
   }
