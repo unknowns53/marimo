@@ -507,15 +507,16 @@ body {
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 220px;
+  gap: 10px;
+  width: 232px;
   box-sizing: border-box;
-  padding: 5px 5px 5px 10px;
-  border-radius: 8px;
+  padding: 7px 7px 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
   background: #26262e;
   color: var(--panel-fg);
   font-size: 11px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
 #opacity-popover[hidden] {
@@ -529,15 +530,49 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* WKWebView と WebView2 はどちらも WebKit 系の疑似要素でスライダーを描くので、既定の見た目を外して描き直す。
+   値までの塗りは、スクリプトが --fill に入れる割合で決める。 */
 #opacity-popover input {
   flex: 1;
   min-width: 0;
+  height: 18px;
   margin: 0;
-  accent-color: #a5b4fc;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 #opacity-popover input:focus {
   outline: none;
+}
+
+#opacity-popover input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, #a5b4fc var(--fill, 75%), rgba(255, 255, 255, 0.16) var(--fill, 75%));
+}
+
+#opacity-popover input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#opacity-popover input:hover::-webkit-slider-thumb {
+  transform: scale(1.1);
+}
+
+#opacity-popover input:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 5px rgba(165, 180, 252, 0.28);
 }
 
 #opacity-popover button {
@@ -546,13 +581,13 @@ body {
   height: 20px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: 50%;
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 20px;
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: pointer;
 }
 

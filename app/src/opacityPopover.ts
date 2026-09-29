@@ -127,5 +127,7 @@ export class OpacityPopover {
 
   private showLabel(percent: number): void {
     this.label.textContent = `背景 ${percent}%`;
+    const min = Number(this.slider.min);
+    this.slider.style.setProperty("--fill", `${((percent - min) / (Number(this.slider.max) - min)) * 100}%`);
   }
 }
