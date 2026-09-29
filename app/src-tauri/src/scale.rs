@@ -24,6 +24,11 @@ const BUBBLE_ROOM: f64 = 120.0;
 // パネルは行の増減や、件数の行に詳細を重ねたときに上へ伸びる。その最大の高さ。
 const PANEL_COLUMN_H: f64 = 380.0;
 
+/// パネルの地の不透明度。文字や点は薄くしないので、下限は地が見分けられるだけの濃さにする。
+pub const OPACITY_MIN: f64 = 0.2;
+pub const OPACITY_MAX: f64 = 1.0;
+pub const DEFAULT_OPACITY: f64 = 0.8;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelStyle {
@@ -72,13 +77,19 @@ impl RowOrder {
     }
 }
 
-/// 立ち絵の有無と行の出し方と並べ方はどれも独立に選べ、どの組み合わせでもパネルは常に出る。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// 立ち絵の有無と行の出し方と並べ方と地の不透明度はどれも独立に選べ、どの組み合わせでもパネルは常に出る。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PanelDisplay {
     pub show_character: bool,
     pub panel_style: PanelStyle,
     #[serde(default)]
     pub row_order: RowOrder,
+    #[serde(default = "default_opacity")]
+    pub panel_opacity: f64,
+}
+
+fn default_opacity() -> f64 {
+    DEFAULT_OPACITY
 }
 
 impl Default for PanelDisplay {
@@ -87,6 +98,7 @@ impl Default for PanelDisplay {
             show_character: true,
             panel_style: PanelStyle::Detail,
             row_order: RowOrder::Started,
+            panel_opacity: DEFAULT_OPACITY,
         }
     }
 }
@@ -104,6 +116,7 @@ fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
         show_character,
         panel_style,
         row_order: RowOrder::default(),
+        panel_opacity: DEFAULT_OPACITY,
     })
 }
 
@@ -127,6 +140,9 @@ struct Display {
     panel_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     row_order: Option<String>,
+    // 手で "80%" のように書かれても倍率やキャラクターまで読み損ねないよう、数に限らず受けてから解釈する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    panel_opacity: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -155,14 +171,20 @@ pub fn save(home: &MarimoHome, scale: f64) -> io::Result<()> {
 }
 
 /// 新しい鍵も以前の panel_mode も保存されていなければ None を返し、フロントエンドに既定を決めさせる。
-/// 新しい鍵が一部だけのときは、残りを panel_mode の読み替えか既定で補う。並べ方は panel_mode の
-/// 頃には無かったので、無いか知らない値なら始まった順にする。
+/// 新しい鍵が一部だけのときは、残りを panel_mode の読み替えか既定で補う。並べ方と不透明度は
+/// panel_mode の頃には無かったので、無いか解釈できない値なら既定にする。
 pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
     let d = read_display(home);
     let style = d.panel_style.as_deref().and_then(PanelStyle::parse);
     let order = d.row_order.as_deref().and_then(RowOrder::parse);
+    let opacity = d.panel_opacity.as_ref().and_then(serde_json::Value::as_f64);
     let legacy = d.panel_mode.as_deref().and_then(legacy_panel_mode);
-    if d.show_character.is_none() && style.is_none() && order.is_none() && legacy.is_none() {
+    if d.show_character.is_none()
+        && style.is_none()
+        && order.is_none()
+        && opacity.is_none()
+        && legacy.is_none()
+    {
         return None;
     }
     let fallback = legacy.unwrap_or_default();
@@ -170,6 +192,7 @@ pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
         show_character: d.show_character.unwrap_or(fallback.show_character),
         panel_style: style.unwrap_or(fallback.panel_style),
         row_order: order.unwrap_or_default(),
+        panel_opacity: opacity.map_or(DEFAULT_OPACITY, clamp_opacity),
     })
 }
 
@@ -184,6 +207,7 @@ pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Resul
         .to_owned(),
     );
     d.row_order = Some(display.row_order.as_str().to_owned());
+    d.panel_opacity = Some(clamp_opacity(display.panel_opacity).into());
     d.panel_mode = None;
     store::write_json_atomic(&home.display_file(), &d)
 }
@@ -241,6 +265,15 @@ pub fn clamp_aspect(aspect: f64) -> f64 {
     aspect.clamp(MIN_ASPECT, MAX_ASPECT)
 }
 
+// 手で書いた範囲外の値は、既定へ戻すより近い端へ寄せる方が書いた意図に近い。スライダーの 5% 刻みを
+// 小数で表すと 0.35000000000000003 のような誤差が出るので、小数第 2 位に丸める。
+pub fn clamp_opacity(opacity: f64) -> f64 {
+    if !opacity.is_finite() {
+        return DEFAULT_OPACITY;
+    }
+    (opacity.clamp(OPACITY_MIN, OPACITY_MAX) * 100.0).round() / 100.0
+}
+
 // ホイールで 0.1 ずつ足すと 1.2000000000000002 のような誤差が積もるので、
 // 範囲に収めたうえで小数第 2 位に丸める。
 pub fn clamp(scale: f64) -> f64 {
@@ -296,6 +329,7 @@ mod tests {
             show_character,
             panel_style,
             row_order: RowOrder::Started,
+            panel_opacity: DEFAULT_OPACITY,
         }
     }
 
@@ -389,6 +423,7 @@ mod tests {
                     show_character,
                     panel_style,
                     row_order,
+                    panel_opacity: DEFAULT_OPACITY,
                 }),
                 "content {content:?}"
             );
@@ -411,7 +446,71 @@ mod tests {
             serde_json::from_slice(&fs::read(home.display_file()).unwrap()).unwrap();
         assert_eq!(
             saved,
-            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status"})
+            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status", "panel_opacity": 0.8})
+        );
+    }
+
+    #[test]
+    fn panel_opacity_falls_back_and_clamps() {
+        let (_d, home) = home();
+        // 二つ目は内容を書いたあとに保存する不透明度で、None のときは保存せずに読むだけにする。
+        let cases = [
+            (r#"{"show_character": true}"#, None, Some(DEFAULT_OPACITY)),
+            (r#"{"panel_opacity": 0.5}"#, None, Some(0.5)),
+            (r#"{"panel_opacity": 1}"#, None, Some(1.0)),
+            (r#"{"panel_opacity": 0.05}"#, None, Some(OPACITY_MIN)),
+            (r#"{"panel_opacity": -3}"#, None, Some(OPACITY_MIN)),
+            (r#"{"panel_opacity": 7.5}"#, None, Some(OPACITY_MAX)),
+            (r#"{"panel_opacity": 0.456}"#, None, Some(0.46)),
+            (
+                r#"{"show_character": false, "panel_opacity": "80%"}"#,
+                None,
+                Some(DEFAULT_OPACITY),
+            ),
+            (
+                r#"{"panel_style": "counts", "panel_opacity": null}"#,
+                None,
+                Some(DEFAULT_OPACITY),
+            ),
+            (r#"{"panel_opacity": "80%"}"#, None, None),
+            (r#"{"scale": 1.2}"#, None, None),
+            (r#"{"scale": 1.2}"#, Some(0.35000000000000003), Some(0.35)),
+            (r#"{"panel_opacity": 0.5}"#, Some(0.0), Some(OPACITY_MIN)),
+            (
+                r#"{"panel_opacity": 0.5}"#,
+                Some(f64::NAN),
+                Some(DEFAULT_OPACITY),
+            ),
+            (r#"{"panel_opacity": 0.5}"#, Some(1.2), Some(OPACITY_MAX)),
+        ];
+        for (content, saved, expected) in cases {
+            fs::write(home.display_file(), content).unwrap();
+            if let Some(opacity) = saved {
+                let current = load_panel_display(&home).unwrap_or_default();
+                save_panel_display(
+                    &home,
+                    PanelDisplay {
+                        panel_opacity: opacity,
+                        ..current
+                    },
+                )
+                .unwrap();
+            }
+            assert_eq!(
+                load_panel_display(&home).map(|d| d.panel_opacity),
+                expected,
+                "content {content:?} saved {saved:?}"
+            );
+        }
+        // 解釈できない不透明度があっても、同じファイルのほかの設定は読める。
+        fs::write(
+            home.display_file(),
+            r#"{"scale": 1.5, "character": "clawd", "panel_opacity": "80%"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (load(&home), load_character(&home).as_str()),
+            (1.5, "clawd")
         );
     }
 

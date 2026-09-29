@@ -69,14 +69,26 @@ export type PanelStyle = "detail" | "counts";
 
 export const PANEL_STYLES: readonly PanelStyle[] = ["detail", "counts"];
 
+// 範囲と既定は Rust 側の scale.rs と揃える。保存するときは Rust が範囲に収め直す。
+export const PANEL_OPACITY_MIN = 0.2;
+export const PANEL_OPACITY_MAX = 1;
+export const DEFAULT_PANEL_OPACITY = 0.8;
+
 /** Rust の scale::PanelDisplay と同じ形で、display.json に保存する。 */
 export interface PanelDisplay {
   show_character: boolean;
   panel_style: PanelStyle;
   row_order: RowOrder;
+  /** パネルの地だけの不透明度。文字やアイコンや状態の点は薄くしない。 */
+  panel_opacity: number;
 }
 
-export const DEFAULT_PANEL_DISPLAY: PanelDisplay = { show_character: true, panel_style: "detail", row_order: "started" };
+export const DEFAULT_PANEL_DISPLAY: PanelDisplay = {
+  show_character: true,
+  panel_style: "detail",
+  row_order: "started",
+  panel_opacity: DEFAULT_PANEL_OPACITY,
+};
 
 export interface StatusCount {
   status: Status;

@@ -1,7 +1,12 @@
 :root {
-  --panel-bg: rgba(28, 28, 34, 0.8);
+  /* パネルとそのタブと広げた層の地の不透明度。display.json の panel_opacity を main.ts が入れる。
+     文字やアイコンや状態の点は地と別に描くので薄くならない。 */
+  --panel-alpha: 0.8;
+  --panel-bg: rgba(28, 28, 34, var(--panel-alpha));
   --panel-fg: #f4f4f5;
-  --layer-bg: #26262e;
+  /* 広げた層は元の行やタブの上に重なり、薄くすると下の文字と混ざって読めなくなるので、パネルより濃く保つ。
+     パネルが 0.8 以上のときは不透明で、0.2 まで下げても 0.85 に留まる。1 を超えた分は rgba が 1 に収める。 */
+  --layer-bg: rgba(38, 38, 46, calc(0.8 + var(--panel-alpha) * 0.25));
   --bubble-bg: #ffffff;
   --bubble-fg: #3f3a45;
   --idle: #a1a1aa;
@@ -493,6 +498,102 @@ body {
 .empty {
   padding: 3px 0;
   opacity: 0.6;
+}
+
+/* 背景の不透明度を変える小窓。位置は opacityPopover.ts がタブの列に合わせて入れる。
+   動かしている間も読めるよう、地は背景の不透明度に合わせず不透明にする。 */
+#opacity-popover {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 232px;
+  box-sizing: border-box;
+  padding: 7px 7px 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: #26262e;
+  color: var(--panel-fg);
+  font-size: 11px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+#opacity-popover[hidden] {
+  display: none;
+}
+
+/* 百分率の桁が変わっても、スライダーの幅が揺れないようにする。 */
+#opacity-popover label {
+  flex: none;
+  min-width: 5.5em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* WKWebView と WebView2 はどちらも WebKit 系の疑似要素でスライダーを描くので、既定の見た目を外して描き直す。
+   値までの塗りは、スクリプトが --fill に入れる割合で決める。 */
+#opacity-popover input {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#opacity-popover input:focus {
+  outline: none;
+}
+
+#opacity-popover input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, #a5b4fc var(--fill, 75%), rgba(255, 255, 255, 0.16) var(--fill, 75%));
+}
+
+#opacity-popover input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#opacity-popover input:hover::-webkit-slider-thumb {
+  transform: scale(1.1);
+}
+
+#opacity-popover input:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 5px rgba(165, 180, 252, 0.28);
+}
+
+#opacity-popover button {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+#opacity-popover button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
 }
 
 /* 立ち絵を隠すときは、場所を詰めずに見えなくするだけにして、窓とパネルの位置を変えない。 */
