@@ -55,7 +55,7 @@
 
 ## 自分のキャラクターを作る
 
-立ち絵の素材は、リポジトリの `assets/character/` の下にキャラクターごとのフォルダで置き、アプリのビルド時にアプリの中へ組み込まれます。組み込みのキャラクターは、小春の `koharu` と Clawd の `clawd` です。コードを変えずにキャラクターを加えられ、次のようにしてからアプリをビルドし直します。
+立ち絵の素材は、リポジトリの `assets/character/` の下にキャラクターごとのフォルダで置き、アプリのビルド時にアプリの中へ組み込まれます。組み込みのキャラクターは、小春（秋月小春）の `koharu` と Clawd の `clawd` です。コードを変えずにキャラクターを加えられ、次のようにしてからアプリをビルドし直します。
 
 1. `assets/character/` の下に、キャラクターの名前（英小文字で書く識別名の ID）のフォルダを作り、画像と `manifest.json` と既定のセリフの `dialogue.json` を置きます。
 2. `assets/character/index.json` の配列に、その名前を加えます。配列の順が右クリックメニューの「キャラクター」に並ぶ順になり、先頭のキャラクターが既定になります。起動したときに、保存した名前がこの一覧に無い場合や、そのキャラクターの `manifest.json` を読めない場合は、先頭（既定）のキャラクターを試します。`index.json` そのものを読めない場合も、既定の `koharu` を読み込み、メニューにも `koharu` を出します。右クリックメニューからの切り替えに失敗したときは、変更前のキャラクターのままです。表情の画像を読めないときの扱いは、この節の最後に書いています。
@@ -74,7 +74,7 @@
 | `expressions` | 表情の名前ごとに、画像ファイル `image` と、瞬きの差分 `blink` を書きます。`blink` を書いた表情だけが瞬きします |
 | `rules.status` | 五つの状態（`idle`、`working`、`waiting`、`done`、`error`）ごとの基本の表情です |
 | `rules.variants` | セリフの分類名（[セリフを変える](#セリフを変える)の表にあるもの）ごとに、その分類のときに使う表情を書きます。たとえば `"done.long": "idle_stretch"` と書くと、15 分以上かかって終わったときに `idle_stretch` を出します。状態の基本の表情より優先し、細かい分類が無ければ基本の表情になります（セリフと違い、親の分類には戻りません）。画像を読めない表情も基本の表情で代用します。既定では、小春が `done.long` と `error.rate_limit` に使っています |
-| `rules.working_tools` | 作業中に、ツール名の一覧 `tools` のどれかを使っていたら表情 `expression` に切り替えます。既定では Bash、PowerShell、Edit、Write、NotebookEdit、Codex のファイルの編集の apply_patch で `working_focus`、Read、Grep、Glob で `working_read`、WebSearch と WebFetch で `working_curious`、サブエージェントを起動する Agent、Task、spawn_agent（Codex）で `working_delegate` を使います。ツール名の末尾に `*` を付けると、その前までが一致するツールすべてに効きます。MCP のツールは `mcp__<サーバー名>__<ツール名>` の名前で届くので、`mcp__*` と書けばまとめて指定できます。完全一致の指定があれば、そちらを優先します。`max_ms` を書くと、その表情を続けて見せる時間の上限（ミリ秒）になり、過ぎたら作業中の基本の表情へ戻します。サブエージェントが動く間は同じツールが何分も続き、ウインクが張り付くと不自然なので、既定では `working_delegate` を 30000 にしています |
+| `rules.working_tools` | 作業中に、ツール名の一覧 `tools` のどれかを使っていたら表情 `expression` に切り替えます。既定では Bash と PowerShell で `working_focus`、Edit、Write、NotebookEdit、Codex のファイルの編集の apply_patch で `working_write`、Read、Grep、Glob で `working_read`、WebSearch と WebFetch で `working_curious`、TodoWrite、Codex の update_plan、ToolSearch、Skill で `working_plan`、MCP のツールで `working_listen`、サブエージェントを起動する Agent、Task、spawn_agent（Codex）で `working_delegate` を使います。ツール名の末尾に `*` を付けると、その前までが一致するツールすべてに効きます。MCP のツールは `mcp__<サーバー名>__<ツール名>` の名前で届くので、`mcp__*` と書けばまとめて指定できます。完全一致の指定があれば、そちらを優先します。`max_ms` を書くと、その表情を続けて見せる時間の上限（ミリ秒）になり、過ぎたら作業中の基本の表情へ戻します。サブエージェントが動く間は同じツールが何分も続き、ウインクが張り付くと不自然なので、既定では `working_delegate` を 30000 にしています |
 | `rules.working_no_tool` | 作業中に、ツールを使っていないとき（考えているときや応答を書いているとき）の表情です。既定では `working_think` を使います。書かなければ `rules.status` の作業中の表情のままです |
 | `rules.min_switch_ms` | 作業中の表情を切り替える最短の間隔（ミリ秒）です。ツールは数秒ごとに変わるので、ちらつかないように間を空けます。既定は 4000 です |
 | `rules.idle_gestures` | 待機中の仕草です。`interval_ms` は仕草の間隔の最小と最大、`gestures` は仕草の表情と、見せる時間 `duration_ms` の最小と最大です。直前と同じ仕草は続けて選ばれません |
@@ -130,6 +130,7 @@ python3 -m venv .venv
 | `{"face": "<画像>"}` | 差分の画像の顔の範囲だけを、基準の画像へ合成します |
 | `{"face": "<画像>", "onto": "<状態>"}` | 顔の範囲を、基準の画像ではなく別の状態の合成結果へ合成します。作業中の表情の瞬きの差分などに使います |
 | `{"whole": "<画像>"}` | 合成せずにそのまま使います。腕を描き足した承認待ちや、全体を描き直した仕草の差分に使います |
+| `{"whole": "<画像>", "keep": [[x0, y0, x1, y1]]}` | `whole` と同じですが、元の画像の座標で書いた矩形の中だけは、背景の色との差で前景と背景を分けます。rembg は人物から離れて浮く小さな記号を背景として消すので、鼻歌の仕草の音符のようなものを残すのに使います |
 
 採用した元の画像は `art/<キャラクター名>/` に置きます。`build.py` は PNG だけを書き出し、`manifest.json` は書き換えないので、表情を増やしたときは `manifest.json` も自分で編集します。
 

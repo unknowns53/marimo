@@ -35,6 +35,18 @@
       "image": "working_delegate.png",
       "blink": "working_delegate_blink.png"
     },
+    "working_plan": {
+      "image": "working_plan.png",
+      "blink": "working_plan_blink.png"
+    },
+    "working_listen": {
+      "image": "working_listen.png",
+      "blink": "working_listen_blink.png"
+    },
+    "working_write": {
+      "image": "working_write.png",
+      "blink": "working_write_blink.png"
+    },
     "waiting": {
       "image": "waiting.png"
     },
@@ -62,6 +74,15 @@
     "idle_stretch": {
       "image": "idle_stretch.png"
     },
+    "idle_book": {
+      "image": "idle_book.png"
+    },
+    "idle_doze": {
+      "image": "idle_doze.png"
+    },
+    "idle_hum": {
+      "image": "idle_hum.png"
+    },
     "react_shy": {
       "image": "react_shy.png"
     }
@@ -82,13 +103,18 @@
       {
         "tools": [
           "Bash",
-          "PowerShell",
+          "PowerShell"
+        ],
+        "expression": "working_focus"
+      },
+      {
+        "tools": [
           "Edit",
           "Write",
           "NotebookEdit",
           "apply_patch"
         ],
-        "expression": "working_focus"
+        "expression": "working_write"
       },
       {
         "tools": [
@@ -104,6 +130,21 @@
           "WebFetch"
         ],
         "expression": "working_curious"
+      },
+      {
+        "tools": [
+          "TodoWrite",
+          "update_plan",
+          "ToolSearch",
+          "Skill"
+        ],
+        "expression": "working_plan"
+      },
+      {
+        "tools": [
+          "mcp__*"
+        ],
+        "expression": "working_listen"
       },
       {
         "tools": [
@@ -126,43 +167,64 @@
         {
           "expression": "idle_look_away",
           "duration_ms": [
-            3000,
-            5000
+            5000,
+            8000
           ]
         },
         {
           "expression": "idle_hair",
           "duration_ms": [
-            3000,
-            5000
+            5000,
+            8000
           ]
         },
         {
           "expression": "idle_yawn",
           "duration_ms": [
-            3000,
-            5000
+            5000,
+            8000
           ]
         },
         {
           "expression": "idle_tea",
           "duration_ms": [
-            3000,
-            5000
+            5000,
+            8000
           ]
         },
         {
           "expression": "idle_chin",
           "duration_ms": [
-            3000,
-            5000
+            5000,
+            8000
           ]
         },
         {
           "expression": "idle_stretch",
           "duration_ms": [
-            3000,
-            5000
+            5000,
+            8000
+          ]
+        },
+        {
+          "expression": "idle_book",
+          "duration_ms": [
+            8000,
+            12000
+          ]
+        },
+        {
+          "expression": "idle_doze",
+          "duration_ms": [
+            8000,
+            12000
+          ]
+        },
+        {
+          "expression": "idle_hum",
+          "duration_ms": [
+            5000,
+            8000
           ]
         }
       ]
