@@ -24,8 +24,6 @@ marimo をソースからビルドする人、`install` が何を書き換える
 
 Node.js のバージョンは、依存しているビルドツールの Vite と、テストツールの Vitest の両方が求める範囲から決めています。23 系と 25 系は Vitest の範囲に入りません。アプリ本体は Tauri v2（Web の技術で画面を作り、Rust で OS の機能を呼ぶデスクトップアプリの枠組み）で作られています。
 
-アプリは利用量の API（アプリが外部のサービスを呼び出すための窓口）との通信の暗号化に、macOS と Linux では OS の TLS（通信を暗号化する仕組み）の実装を、Windows では Rust で書かれた実装の rustls を使います。Linux では、そのための Rust のライブラリ native-tls が OpenSSL を使うので、ビルドの前に OpenSSL の開発用パッケージ（Debian や Ubuntu では `libssl-dev`、Fedora では `openssl-devel`）を入れてください。macOS では OS に含まれる実装を使うので、追加で入れるものはありません。Windows では rustls が使う暗号のライブラリ ring が C のコードを含みますが、Tauri のビルドに要る Visual Studio の C++ のビルドツールでそのままビルドできます。
-
 ### ビルドの成果物
 
 `cargo build --release -p marimo-hook` でできる実行ファイルは `target/release/marimo-hook`（Windows では `marimo-hook.exe`）に置かれます。`npm run tauri -- build` は、`app/src-tauri/tauri.conf.json` の `beforeBuildCommand` に従って先に `npm run build` を実行します。macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<版>_x64-setup.exe` と `target/release/bundle/msi/marimo_<版>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
@@ -34,10 +32,7 @@ Node.js のバージョンは、依存しているビルドツールの Vite と
 
 ### ad-hoc 署名について
 
-`marimo.app` は、Apple の開発者証明書ではなく ad-hoc 署名（証明書を使わずに、その場で作った署名）で署名され、Apple の公証も受けていません。このため、次のことが起こりえます。
-
-- 初めて開くときに macOS が「開けません」と警告することがあります。その場合は、Finder で `marimo.app` を control キーを押しながらクリックして「開く」を選ぶか、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。
-- macOS は、キーチェーンの「常に許可」などの許可を署名に結びつけて覚えます。ビルドし直したり、更新用のスクリプトで CI（継続的インテグレーション。push のたびに自動でテストやビルドを行う仕組み）のビルドに入れ替えたりすると署名が変わるので、キーチェーンの確認がもう一度出ます（[キーチェーンの確認](usage.md#キーチェーンの確認)を参照）。
+`marimo.app` は、Apple の開発者証明書ではなく ad-hoc 署名（証明書を使わずに、その場で作った署名）で署名され、Apple の公証も受けていません。このため、初めて開くときに macOS が「開けません」と警告することがあります。その場合は、Finder で `marimo.app` を control キーを押しながらクリックして「開く」を選ぶか、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。
 
 ## フックと statusLine の登録
 
@@ -74,7 +69,7 @@ statusLine がまだ無ければ `marimo-hook statusline` だけを登録しま�
 
 Windows の Claude Code は、Git Bash が入っていれば Git Bash で、なければ PowerShell で statusLine を実行します。どちらで動くかが環境によって変わり、両者で引用の規則も違うので、引用符を使わずにどちらのシェルでも同じように読める形だけで書きます。marimo-hook のパスは、実行ファイルがホームフォルダの下にあれば `~/.marimo/bin/marimo-hook.exe statusline` のように `~/` で始め、そうでなければ `/` 区切りの絶対パスを書きます。パスに空白などが含まれていてどちらの形でも書けない場合は、statusLine を登録せず、既存の statusLine も包みません。
 
-既存の statusLine は、`bash C:/Users/user/.claude/statusline.sh` のように、引用符や記号を含まない語を空白一つずつで区切って並べたコマンドの場合だけ包みます。このときは `sh -c` を使わず、`~/.marimo/bin/marimo-hook.exe statusline -- bash C:/Users/user/.claude/statusline.sh` のように元のコマンドをそのまま後ろへ続けます。引用符、`$`、`|`、`;`、`\` などを含むコマンドや、`~` で始まる語を含むコマンドは、二つのシェルで読み方が変わるので包まずにそのまま残し、利用制限は「利用制限を API から取得」で出すよう表示します。`bash ~/.claude/statusline.sh` のように `~` で始まる語だけが理由で包めない場合は、`~` を `C:/Users/user` に書き換えてから `install` を実行し直すと包めます。
+既存の statusLine は、`bash C:/Users/user/.claude/statusline.sh` のように、引用符や記号を含まない語を空白一つずつで区切って並べたコマンドの場合だけ包みます。このときは `sh -c` を使わず、`~/.marimo/bin/marimo-hook.exe statusline -- bash C:/Users/user/.claude/statusline.sh` のように元のコマンドをそのまま後ろへ続けます。引用符、`$`、`|`、`;`、`\` などを含むコマンドや、`~` で始まる語を含むコマンドは、二つのシェルで読み方が変わるので包まずにそのまま残し、Claude Code の利用制限が表示されないことを知らせます。`bash ~/.claude/statusline.sh` のように `~` で始まる語だけが理由で包めない場合は、`~` を `C:/Users/user` に書き換えてから `install` を実行し直すと包めます。
 
 包んだコマンドの最初の語が `bash` のような名前だけのときは、marimo-hook が環境変数 `PATH` の並びの順に探して起動します。Rust の標準の探し方は `PATH` より先に System32 などを探すので、WSL（Windows の上で Linux を動かす仕組み）を入れていると System32 の `bash.exe` が見つかり、Git Bash や PowerShell が起動するものと違ってしまうためです。
 
@@ -127,16 +122,15 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | --- | --- |
 | `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。24 時間更新のないファイルは、アプリが消します |
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID（セッションに振られる識別子）の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
-| `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine と API からの取得の両方がここへ書きます |
+| `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine の入力から書きます |
 | `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
-| `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、API からの取得を使うかどうかの `usage_api`、選んだキャラクターの名前の `character`、選んだキャラクターの立ち絵の枠の縦横比（高さを幅で割った値）の `stage_aspect` を持ちます。`stage_aspect` は画面部分が値を知らせるたびに保存し、次の起動では窓を最初からこの縦横比で開くので、起動の直後に窓が動きません。無いときや値が正しくないときは 1.5 を使い、0.25 から 4.0 の範囲に収めます。古い形式の鍵 `panel_mode` が残っている場合は、表示を切り替えて新しい鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
+| `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、選んだキャラクターの名前の `character`、選んだキャラクターの立ち絵の枠の縦横比（高さを幅で割った値）の `stage_aspect` を持ちます。`stage_aspect` は画面部分が値を知らせるたびに保存し、次の起動では窓を最初からこの縦横比で開くので、起動の直後に窓が動きません。無いときや値が正しくないときは 1.5 を使い、0.25 から 4.0 の範囲に収めます。古い形式の鍵 `panel_mode` が残っている場合は、表示を切り替えて新しい鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
 | `window.json` | 窓の位置です |
 | `acknowledged.json` | 既読にした完了などのきっかけの記録です |
 | `dialogue.json` | 利用者が書くセリフの上書きです。marimo はこのファイルを作りません |
 | `dialogue.json.unused-default` | marimo の古い版が書き出した既定のセリフと中身が同じだった `dialogue.json` を、起動時に退避したものです |
 | `bin/marimo-hook` | `install` がコピーしたフックのコマンドです。Windows では `marimo-hook.exe` です。settings.json はこのパスを指しています |
 | `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。日付の無い名前の `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
-| `logs/usage.log` | 「利用制限を API から取得」の問い合わせの状態が変わるたびに、アプリが手元の時刻を付けて一行ずつ追記するファイルです。同じ状態が続く間と、次に問い合わせる時刻だけが変わったときは書きません。トークンと応答の中身は書きません。64 KB を超えたら、古い方を行の区切りで捨てて新しい方の半分だけを残します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
 
 セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude` か `codex` です。この項目を持たないファイルは、Claude Code のセッションとして読みます。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。
@@ -168,7 +162,6 @@ marimo は Claude Code の作業を一切妨げないことを最優先にして
 - **会話ログ** PostToolUse と Stop のときに、会話ログの末尾から最大 4 MB を読み、最後の応答のトークン数と、読んだ範囲にあるチャットの題名だけを取り出します。コンテキスト使用率と題名を出すためです。
 - **Codex の rollout と session_index.jsonl** Codex のセッションでは、rollout の末尾から最大 4 MB を読んで最後の `token_count` のトークン数と利用制限だけを取り出し、`session_index.jsonl` の末尾から最大 512 KB を読んでそのセッションの題名だけを取り出します。macOS で起動元のアプリが分からないときは、セッションの開始時とプロンプトを送ったときに rollout の先頭から最大 64 KB を読み、最初の行の `originator` だけを取り出します。Codex の `auth.json` と `config.toml` は読みません。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。
-- **OAuth のアクセストークン** 「利用制限を API から取得」を有効にしたときだけ読みます。扱いは[トークンの扱い](usage.md#トークンの扱い)のとおりです。
 - **アプリのアイコン** パネルの印に使うため、起動したときに一度だけ、Claude と Codex のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop` と `com.openai.codex` のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。
 
 ### marimo が書くもの
@@ -179,7 +172,7 @@ marimo は Claude Code の作業を一切妨げないことを最優先にして
 
 ### marimo が送るもの
 
-marimo は、状態ファイルも会話の内容も、手元のコンピュータの外へ送りません。ネットワークへの通信は、「利用制限を API から取得」を有効にしたときの `api.anthropic.com` への問い合わせだけです。この機能は既定で無効です。
+marimo は、状態ファイルも会話の内容も、手元のコンピュータの外へ送りません。アプリもフックも、ネットワークへの通信をしません。
 
 ## リポジトリの構成
 
@@ -187,7 +180,7 @@ marimo は、状態ファイルも会話の内容も、手元のコンピュー�
 | --- | --- |
 | `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
 | `crates/marimo-hook` | Claude Code と Codex から呼ばれるコマンド。`hook`、`codex-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます |
-| `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、窓の制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、利用量の API の取得、macOS でのアプリのアイコンの読み取りを受け持ちます |
+| `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、窓の制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、macOS でのアプリのアイコンの読み取りを受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
 | `assets/character/index.json` | 組み込みのキャラクターの一覧です（[自分のキャラクターを作る](customize.md#自分のキャラクターを作る)を参照） |
 | `assets/character/koharu` | 小春の素材。24 枚の PNG（画像の形式）、`manifest.json`、既定のセリフの `dialogue.json` |
@@ -196,7 +189,7 @@ marimo は、状態ファイルも会話の内容も、手元のコンピュー�
 | `tools/character` | 小春の素材を作るスクリプト `build.py` とその設定 `koharu.json`、Clawd の素材を描くスクリプト `clawd.py`、Python の依存 `requirements.txt` |
 | `tools/tray_icon.py` | メニューバーと通知領域のアイコンを描くスクリプト |
 | `tools/app_icon.py` | アプリのアイコンを描くスクリプト |
-| `tools/update.sh`、`tools/update.ps1` | 取り込み、CI のビルドの取得（`--build` や `-Build` を付けたときは手元でのビルド）、アプリの差し替え、`install`、起動し直しをまとめて行う更新用のスクリプト。`update.sh` は macOS 用、`update.ps1` は Windows 用です |
+| `tools/update.sh`、`tools/update.ps1` | 取り込み、CI（継続的インテグレーション。push のたびに自動でテストやビルドを行う仕組み）のビルドの取得（`--build` や `-Build` を付けたときは手元でのビルド）、アプリの差し替え、`install`、起動し直しをまとめて行う更新用のスクリプト。`update.sh` は macOS 用、`update.ps1` は Windows 用です |
 
 ## テストと検査
 
@@ -287,13 +280,3 @@ macOS のフックは、どのアプリから起動されたかを環境変数 `
 ### クリックの透過
 
 クリックの透過は次のように実現しています。窓がクリックを下へ通す状態になると、マウスの移動のイベントも窓に届かなくなります。そこで、画面部分がクリックを受け取る領域（パネルと吹き出しの矩形と、立ち絵の画像のアルファ値から作った横 40 マスの粗い格子。縦のマス数は素材の縦横比で決まり、小春では 40×60）を Rust 側へ送り、Rust 側はカーソルの位置を定期的に読んで、領域の上にあるときだけ窓がクリックを受け取るように切り替えます。カーソルを読む周期は、窓の上にあるとき 40 ミリ秒、外にあるとき 150 ミリ秒です。アイコンから窓を隠している間はカーソルを読まず、500 ミリ秒ごとに窓が出し直されたかだけを確かめます。立ち絵の上にマウスがあるかどうかも、同じ判定のついでに画面部分へ知らせます。
-
-### 利用量の API への問い合わせ
-
-「利用制限を API から取得」を有効にすると、アプリは `https://api.anthropic.com/api/oauth/usage` を呼び、応答の `five_hour` と `seven_day` の使用率とリセットの時刻を、statusLine と同じ形で `rate_limits.json` に保存します。問い合わせの間隔は[API からの取得のしくみ](usage.md#api-からの取得のしくみ)に、トークンの扱いは[トークンの扱い](usage.md#トークンの扱い)に書いています。
-
-このエンドポイントは公開された API ではなく、文書もありません。応答の形が想定と違うときは、保存している利用制限の値を書き換えず、取得失敗として扱って次の周期を待ちます。
-
-要求は 10 秒で打ち切り、暗号化した通信（HTTPS）でしか送らず、リダイレクト（応答が指す別の場所への転送）は追いません。リダイレクト先へトークンを送らないためです。
-
-問い合わせの結果が変わるたびに、アプリは今の状態を画面部分へ知らせ、画面部分は利用制限の行に理由を出します。状態が変わったときは、`logs/usage.log` にも書きます（[ファイルとデータ](#ファイルとデータ)を参照）。

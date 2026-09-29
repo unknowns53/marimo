@@ -14,8 +14,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.22"
-# 利用量のログに手元の時刻を書く。time の現地時刻はスレッドが複数あると取れないので chrono を使う。
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 marimo-core.workspace = true
 notify = "8"
 serde.workspace = true
@@ -24,22 +22,8 @@ serde_json.workspace = true
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
-time = { version = "0.3", features = ["parsing"] }
-
-# 利用制限の API を 5 分おきに一度呼ぶだけなので、非同期ランタイムを持たない小さなクライアントにする。
-# TLS は macOS と Linux では OS のもの（Security framework と OpenSSL）を使う。
-[target.'cfg(not(windows))'.dependencies]
-ureq = { version = "3", default-features = false, features = ["native-tls"] }
-
-# Windows の SChannel は、同梱の Mozilla のルート証明書を渡しても OS の証明書ストアにあるルートまで
-# 連なりを組むことがあり、native-tls はその連なりに渡したルートが無いと拒む。api.anthropic.com の
-# クロス署名された中間証明書で実際にそうなるので、渡したルートで連なりを組む rustls を使う。
-[target.'cfg(windows)'.dependencies]
-ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Claude Code の資格情報は macOS ではキーチェーンにしかない。
-security-framework = "3"
 # アプリのアイコンを NSWorkspace から読む。版は Tauri が引き込むものに揃える。
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = [
@@ -64,8 +48,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 [features]
 # 試験用のビルドで、カーソル位置の列を流し込んで開閉の動きを確かめるときだけ有効にする。
 cursor-replay = []
-# 試験用のビルドで、キーチェーンにも API にも触れずに利用制限の行に出す理由を確かめるときだけ有効にする。
-usage-replay = []
 
 [dev-dependencies]
 tempfile.workspace = true

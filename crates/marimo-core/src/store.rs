@@ -309,9 +309,8 @@ fn rate_limits_from(input: &Value, now: u64) -> Option<RateLimits> {
     (limits.five_hour.is_some() || limits.seven_day.is_some()).then_some(limits)
 }
 
-/// 利用制限は statusLine とアプリの API の取得の両方から届くので、どちらもここを通して書く。
 /// ロックは内側で取るので、呼び出し側は `lock_home` を持ったまま呼ばない。
-pub fn write_rate_limits(home: &MarimoHome, limits: &RateLimits) -> io::Result<()> {
+fn write_rate_limits(home: &MarimoHome, limits: &RateLimits) -> io::Result<()> {
     let _lock = lock_home(home);
     write_json_atomic(&home.rate_limits_file(), limits)
 }
@@ -505,35 +504,6 @@ fn record_file_date(name: &str) -> Option<&str> {
     shaped.then_some(date)
 }
 
-/// アプリが利用量の API の取得の成否が変わるたびに一行ずつ書くログは、これを超えたら新しい方の半分だけを残す。
-pub const USAGE_LOG_LIMIT: u64 = 64 * 1024;
-
-pub fn append_usage_log(home: &MarimoHome, line: &str) -> io::Result<()> {
-    append_capped(&home.usage_log_file(), line, USAGE_LOG_LIMIT)
-}
-
-// 世代のファイルを増やさずに一つのファイルで上限を守るため、超えたら古い方を行の境目で切り捨てる。
-fn append_capped(path: &Path, line: &str, limit: u64) -> io::Result<()> {
-    if let Some(dir) = path.parent() {
-        create_private_dir_all(dir)?;
-    }
-    let len = {
-        let mut f = private_file_options().append(true).open(path)?;
-        f.write_all(format!("{line}\n").as_bytes())?;
-        f.metadata()?.len()
-    };
-    if len <= limit {
-        return Ok(());
-    }
-    let bytes = fs::read(path)?;
-    let start = bytes.len().saturating_sub((limit / 2) as usize);
-    let kept = bytes[start..]
-        .iter()
-        .position(|&b| b == b'\n')
-        .map_or(&[][..], |i| &bytes[start + i + 1..]);
-    write_atomic(path, kept)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -577,22 +547,6 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(names, vec![std::ffi::OsString::from("a.json")]);
-    }
-
-    #[test]
-    fn usage_log_keeps_the_newest_half_at_line_boundaries() {
-        let (_d, home) = home();
-        let path = home.usage_log_file();
-        let lines: Vec<String> = (0..40).map(|i| format!("line {i:02}")).collect();
-        for line in &lines {
-            append_capped(&path, line, 100).unwrap();
-            assert!(fs::metadata(&path).unwrap().len() <= 100);
-        }
-        let text = fs::read_to_string(&path).unwrap();
-        assert!(text.ends_with("line 39\n"), "{text:?}");
-        let kept: Vec<&str> = text.lines().collect();
-        assert!((5..=12).contains(&kept.len()), "{kept:?}");
-        assert_eq!(kept, lines[lines.len() - kept.len()..]);
     }
 
     #[cfg(unix)]

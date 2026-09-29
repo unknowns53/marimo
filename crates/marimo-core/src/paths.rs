@@ -62,10 +62,6 @@ impl MarimoHome {
         self.logs_dir().join(format!("record-{date}.jsonl"))
     }
 
-    pub fn usage_log_file(&self) -> PathBuf {
-        self.logs_dir().join("usage.log")
-    }
-
     pub fn lock_file(&self) -> PathBuf {
         self.root.join(".lock")
     }

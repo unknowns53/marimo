@@ -24,7 +24,7 @@ import {
 import { createRenderer, loadManifest, type CharacterRenderer, type Manifest } from "./renderer";
 import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
 import { Speech } from "./speech";
-import type { AppIcons, Dialogue, SessionState, Snapshot, UsageStatus } from "./types";
+import type { AppIcons, Dialogue, SessionState, Snapshot } from "./types";
 
 const CHARACTER_ROOT = new URL("/character/", window.location.href).href;
 // 以前は行を隠す設定だけをこの名前で localStorage に持っていた。表示の保存先を MARIMO_HOME へ
@@ -84,7 +84,6 @@ let defaultDialogue: Dialogue = {};
 let speechTimer: number | undefined;
 let panelDisplay: PanelDisplay = DEFAULT_PANEL_DISPLAY;
 let appIcons: AppIcons = { claude: null, codex: null };
-let usageStatus: UsageStatus | null = null;
 let scale: ScaleControl | undefined;
 // スナップショットは続けて届くことがあり、セリフの読み込みを待つ間に順序が入れ替わらないよう直列にする。
 let applying: Promise<void> = Promise.resolve();
@@ -180,7 +179,7 @@ function collectHitRegions(): HitRegions {
 
 function redrawPanel(): void {
   const view = panelView(shown, acknowledged, panelDisplay.panel_style, panelDisplay.row_order, Date.now());
-  const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null, usage: usageStatus };
+  const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null };
   renderPanel(panelElements, view, limits, appIcons, Date.now(), selectSession);
   placeBubble();
   expansion.evaluate();
@@ -345,10 +344,6 @@ async function openMenu(): Promise<void> {
     console.error("autostart", e);
     return undefined;
   });
-  const usageApi = await invoke<boolean>("get_usage_api").catch((e) => {
-    console.error("usage api", e);
-    return undefined;
-  });
   const characterItems = await Promise.all(
     characters.map(({ info }) =>
       CheckMenuItem.new({
@@ -388,13 +383,6 @@ async function openMenu(): Promise<void> {
       ...sizeItems,
       await PredefinedMenuItem.new({ item: "Separator" }),
       await Submenu.new({ text: "キャラクター", enabled: characterItems.length > 0, items: characterItems }),
-      await PredefinedMenuItem.new({ item: "Separator" }),
-      await CheckMenuItem.new({
-        text: "利用制限を API から取得",
-        checked: usageApi === true,
-        enabled: usageApi !== undefined,
-        action: () => void invoke("set_usage_api", { enabled: !usageApi }).catch((e) => console.error("usage api", e)),
-      }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await CheckMenuItem.new({
         text: "ログイン時に起動",
@@ -493,16 +481,6 @@ async function start(): Promise<void> {
       return [];
     }),
   );
-  await listen<UsageStatus>("usage-status", (e) => {
-    usageStatus = e.payload;
-    redrawPanel();
-  });
-  // 読んでいる間にイベントで新しい状態が届いていたら、そちらを残す。
-  const initialUsage = await invoke<UsageStatus>("get_usage_status").catch((e) => {
-    console.error("usage status", e);
-    return null;
-  });
-  usageStatus ??= initialUsage;
   await listen<Snapshot>("snapshot", (e) => queueSnapshot(e.payload));
   queueSnapshot(await invoke<Snapshot>("get_snapshot"));
   window.setInterval(redrawPanel, PANEL_REFRESH_MS);

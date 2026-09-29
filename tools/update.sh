@@ -201,7 +201,6 @@ if ! mv "$app_new" "$app_dest"; then
   fail "新しいアプリを $app_dest へ置けませんでした。元のアプリに戻しています。"
 fi
 rm -rf "$app_old"
-echo "ad-hoc 署名が変わったので、利用制限を API から取得している場合はキーチェーンの確認がもう一度出ることがあります"
 
 echo "marimo-hook install を実行しています"
 install_ok=1
