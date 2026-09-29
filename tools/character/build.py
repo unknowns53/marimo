@@ -9,6 +9,8 @@
     {"face": "<画像>"}                  差分画像の顔の領域だけを基準画像へ合成する
     {"face": "<画像>", "onto": "<状態>"}  顔の領域を、基準画像ではなく別の状態の合成結果へ合成する
     {"whole": "<画像>"}                 差分画像を合成せずにそのまま使う（腕を描き足した差分など）
+    {"whole": "<画像>", "keep": [[x0, y0, x1, y1], ...]}
+                                        矩形の中は背景の色との差で前景を決める（人物から離れて浮く記号など）
 """
 
 import argparse
@@ -54,7 +56,7 @@ def face_mask(ellipse, a_base):
     return np.asarray(blurred).astype(np.float64)[..., None] / 255
 
 
-def matte(rgb, a_model):
+def matte(rgb, a_model, keep=None):
     """rembg の透明度から trimap を作り、縁の帯だけを closed-form matting で解き直す。
 
     rembg の透明度は髪の縁で不透明寄りに出て、縁の画素に背景のグレーが残る。そのまま
@@ -71,9 +73,23 @@ def matte(rgb, a_model):
     trimap = np.full(a_model.shape, 0.5)
     trimap[fg] = 1
     trimap[bg] = 0
+    if keep is not None:
+        # rembg は人物から離れた小さな記号を背景とみなして消すので、指定の矩形の中だけは
+        # 背景の色との差で前景と背景を決め、境目は matting に任せる
+        dist = np.linalg.norm(rgb01 - bg_color, axis=2)
+        trimap[keep] = np.where(dist[keep] > 60 / 255, 1, np.where(dist[keep] < 12 / 255, 0, 0.5))
     alpha = np.clip(estimate_alpha_cf(rgb01, trimap), 0, 1)
     fore = np.clip(estimate_foreground_ml(rgb01, alpha), 0, 1)
     return alpha, fore
+
+
+def keep_mask(rects, shape):
+    if not rects:
+        return None
+    mask = np.zeros(shape, dtype=bool)
+    for x0, y0, x1, y1 in rects:
+        mask[y0:y1, x0:x1] = True
+    return mask
 
 
 def compose(config, session):
@@ -111,7 +127,8 @@ def compose(config, session):
     mattes = {"base": matte(base, a_base)}
     for state, group in groups.items():
         if group != "base":
-            mattes[group] = matte(composed[state], rembg_alpha(composed[state], session))
+            keep = keep_mask(config["states"][state].get("keep"), composed[state].shape[:2])
+            mattes[group] = matte(composed[state], rembg_alpha(composed[state], session), keep)
     return composed, groups, mattes
 
 

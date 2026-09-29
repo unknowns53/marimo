@@ -77,6 +77,30 @@ impl RowOrder {
     }
 }
 
+/// 自動で消すまでの秒数の上限。手で書いた極端な値で吹き出しが事実上消えなくならないよう、1 時間に収める。
+pub const MAX_BUBBLE_SECONDS: u32 = 3600;
+
+/// 知らせの吹き出しは、承認待ち、完了、エラーの種類ごとに出すかどうかを選べる。
+/// 秒数が 0 のときは、押して閉じるか、きっかけが終わるまで出し続ける。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BubbleSettings {
+    pub bubble_waiting: bool,
+    pub bubble_done: bool,
+    pub bubble_error: bool,
+    pub bubble_seconds: u32,
+}
+
+impl Default for BubbleSettings {
+    fn default() -> Self {
+        Self {
+            bubble_waiting: true,
+            bubble_done: true,
+            bubble_error: true,
+            bubble_seconds: 0,
+        }
+    }
+}
+
 /// 立ち絵の有無と行の出し方と並べ方と地の不透明度はどれも独立に選べ、どの組み合わせでもパネルは常に出る。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PanelDisplay {
@@ -143,6 +167,15 @@ struct Display {
     // 手で "80%" のように書かれても倍率やキャラクターまで読み損ねないよう、数に限らず受けてから解釈する。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     panel_opacity: Option<serde_json::Value>,
+    // 吹き出しの設定も、手で書き損じた値がほかの設定まで巻き込まないよう、型を決めずに受けてから解釈する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bubble_waiting: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bubble_done: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bubble_error: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bubble_seconds: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -209,6 +242,35 @@ pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Resul
     d.row_order = Some(display.row_order.as_str().to_owned());
     d.panel_opacity = Some(clamp_opacity(display.panel_opacity).into());
     d.panel_mode = None;
+    store::write_json_atomic(&home.display_file(), &d)
+}
+
+/// 保存されていない項目や解釈できない値は、既定（種類は出す、秒数は押すまで）にする。
+pub fn load_bubble_settings(home: &MarimoHome) -> BubbleSettings {
+    let d = read_display(home);
+    let flag = |v: &Option<serde_json::Value>| {
+        v.as_ref()
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true)
+    };
+    BubbleSettings {
+        bubble_waiting: flag(&d.bubble_waiting),
+        bubble_done: flag(&d.bubble_done),
+        bubble_error: flag(&d.bubble_error),
+        bubble_seconds: d
+            .bubble_seconds
+            .as_ref()
+            .and_then(serde_json::Value::as_u64)
+            .map_or(0, |s| s.min(u64::from(MAX_BUBBLE_SECONDS)) as u32),
+    }
+}
+
+pub fn save_bubble_settings(home: &MarimoHome, settings: BubbleSettings) -> io::Result<()> {
+    let mut d = read_display(home);
+    d.bubble_waiting = Some(settings.bubble_waiting.into());
+    d.bubble_done = Some(settings.bubble_done.into());
+    d.bubble_error = Some(settings.bubble_error.into());
+    d.bubble_seconds = Some(settings.bubble_seconds.min(MAX_BUBBLE_SECONDS).into());
     store::write_json_atomic(&home.display_file(), &d)
 }
 
@@ -512,6 +574,57 @@ mod tests {
             (load(&home), load_character(&home).as_str()),
             (1.5, "clawd")
         );
+    }
+
+    #[test]
+    fn bubble_settings_fall_back_and_share_the_file() {
+        let (_d, home) = home();
+        assert_eq!(load_bubble_settings(&home), BubbleSettings::default());
+        let cases = [
+            (r#"{"bubble_done": false}"#, (true, false, true, 0)),
+            (
+                r#"{"bubble_waiting": false, "bubble_error": false, "bubble_seconds": 30}"#,
+                (false, true, false, 30),
+            ),
+            (
+                r#"{"bubble_seconds": 99999}"#,
+                (true, true, true, MAX_BUBBLE_SECONDS),
+            ),
+            // 解釈できない値は、ほかの設定を巻き込まずに既定へ戻る。
+            (
+                r#"{"bubble_waiting": "no", "bubble_seconds": -5, "scale": 1.5}"#,
+                (true, true, true, 0),
+            ),
+            (r#"{"bubble_seconds": 2.5}"#, (true, true, true, 0)),
+        ];
+        for (content, (waiting, done, error, seconds)) in cases {
+            fs::write(home.display_file(), content).unwrap();
+            assert_eq!(
+                load_bubble_settings(&home),
+                BubbleSettings {
+                    bubble_waiting: waiting,
+                    bubble_done: done,
+                    bubble_error: error,
+                    bubble_seconds: seconds,
+                },
+                "content {content:?}"
+            );
+        }
+
+        fs::write(
+            home.display_file(),
+            r#"{"scale": 1.5, "panel_style": "counts"}"#,
+        )
+        .unwrap();
+        let settings = BubbleSettings {
+            bubble_done: false,
+            bubble_seconds: 60,
+            ..BubbleSettings::default()
+        };
+        save_bubble_settings(&home, settings).unwrap();
+        save_panel_display(&home, display(true, PanelStyle::Detail)).unwrap();
+        assert_eq!(load_bubble_settings(&home), settings);
+        assert_eq!(load(&home), 1.5);
     }
 
     #[test]

@@ -90,6 +90,44 @@
     },
     "idle_stretch": {
       "whole": "art/koharu/idle_stretch.png"
+    },
+    "working_plan": {
+      "face": "art/koharu/working_plan.png"
+    },
+    "working_plan_blink": {
+      "face": "art/koharu/working_plan_blink.png",
+      "onto": "working_plan"
+    },
+    "working_listen": {
+      "face": "art/koharu/working_listen.png"
+    },
+    "working_listen_blink": {
+      "face": "art/koharu/working_listen_blink.png",
+      "onto": "working_listen"
+    },
+    "working_write": {
+      "face": "art/koharu/working_write.png"
+    },
+    "working_write_blink": {
+      "face": "art/koharu/working_write_blink.png",
+      "onto": "working_write"
+    },
+    "idle_book": {
+      "whole": "art/koharu/idle_book.png"
+    },
+    "idle_doze": {
+      "whole": "art/koharu/idle_doze.png"
+    },
+    "idle_hum": {
+      "whole": "art/koharu/idle_hum.png",
+      "keep": [
+        [
+          120,
+          235,
+          215,
+          420
+        ]
+      ]
     }
   }
 }

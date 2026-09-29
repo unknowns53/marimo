@@ -24,6 +24,8 @@ export interface StandingManifest {
 
 export interface ManifestRules {
   status?: Partial<Record<Status, string>>;
+  /** セリフと同じ分類名（done.long、error.rate_limit など）ごとの表情。状態の基本の表情より優先する。 */
+  variants?: Record<string, string>;
   working_tools?: { tools: string[]; expression: string; max_ms?: number }[];
   working_no_tool?: string;
   min_switch_ms?: number;
@@ -38,7 +40,10 @@ export interface ManifestRules {
 
 export interface ExpressionRules {
   status: Partial<Record<Status, string>>;
+  variants: Map<string, string>;
   workingTools: Map<string, string>;
+  /** 末尾に * を付けて書いたツール名の前方一致。MCP のツールは mcp__<server>__<tool> と名前がサーバーごとに変わる。 */
+  workingToolPrefixes: [string, string][];
   /** 作業内容の表情ごとの、続けて見せる時間の上限。過ぎたら作業中の基本の表情へ戻す。 */
   workingMaxMs: Map<string, number>;
   workingNoTool: string | null;
@@ -108,16 +113,22 @@ export function normalize(manifest: StandingManifest): Character {
     if (name) status[s] = name;
   }
   const workingTools = new Map<string, string>();
+  const workingToolPrefixes: [string, string][] = [];
   const workingMaxMs = new Map<string, number>();
   for (const rule of r.working_tools ?? []) {
-    for (const tool of rule.tools) workingTools.set(tool, rule.expression);
+    for (const tool of rule.tools) {
+      if (tool.endsWith("*")) workingToolPrefixes.push([tool.slice(0, -1), rule.expression]);
+      else workingTools.set(tool, rule.expression);
+    }
     if (rule.max_ms != null) workingMaxMs.set(rule.expression, rule.max_ms);
   }
   return {
     expressions,
     rules: {
       status,
+      variants: new Map(Object.entries(r.variants ?? {})),
       workingTools,
+      workingToolPrefixes,
       workingMaxMs,
       workingNoTool: r.working_no_tool ?? null,
       minSwitchMs: r.min_switch_ms ?? DEFAULT_MIN_SWITCH_MS,

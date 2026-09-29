@@ -87,6 +87,19 @@ fn set_panel_display(
 }
 
 #[tauri::command]
+fn get_bubble_settings(state: State<'_, AppState>) -> scale::BubbleSettings {
+    scale::load_bubble_settings(&state.home)
+}
+
+#[tauri::command]
+fn set_bubble_settings(
+    state: State<'_, AppState>,
+    settings: scale::BubbleSettings,
+) -> Result<(), String> {
+    scale::save_bubble_settings(&state.home, settings).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_character(state: State<'_, AppState>) -> String {
     scale::load_character(&state.home)
 }
@@ -181,6 +194,8 @@ fn main() {
             set_scale,
             get_panel_display,
             set_panel_display,
+            get_bubble_settings,
+            set_bubble_settings,
             get_character,
             set_character,
             set_stage_aspect,
