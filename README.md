@@ -11,7 +11,7 @@ marimo は、Claude Code の作業状況を画面の隅で知らせるデスク�
 別の作業をしていても、Claude Code のウィンドウを見に行かずに状況が分かるようにすることが marimo の目的です。情報源は Claude Code のフック（hook。特定の出来事が起きたときに Claude Code が呼び出す外部コマンド）と statusLine（端末で動かすコマンドラインインターフェース、つまり CLI の画面下部に一行を表示するための外部コマンド）で、どちらも Claude Code の公式の仕組みです。
 
 > [!NOTE]
-> marimo は有志が作った非公式のツールで、Anthropic とは関係がなく、Anthropic が承認したものでもありません。Claude と Claude Code は Anthropic の商標です。利用制限の取得に使う API（アプリが外部のサービスを呼び出すための窓口）は Anthropic が公開していないもので、予告なく使えなくなる可能性があります（[利用制限の表示](docs/usage.md#利用制限の表示)を参照）。
+> marimo は有志が作った非公式のツールで、Anthropic とは関係がなく、Anthropic が承認したものでもありません。Claude と Claude Code は Anthropic の商標です。
 
 ## ドキュメント
 
@@ -66,9 +66,9 @@ Claude Code は 2.1.139 以降が必要です。marimo は、この版で加わ�
 | Claude Code の使い方 | 確認の状況 | 使える機能 |
 | --- | --- | --- |
 | macOS の端末で動かす CLI | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます。更新用のスクリプトで手元でビルドして更新する方法も確かめています。行を押してセッションへ移動する機能は Terminal.app で確かめており、iTerm2 と VS Code の統合ターミナルでの見分け方は、それぞれのアプリの文書に基づいています |
-| macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限を出すには[利用制限を API から取得](docs/usage.md#利用制限の表示)を有効にします。API から取った値が statusLine の値と揃うかどうかと、キーチェーンの確認の画面に marimo の名前が出るかどうかは、確かめていません |
+| macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限は CLI も使っているときだけ出ます。そのときは、CLI の statusLine が最後に届けた値を出します（[利用制限の表示](docs/usage.md#利用制限の表示)を参照） |
 | VS Code の拡張機能の画面 | 未確認 | statusLine が動くかどうかを確かめていません |
-| Windows | 一部確認済み | Windows 11 で、ビルド、NSIS（Windows 向けのインストーラを作る仕組み）のインストーラによる導入、更新用のスクリプトで手元でビルドする更新、`install`、フックの発火、自動起動、クリック透過、通知領域のアイコンから窓を隠して出し直す操作を確かめています。statusLine が無い場合の `install` による登録が Git Bash と PowerShell のどちらでも動くことと、既存の statusLine を `install` が包んでも元の表示が変わらず、CLI のセッションでコンテキスト使用率がパーセントで出ることも確かめています（[statusLine の包み方](docs/development.md#statusline-の包み方)を参照）。包めない statusLine を使っている場合も、利用制限は「利用制限を API から取得」で出せ、`~/.claude/.credentials.json` のトークンで取得できることを確かめています。行を押してセッションへ移動する機能は、デスクトップアプリの Code タブ、Windows Terminal、conhost、VS Code の統合ターミナルのどれでも確かめています（[セッションへ移動する](docs/usage.md#セッションへ移動する)を参照） |
+| Windows | 一部確認済み | Windows 11 で、ビルド、NSIS（Windows 向けのインストーラを作る仕組み）のインストーラによる導入、更新用のスクリプトで手元でビルドする更新、`install`、フックの発火、自動起動、クリック透過、通知領域のアイコンから窓を隠して出し直す操作を確かめています。statusLine が無い場合の `install` による登録が Git Bash と PowerShell のどちらでも動くことと、既存の statusLine を `install` が包んでも元の表示が変わらず、CLI のセッションでコンテキスト使用率がパーセントで出ることも確かめています（[statusLine の包み方](docs/development.md#statusline-の包み方)を参照）。包めない statusLine を使っている場合は、marimo が statusLine を受け取れないので、Claude Code の利用制限は出ません。行を押してセッションへ移動する機能は、デスクトップアプリの Code タブ、Windows Terminal、conhost、VS Code の統合ターミナルのどれでも確かめています（[セッションへ移動する](docs/usage.md#セッションへ移動する)を参照） |
 | Linux | 未確認 | 動作を確かめていません |
 | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | 手元の `~/.claude/settings.json` を読まないので、フックが届きません |
 | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
@@ -165,7 +165,7 @@ push した直後で CI のビルドがまだできていないときは、ス�
 
 不具合の報告や改善の提案は、GitHub の Issue で受け付けています。再現の手順と、OS（macOS か Windows）とそのバージョン、Claude Code と Codex のどちらで起きたかとそのバージョン、CLI とデスクトップアプリのどちらで使っているかを添えてもらえると助かります。状態ファイルや会話ログを添えるときは、作業フォルダ名やコマンドに人に見せたくない情報が入っていないかを先に確かめてください。
 
-トークンの扱いや settings.json の書き換えなど、安全に関わる問題を見つけた場合は、公開の Issue ではなく、GitHub の Security Advisories から非公開で報告してください。
+settings.json の書き換えや会話ログの読み取りなど、安全に関わる問題を見つけた場合は、公開の Issue ではなく、GitHub の Security Advisories から非公開で報告してください。
 
 プルリクエストを送るときは、[テストと検査](docs/development.md#テストと検査)のコマンドがすべて通ることを確かめてください。挙動を変える変更には、その挙動を確かめるテストを付けてください。
 

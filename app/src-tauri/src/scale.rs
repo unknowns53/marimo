@@ -112,7 +112,7 @@ fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
 const CHARACTER_INDEX: &str = include_str!("../../../assets/character/index.json");
 const FALLBACK_CHARACTER: &str = "koharu";
 
-// display.json には倍率とパネルの表示と利用制限の取得元とキャラクターと立ち絵の縦横比を一緒に置く。
+// display.json には倍率とパネルの表示とキャラクターと立ち絵の縦横比を一緒に置く。
 // 一つを保存するときにほかを消さないよう、読んでから書き戻す。
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Display {
@@ -127,8 +127,6 @@ struct Display {
     panel_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     row_order: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    usage_api: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -187,17 +185,6 @@ pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Resul
     );
     d.row_order = Some(display.row_order.as_str().to_owned());
     d.panel_mode = None;
-    store::write_json_atomic(&home.display_file(), &d)
-}
-
-// 利用者の資格情報を読むので、明示して有効にしたときだけ API から取る。
-pub fn load_usage_api(home: &MarimoHome) -> bool {
-    read_display(home).usage_api.unwrap_or(false)
-}
-
-pub fn save_usage_api(home: &MarimoHome, enabled: bool) -> io::Result<()> {
-    let mut d = read_display(home);
-    d.usage_api = Some(enabled);
     store::write_json_atomic(&home.display_file(), &d)
 }
 
@@ -317,7 +304,6 @@ mod tests {
         let (_d, home) = home();
         assert_eq!(load(&home), DEFAULT);
         assert_eq!(load_panel_display(&home), None);
-        assert!(!load_usage_api(&home));
         let counts = display(true, PanelStyle::Counts);
         save(&home, 1.5).unwrap();
         save_panel_display(&home, counts).unwrap();
@@ -332,9 +318,7 @@ mod tests {
             (Some(counts), "clawd")
         );
 
-        save_usage_api(&home, true).unwrap();
         save_aspect(&home, 1.0).unwrap();
-        assert!(load_usage_api(&home));
         assert_eq!(
             (
                 load(&home),
@@ -346,19 +330,11 @@ mod tests {
         );
         save(&home, 2.5).unwrap();
         save_panel_display(&home, display(false, PanelStyle::Detail)).unwrap();
-        assert!(load_usage_api(&home));
-        save_usage_api(&home, false).unwrap();
-        assert!(!load_usage_api(&home));
         assert_eq!(load(&home), MAX);
         assert_eq!(
             load_panel_display(&home),
             Some(display(false, PanelStyle::Detail))
         );
-
-        for content in [r#"{"usage_api": "yes"}"#, "{broken", r#"{"scale": 1.2}"#] {
-            fs::write(home.display_file(), content).unwrap();
-            assert!(!load_usage_api(&home), "content {content:?}");
-        }
     }
 
     #[test]
@@ -446,7 +422,11 @@ mod tests {
         assert_eq!(load_character(&home), "koharu");
         for (content, expected) in [
             (r#"{"character": "koharu"}"#, "koharu"),
-            (r#"{"character": "clawd", "scale": 0.6}"#, "clawd"),
+            // Display が知らない鍵を含むファイルでも、ほかの鍵は読める。
+            (
+                r#"{"character": "clawd", "scale": 0.6, "usage_api": true}"#,
+                "clawd",
+            ),
             (r#"{"character": "missing"}"#, "koharu"),
             (r#"{"character": 3}"#, "koharu"),
             (r#"{"scale": 1.2}"#, "koharu"),

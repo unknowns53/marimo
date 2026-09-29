@@ -1,8 +1,8 @@
 import { sessionKey } from "./acknowledged";
 import { folderName, formatAge, formatClock, formatTokens, isCodexScratch } from "./format";
-import { limitLine, usageNote, type LimitLine, type UsageNote } from "./limits";
+import { limitLine, type LimitLine } from "./limits";
 import { hasContent, type PanelPlan, type PanelView } from "./panelModel";
-import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status, UsageStatus } from "./types";
+import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
 
 const FALLBACK_SUMMARY: Record<Status, string> = {
   idle: "",
@@ -36,7 +36,6 @@ const PROVIDER_BADGE: Record<Provider, string> = {
 export interface PanelLimits {
   claude: RateLimits | null;
   codex: CodexRateLimits | null;
-  usage: UsageStatus | null;
 }
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -56,8 +55,7 @@ export function renderPanel(
   onSelect: (session: SessionState) => void,
 ): void {
   const line = limitLine(rateLimits.claude, rateLimits.codex, now);
-  const note = usageNote(rateLimits.usage);
-  if (line || note) renderLimits(limits, line, note, icons);
+  if (line) renderLimits(limits, line, icons);
   let children: HTMLElement[];
   if (!hasContent(view)) children = [el("div", "empty", EMPTY_LIST_TEXT)];
   else if (view.style === "counts") children = [renderCounts(view, icons, now, onSelect)];
@@ -67,7 +65,7 @@ export function renderPanel(
   // 件数の行の層は #rows の外へ伸びるので、件数だけの表示では #rows をスクロールの枠にしない。
   // スクロールの枠は中身を枠の外へはみ出させず、層が切れてしまうからである。
   rows.classList.toggle("row-scroll", view.style === "detail");
-  limits.hidden = line === null && note === null;
+  limits.hidden = line === null;
   panel.hidden = false;
   fitLayers(rows);
   restoreScroll(rows, kept);
@@ -251,14 +249,11 @@ export function renderContext(s: SessionState): HTMLElement {
   return el("span", "ctx-none");
 }
 
-// 古さは組ごとに示す。全部の組が古いときは、以前の版と同じく行全体を薄くする。API から取れていない
-// 理由があるときは更新の時刻の代わりに出し、値が一つも無くても行を出して空の理由が分かるようにする。
-function renderLimits(container: HTMLElement, line: LimitLine | null, note: UsageNote | null, icons: AppIcons): void {
-  const allStale = line !== null && line.groups.every((g) => g.stale);
+// 古さは組ごとに示す。全部の組が古いときは、以前の版と同じく行全体を薄くする。
+function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons): void {
+  const allStale = line.groups.every((g) => g.stale);
   let values: HTMLElement;
-  if (!line) {
-    values = el("span", "limit-values", "利用制限");
-  } else if (line.marked) {
+  if (line.marked) {
     values = el("span", "limit-values marked");
     for (const g of line.groups) {
       const group = el("span", !allStale && g.stale ? "limit-group stale" : "limit-group");
@@ -269,15 +264,7 @@ function renderLimits(container: HTMLElement, line: LimitLine | null, note: Usag
   } else {
     values = el("span", "limit-values", line.groups.map((g) => g.text).join(" · "));
   }
-  const time = el("span", "limit-time");
-  if (note) {
-    time.classList.add("limit-note");
-    time.textContent = note.text;
-    time.title = line ? `${note.title}\n表示中の値は ${formatClock(line.updatedAt)} 更新` : note.title;
-  } else if (line) {
-    time.textContent = `${formatClock(line.updatedAt)} 更新`;
-  }
-  container.replaceChildren(values, time);
+  container.replaceChildren(values, el("span", "limit-time", `${formatClock(line.updatedAt)} 更新`));
   container.classList.toggle("stale", allStale);
 }
 

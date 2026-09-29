@@ -162,14 +162,14 @@ impl Marimo {
                 quote_always(original)
             )),
             StatusLinePolicy::ShellAgnostic { plain: None } => Err(format!(
-                "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、既存の statusLine を書き換えませんでした。{API_HINT}"
+                "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、既存の statusLine を書き換えませんでした。{LIMITS_HINT}"
             )),
             StatusLinePolicy::ShellAgnostic { plain: Some(p) } => {
                 if plain_words(original) {
                     Ok(format!("{p} statusline -- {original}"))
                 } else {
                     Err(format!(
-                        "既存の statusLine に Git Bash と PowerShell で読み方の違う引用符や記号が含まれるため、書き換えませんでした。{API_HINT}"
+                        "既存の statusLine に Git Bash と PowerShell で読み方の違う引用符や記号が含まれるため、書き換えませんでした。{LIMITS_HINT}"
                     ))
                 }
             }
@@ -452,14 +452,15 @@ fn is_marimo_codex_handler(handler: &Value) -> bool {
     )
 }
 
-const API_HINT: &str = "利用制限を表示するには、アプリの右クリックメニューで「利用制限を API から取得」を有効にしてください";
+const LIMITS_HINT: &str =
+    "marimo が statusLine を受け取れないので、Claude Code の利用制限は表示されません";
 
 fn install_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> StatusLineChange {
     let Some(existing) = root.get_mut("statusLine") else {
         let Some(after) = marimo.statusline_command() else {
             return StatusLineChange::Untouched {
                 reason: format!(
-                    "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、statusLine を登録しませんでした。{API_HINT}"
+                    "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、statusLine を登録しませんでした。{LIMITS_HINT}"
                 ),
             };
         };
@@ -963,7 +964,7 @@ mod tests {
                     panic!("{command:?}: {:?}", report.status_line);
                 };
                 assert!(reason.contains("引用符や記号"), "{command:?}: {reason}");
-                assert!(reason.contains("「利用制限を API から取得」"), "{reason}");
+                assert!(reason.contains("利用制限は表示されません"), "{reason}");
                 assert_eq!(settings["statusLine"], original["statusLine"]);
             }
             let report = uninstall(&mut settings, &m).unwrap();
@@ -1000,7 +1001,7 @@ mod tests {
         let StatusLineChange::Untouched { reason } = &report.status_line else {
             panic!("{:?}", report.status_line);
         };
-        assert!(reason.contains("「利用制限を API から取得」"), "{reason}");
+        assert!(reason.contains("利用制限は表示されません"), "{reason}");
         assert!(settings.get("statusLine").is_none());
         assert_eq!(
             settings["hooks"]["Stop"][0]["hooks"][0]["command"],

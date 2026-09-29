@@ -286,7 +286,7 @@ fn install_then_uninstall_restores_realistic_settings() {
         "{text}"
     );
     #[cfg(windows)]
-    assert!(text.contains("「利用制限を API から取得」"), "{text}");
+    assert!(text.contains("利用制限は表示されません"), "{text}");
 
     let once = env.text();
     let out = env.run(&["install"]);
