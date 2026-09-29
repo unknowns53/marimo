@@ -9,7 +9,9 @@ import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
 import { BubbleModel } from "./bubbleModel";
 import { fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
+import { union } from "./expander";
 import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
+import { OpacityPopover } from "./opacityPopover";
 import { onScrollbar, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
 import {
@@ -67,6 +69,17 @@ const expansion = new PanelExpansion(
   () => hits.flush(),
   () => hits.schedule(),
 );
+const opacityNode = $("opacity-popover");
+const opacityPopover = new OpacityPopover(opacityNode, {
+  anchor: () =>
+    [rectOf(panelElements.toggle), rectOf(panelElements.order)]
+      .filter((r): r is Rect => r !== null)
+      .reduce<Rect | null>((acc, r) => union(r, acc), null) ?? rectOf(panelElements.panel),
+  preview: applyPanelOpacity,
+  commit: (opacity) => setPanelDisplay({ ...panelDisplay, panel_opacity: opacity }),
+  closed: () => applyPanelOpacity(panelDisplay.panel_opacity),
+  layoutChange: () => hits.schedule(),
+});
 
 let renderer: CharacterRenderer | undefined;
 // manifest を読めなかったキャラクターは選んでも出せないので、読めたものだけをメニューに並べる。
@@ -167,8 +180,13 @@ async function reactToTouch(): Promise<void> {
 }
 
 function collectHitRegions(): HitRegions {
-  // 切り替えと並べ方のボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
-  const rects = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)];
+  // 切り替えと並べ方のボタンはパネルの上辺の外に付け、不透明度の小窓はパネルの外にも出るので、パネルとは別に加える。
+  const rects = [
+    rectOf(panelElements.panel),
+    rectOf(panelElements.toggle),
+    rectOf(panelElements.order),
+    rectOf(opacityNode),
+  ];
   // 広げた層はパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
@@ -182,6 +200,7 @@ function redrawPanel(): void {
   const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null };
   renderPanel(panelElements, view, limits, appIcons, Date.now(), selectSession);
   placeBubble();
+  opacityPopover.place();
   expansion.evaluate();
   hits.schedule();
 }
@@ -289,6 +308,8 @@ async function loadPanelDisplay(): Promise<PanelDisplay> {
 function applyPanelDisplay(display: PanelDisplay): void {
   panelDisplay = display;
   applyCharacterVisibility();
+  applyPanelOpacity(display.panel_opacity);
+  opacityPopover.sync(display.panel_opacity);
   showSpeech();
   redrawPanel();
 }
@@ -314,6 +335,18 @@ function setRowOrder(order: RowOrder): void {
 // 表情がすぐ出るようにするためである。
 function applyCharacterVisibility(): void {
   app.classList.toggle("character-hidden", !panelDisplay.show_character);
+}
+
+function applyPanelOpacity(opacity: number): void {
+  document.documentElement.style.setProperty("--panel-alpha", String(opacity));
+}
+
+function openOpacityPopover(): void {
+  opacityPopover.open(panelDisplay.panel_opacity);
+  // 窓は focus: false で開くので、Escape で閉じられるよう自分でキーボードの入力先にする。
+  void getCurrentWindow()
+    .setFocus()
+    .catch((e) => console.error("focus window", e));
 }
 
 const PANEL_STYLE_LABEL: Record<PanelStyle, string> = {
@@ -369,6 +402,7 @@ async function openMenu(): Promise<void> {
           }),
         ),
       )),
+      await MenuItem.new({ text: "背景の不透明度…", action: openOpacityPopover }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       ...(await Promise.all(
         ROW_ORDERS.map((order) =>
@@ -415,11 +449,11 @@ function bindPanelTabs(): void {
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
   // ドラッグはすぐには始めず、押したまま少し動いてから始める。動かずに離したら、立ち絵を押した
-  // ことになる。行と吹き出しとボタンとスクロールバーは押して操作するので、そこからはドラッグを始めない。
+  // ことになる。行と吹き出しとボタンとスクロールバーと不透明度の小窓は押して操作するので、そこからはドラッグを始めない。
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .counts-group, #panel-toggle, #row-order, #bubble")) {
+    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .counts-group, #panel-toggle, #row-order, #bubble, #opacity-popover")) {
       press = null;
       return;
     }
@@ -459,6 +493,7 @@ async function start(): Promise<void> {
     return appIcons;
   });
   applyCharacterVisibility();
+  applyPanelOpacity(panelDisplay.panel_opacity);
   try {
     scale = new ScaleControl(await invoke<number>("get_scale"));
     scale.bindWheel(stage);
@@ -487,10 +522,14 @@ async function start(): Promise<void> {
   // 倍率の変更や行の増減で形が変わったら、クリックを受け取る領域を送り直す。
   const observer = new ResizeObserver(() => {
     placeBubble();
+    opacityPopover.place();
     hits.schedule();
   });
   for (const el of [stage, panelElements.panel, bubbleNode]) observer.observe(el);
-  window.addEventListener("resize", () => hits.schedule());
+  window.addEventListener("resize", () => {
+    opacityPopover.place();
+    hits.schedule();
+  });
 }
 
 void start();
