@@ -11,9 +11,21 @@ export function isCodexScratch(session: Pick<SessionState, "cwd" | "provider">):
   return session.provider === "codex" && CODEX_SCRATCH.test(session.cwd ?? "");
 }
 
+// Hermes の gateway の会話は作業フォルダを持たない（gateway の作業フォルダは marimo-hook が捨てる）ので、
+// チャンネル名などの題名を行の名前にする。CLI の会話は作業フォルダを持つので、ほかのツールと同じく扱う。
+function isChatSession(session: Pick<SessionState, "cwd" | "provider">): boolean {
+  return session.provider === "hermes" && !session.cwd;
+}
+
+// 題名が行の名前の役をしているセッション。パネルは同じ題名を名前の横に重ねて出さない。
+export function titleIsName(session: Pick<SessionState, "cwd" | "provider">): boolean {
+  return isCodexScratch(session) || isChatSession(session);
+}
+
 export function folderName(session: Named): string {
   if (session.repo) return session.repo;
   if (isCodexScratch(session)) return session.title || "Codex";
+  if (isChatSession(session)) return session.title || "Hermes";
   const parts = (session.cwd ?? "").split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? session.session_id.slice(0, 8);
 }

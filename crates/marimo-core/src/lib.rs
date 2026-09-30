@@ -1,6 +1,7 @@
 pub mod activity;
 pub mod appicon;
 pub mod codex;
+pub mod hermes;
 pub mod paths;
 pub mod repo;
 pub mod state;

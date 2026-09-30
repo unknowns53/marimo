@@ -1,5 +1,5 @@
 import { sessionKey } from "./acknowledged";
-import { folderName, formatAge, formatClock, formatTokens, isCodexScratch } from "./format";
+import { folderName, formatAge, formatClock, formatTokens, titleIsName } from "./format";
 import { limitLine, type LimitLine } from "./limits";
 import { hasContent, type PanelPlan, type PanelView } from "./panelModel";
 import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
@@ -25,12 +25,15 @@ export interface PanelElements {
 const PROVIDER_NAME: Record<Provider, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  hermes: "Hermes Agent",
 };
 
 // アプリのアイコンは同梱せず利用者のアプリから読むので、読めないときはこの文字で示す。
+// Hermes はデスクトップアプリを持たないので、いつもこの文字になる。
 const PROVIDER_BADGE: Record<Provider, string> = {
   claude: "CC",
   codex: "CX",
+  hermes: "HM",
 };
 
 export interface PanelLimits {
@@ -195,7 +198,7 @@ function renderRow(
 
   const names = el("span", "names");
   names.append(el("span", "folder", folderName(s)));
-  if (s.title && (s.repo || !isCodexScratch(s))) names.append(el("span", "chat-title", s.title));
+  if (s.title && (s.repo || !titleIsName(s))) names.append(el("span", "chat-title", s.title));
   row.append(
     el("span", `dot ${s.status}`),
     names,

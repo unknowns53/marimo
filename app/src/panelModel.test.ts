@@ -129,6 +129,15 @@ describe("acknowledged sessions", () => {
     expect([...planPanel(snap(claudeDone, codexDone), ack, "started", 1001).read]).toEqual(["same", "codex:same"]);
   });
 
+  it("keeps a Hermes session apart from the others with the same id", () => {
+    const claudeDone = session("same", "done", 10, 10, 1);
+    const hermesDone = { ...session("same", "done", 10, 10, 2), provider: "hermes" as const };
+    expect(triggerKey(hermesDone)).toBe("hermes:same:done:10");
+    const ack = new Acknowledged();
+    ack.add(triggerKey(hermesDone), 1000);
+    expect([...planPanel(snap(claudeDone, hermesDone), ack, "started", 1001).read]).toEqual(["hermes:same"]);
+  });
+
   it("keeps waiting and error rows even when seen", () => {
     const ack = new Acknowledged();
     const waiting = session("w", "waiting", 1);
