@@ -6,10 +6,12 @@ use serde::Serialize;
 const ICON_PX: u32 = 64;
 
 /// 利用者が入れているアプリのアイコン。アイコンは同梱せず、読めなければ画面が文字の印に切り替える。
+/// Hermes はデスクトップアプリを持たないので、いつも文字の印で出す。
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AppIcons {
     pub claude: Option<String>,
     pub codex: Option<String>,
+    pub hermes: Option<String>,
 }
 
 pub fn load() -> AppIcons {
@@ -17,6 +19,7 @@ pub fn load() -> AppIcons {
     AppIcons {
         claude: claude.map(data_url),
         codex: codex.map(data_url),
+        hermes: None,
     }
 }
 

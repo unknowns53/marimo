@@ -5,18 +5,20 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::thread;
 
 use marimo_core::time::now_ms;
-use marimo_core::{HookInput, MarimoHome, Provider, codex, store, transcript};
+use marimo_core::{HookInput, MarimoHome, Provider, codex, hermes, store, transcript};
 
 mod install;
 mod origin;
 mod settings_edit;
 
-// hook、codex-hook、statusline、record は、marimo の内部で何が失敗しても終了コード 0 で抜ける。
+// hook、codex-hook、hermes-hook、statusline、record は、marimo の内部で何が失敗しても終了コード 0 で抜ける。
 // フックの終了コードと stdout は Claude Code に読まれ、終了コード 2 は操作を止め、
 // UserPromptSubmit や SessionStart の stdout は Claude の文脈に加わるためである。
 // Codex も同じで、終了コード 0 で stdout が空なら、PermissionRequest では判断を示さず通常の承認へ進み、
 // PreToolUse、UserPromptSubmit、Stop では何も止めない（codex-rs/hooks/src/events の
 // permission_request.rs、pre_tool_use.rs、user_prompt_submit.rs、stop.rs の parse_completed）。
+// Hermes も、pre_tool_call の終了コード 2 と stdout の JSON で操作を止め、pre_llm_call の stdout の
+// context を会話に加える（agent/shell_hooks.py の _parse_response）。
 // install と uninstall は利用者が端末で実行するので、失敗は非 0 と stderr で知らせる。
 fn main() -> ExitCode {
     // 既定の panic メッセージは stderr に出るだけで害はないが、Claude Code の
@@ -47,6 +49,10 @@ fn run(args: &[OsString]) -> ExitCode {
         }
         "codex-hook" => {
             report(hook(Provider::Codex));
+            ExitCode::SUCCESS
+        }
+        "hermes-hook" => {
+            report(hermes_hook());
             ExitCode::SUCCESS
         }
         "statusline" => statusline(rest),
@@ -109,6 +115,7 @@ fn hook(provider: Provider) -> Result<(), String> {
             None,
             log.and_then(|p| codex::read_rollout_tail(p, now_ms()).ok()),
         ),
+        Provider::Hermes => (None, None),
     };
     let title = codex::codex_home()
         .filter(|_| parsed.wants_codex_title())
@@ -128,8 +135,46 @@ fn hook(provider: Provider) -> Result<(), String> {
         transcript,
         rollout,
         title,
+        link: None,
     };
     store::apply_hook(&home()?, &parsed, &extras).map_err(|e| format!("write failed: {e}"))
+}
+
+// Hermes の入力は Claude Code の入力に読み替えてから、同じ規則で状態を決める。Hermes は gateway の
+// 裏で動き、フックの祖先のプロセスは会話のウィンドウではないので、起動元の手がかりは取らない。
+fn hermes_hook() -> Result<(), String> {
+    let input = read_stdin();
+    let raw: hermes::HermesInput =
+        serde_json::from_slice(&input).map_err(|e| format!("invalid hook input: {e}"))?;
+    let home = home()?;
+    let hermes_home = hermes::hermes_home();
+    let current = store::read_session(&home, Provider::Hermes, &raw.session_id);
+    match hermes::translate(&raw, current.as_ref(), hermes_home.as_deref(), now_ms()) {
+        hermes::Event::Hook(parsed) => {
+            // 題名とリンクはターンの始まりに読み直す。会話の一覧はターンの前に gateway が書く。
+            let meta = hermes_home
+                .as_deref()
+                .filter(|_| {
+                    matches!(
+                        parsed.hook_event_name.as_str(),
+                        "SessionStart" | "UserPromptSubmit"
+                    )
+                })
+                .map(|h| hermes::chat_meta(h, &parsed.session_id))
+                .unwrap_or_default();
+            let extras = store::HookExtras {
+                title: meta.title,
+                link: meta.link,
+                ..store::HookExtras::default()
+            };
+            store::apply_hook(&home, &parsed, &extras)
+        }
+        hermes::Event::Context(context) => {
+            store::apply_context(&home, Provider::Hermes, &raw.session_id, context)
+        }
+        hermes::Event::Ignore => Ok(()),
+    }
+    .map_err(|e| format!("write failed: {e}"))
 }
 
 fn record(label: &str) -> Result<(), String> {

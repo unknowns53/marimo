@@ -3,7 +3,7 @@
 export type Status = "idle" | "working" | "waiting" | "done" | "error";
 
 // 以前の版のファイルは provider を持たず、Claude Code のセッションとして扱う。
-export type Provider = "claude" | "codex";
+export type Provider = "claude" | "codex" | "hermes";
 
 export interface ContextUsage {
   used_percentage: number | null;
@@ -40,6 +40,8 @@ export interface SessionState {
   started_at: number;
   status_reason?: string | null;
   turn_started_at?: number | null;
+  // Hermes のセッションだけが持つ。行を押したときに開くチャットの URL。
+  link?: string | null;
   activity: Activity | null;
   last_event: string | null;
   updated_at: number;

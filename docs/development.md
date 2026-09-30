@@ -84,7 +84,7 @@ Windows の Claude Code は、Git Bash が入っていれば Git Bash で、な�
 
 ### サブコマンドと設定ファイルの場所
 
-`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`statusline`、`record`、`install`、`uninstall` の六つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code や Codex から呼ばれるか、調査のためのものです。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
+`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`hermes-hook`、`statusline`、`record`、`install`、`uninstall` の七つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code、Codex、Hermes から呼ばれるか、調査のためのものです。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
 
 対象の設定ファイルは `--settings <パス>` で指定できます。省略すると、環境変数 `CLAUDE_CONFIG_DIR` が設定されていればその下の `settings.json` を、なければ `~/.claude/settings.json` を使います。
 
@@ -110,6 +110,38 @@ Codex は、管理者が配ったもの以外のフックを、利用者が Code
 
 `hooks.json` の書き換えでも、settings.json と同じように、書き換える前に `hooks.json.marimo-backup-<日時>` という名前でバックアップを取り、既存のフックや項目はキーの順序も含めてそのまま残します。ファイルが無ければ新しく作ります。
 
+### Hermes のフック
+
+`install` と `uninstall` は Hermes の設定に触れません。Hermes の設定ファイル `config.yaml` はコメントの多い YAML で、利用者が自分で書いたフックも同じ `hooks` の下に並ぶので、それを崩さずに書き換える手段を marimo が持っていないためです。次の手順で、手で登録します。
+
+1. Hermes のフォルダ（環境変数 `HERMES_HOME` が指す場所。設定していなければ Windows では `%LOCALAPPDATA%\hermes`、ほかの OS では `~/.hermes`）にある `config.yaml` の `hooks` に、次の 12 のイベントを加えます。`command` には、`install` がコピーした `marimo-hook` の絶対パスと `hermes-hook` を並べます。Hermes はこの文字列をシェルに通さず、空白で区切って実行するので、パスに空白がある場合は二重引用符で囲みます。
+
+   ```yaml
+   hooks:
+     on_session_start: &marimo
+       - command: 'C:\Users\user\.marimo\bin\marimo-hook.exe hermes-hook'
+         timeout: 5
+     on_session_reset: *marimo
+     on_session_finalize: *marimo
+     pre_llm_call: *marimo
+     post_llm_call: *marimo
+     on_session_end: *marimo
+     pre_tool_call: *marimo
+     post_tool_call: *marimo
+     pre_approval_request: *marimo
+     post_approval_response: *marimo
+     api_request_error: *marimo
+     post_api_request: *marimo
+   ```
+
+   `&marimo` と `*marimo` は、同じ中身を一度だけ書いて使い回す YAML の書き方です。すでに `hooks` に同じイベントのフックがある場合は、`*marimo` を使わず、そのイベントの一覧に marimo の項目を一つ足します。`fail_closed` は付けません。marimo のフックは何が起きても終了コード 0 で終わり、標準出力に何も出さないので、Hermes の操作を止めることはありません。
+
+2. Hermes は、初めて見るフックを利用者が承認するまで動かしません。承認はイベントとコマンドの組ごとに、Hermes のフォルダの `shell-hooks-allowlist.json` に記録されます。端末で `hermes` を一度起動すると組ごとに確かめられるので、それぞれ承認します。`hermes --accept-hooks` で起動すると、まとめて承認します。gateway は確認を出せないので、承認していないフックは登録されずに読み飛ばされます。承認の状況は `hermes hooks list` で確かめられます。
+
+3. Hermes はフックを起動したときにだけ読むので、gateway を起動し直します。
+
+`marimo-hook` の場所が変わったときは、`command` を書き直し、もう一度承認します。取り除くときは、`config.yaml` から marimo の項目を消し、`hermes hooks revoke '<command の文字列>'` で承認の記録を消します。
+
 ### uninstall が行うこと
 
 `uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。Codex のフォルダがあれば、Codex の `hooks.json` からも marimo のフックだけを取り除きます。取り除くのは marimo が足したものだけで、シェルを通す形で登録されたフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
@@ -122,6 +154,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | --- | --- |
 | `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。24 時間更新のないファイルは、アプリが消します |
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID（セッションに振られる識別子）の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
+| `sessions/hermes-<session_id>.json` | Hermes のセッションごとの状態です。Codex と同じく名前に `hermes-` を付けて分けます。書き方と消し方は Claude Code のセッションと同じです |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine の入力から書きます |
 | `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
 | `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、パネルの地の不透明度の `panel_opacity`（0.2 から 1.0 までの数。無いときや数でないときは 0.8 を使い、範囲の外の数は近い端に寄せます。文字やアイコンは薄くしません）、吹き出しを出す種類ごとの `bubble_waiting`、`bubble_done`、`bubble_error`（真偽値で、無いときや真偽値でないときは `true`）、吹き出しを自動で閉じるまでの秒数の `bubble_seconds`（0 から 3600 までの整数で、0 は押すまで出し続けます。無いときや整数でないときは 0 を使い、上限を超える数は上限に寄せます）、選んだキャラクターの名前の `character`、選んだキャラクターの立ち絵の枠の縦横比（高さを幅で割った値）の `stage_aspect` を持ちます。`stage_aspect` は画面部分が値を知らせるたびに保存し、次の起動では窓を最初からこの縦横比で開くので、起動の直後に窓が動きません。無いときや値が正しくないときは 1.5 を使い、0.25 から 4.0 の範囲に収めます。古い形式の鍵 `panel_mode` が残っている場合は、表示を切り替えて新しい鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
@@ -133,7 +166,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。日付の無い名前の `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
 
-セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude` か `codex` です。この項目を持たないファイルは、Claude Code のセッションとして読みます。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。
+セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前の版のアプリは、Hermes のセッションのファイルを読み飛ばします。
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
 
@@ -161,6 +194,7 @@ marimo は Claude Code の作業を一切妨げないことを最優先にして
 - **作業フォルダの `.git`** 作業フォルダから上へたどって `.git` を探し、リポジトリの名前を決めます。`.git` がファイルのとき（git worktree など）は、その中の `gitdir:` の行だけを読みます。git のコマンドは実行しません。作業フォルダが変わったときと、まだリポジトリ名が分かっていないときだけ調べます。
 - **会話ログ** PostToolUse と Stop のときに、会話ログの末尾から最大 4 MB を読み、最後の応答のトークン数と、読んだ範囲にあるチャットの題名だけを取り出します。コンテキスト使用率と題名を出すためです。
 - **Codex の rollout と session_index.jsonl** Codex のセッションでは、rollout の末尾から最大 4 MB を読んで最後の `token_count` のトークン数と利用制限だけを取り出し、`session_index.jsonl` の末尾から最大 512 KB を読んでそのセッションの題名だけを取り出します。macOS で起動元のアプリが分からないときは、セッションの開始時とプロンプトを送ったときに rollout の先頭から最大 64 KB を読み、最初の行の `originator` だけを取り出します。Codex の `auth.json` と `config.toml` は読みません。
+- **Hermes のセッションの一覧** Hermes のセッションでは、ターンの始まりに、Hermes のフォルダの `sessions/sessions.json` から、そのセッションの行を探してチャットの種類と名前、Discord のサーバーとチャンネルの ID だけを取り出します。Hermes の `.env`、`auth.json`、`state.db` は読みません。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。
 - **アプリのアイコン** パネルの印に使うため、起動したときに一度だけ、Claude と Codex のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop` と `com.openai.codex` のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。
 
@@ -178,8 +212,8 @@ marimo は、状態ファイルも会話の内容も、手元のコンピュー�
 
 | パス | 内容 |
 | --- | --- |
-| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
-| `crates/marimo-hook` | Claude Code と Codex から呼ばれるコマンド。`hook`、`codex-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます |
+| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、Hermes のフックの入力の読み替えとセッションの一覧の読み取り、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
+| `crates/marimo-hook` | Claude Code、Codex、Hermes から呼ばれるコマンド。`hook`、`codex-hook`、`hermes-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます |
 | `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、窓の制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、macOS でのアプリのアイコンの読み取りを受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
 | `assets/character/index.json` | 組み込みのキャラクターの一覧です（[自分のキャラクターを作る](customize.md#自分のキャラクターを作る)を参照） |
@@ -246,7 +280,7 @@ main への push では、両方の OS で検査が通ったあとに、更新�
 
 データは次の順に流れます。
 
-1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。Codex のフックからは `marimo-hook codex-hook` が呼ばれ、同じ規則で `sessions/codex-<session_id>.json` に書き、利用制限を `codex_rate_limits.json` へ書きます。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
+1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。Codex のフックからは `marimo-hook codex-hook` が呼ばれ、同じ規則で `sessions/codex-<session_id>.json` に書き、利用制限を `codex_rate_limits.json` へ書きます。Hermes のフックからは `marimo-hook hermes-hook` が呼ばれ、入力を Claude Code の入力に読み替えてから同じ規則で `sessions/hermes-<session_id>.json` に書きます。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
 2. アプリはファイルの監視（file watcher。フォルダの中のファイルが変わると OS から知らせを受け取る仕組み）で `sessions/` と `rate_limits.json` の変化を受け取ります。並列のツール呼び出しで書き込みが重なるので、120 ミリ秒静かになるまで待ち、遅くとも 500 ミリ秒で、全セッションをまとめたスナップショットを読みます。
 3. Rust 側は、スナップショットの全体の状態に合わせてメニューバーと通知領域のアイコンを替え、スナップショットを `snapshot` という名前のイベントで画面部分へ送ります。アイコンを画面部分に任せないのは、窓を隠している間は画面部分が止まることがあるからです。
 4. 画面部分は、既読の記録を加味して全体の状態を決め直し、表情、吹き出し、パネルを描き直します。
@@ -272,6 +306,32 @@ Codex のフックから記録するものは次のとおりです。
 - **コンテキスト使用率** Codex が会話ごとに書く記録（rollout。`~/.codex/sessions/` の下の JSON Lines 形式のファイル）の末尾から最後の `token_count` を読み、Codex の画面の下に出る残りの割合と同じ式で計算します。Codex は、システムプロンプトなどで常に使われる 12000 トークンをコンテキストの上限と使用量の両方から引いて割合を出すので、marimo も同じように引き、100 からその残りの割合を引いた値を使用率として記録します。読むのはセッションの開始、PostToolUse、Stop のときだけです。
 - **題名** セッションの開始、プロンプトの送信、Stop のときに、`~/.codex/session_index.jsonl` の末尾からそのセッションの最後の `thread_name` を読みます。Codex のデスクトップアプリは、プロジェクトを選ばずに始めた会話ごとに `~/Documents/Codex/<日付>/<最初のプロンプトから作った名前>` という作業フォルダを作ります。このフォルダ名は題名の言い換えでしかないので、行の名前と吹き出しの `{folder}` には、フォルダ名の代わりに題名を使います。
 - **利用制限** rollout の同じ `token_count` にある利用制限を、`~/.marimo/codex_rate_limits.json` に書きます。Codex の利用制限の窓は、プランによって 5 時間と 7 日の二つだったり 7 日の一つだけだったりするので、窓の長さを分単位のまま記録します。複数のセッションの rollout はそれぞれ別の時点の値を持つので、すでに記録した値より新しい時点の値だけで書き換えます。
+
+### Hermes のフックから記録するもの
+
+Hermes のフックの入力は、どのイベントでも `hook_event_name`、`tool_name`、`tool_input`、`session_id`、`cwd` を持ち、それ以外の値を `extra` にまとめて持ちます（Hermes の `agent/shell_hooks.py`）。`marimo-hook hermes-hook` は、これを Claude Code の入力に読み替えてから状態を決めます。
+
+- **状態** 次のように読み替えます。Hermes の `on_session_end` は会話の終わりではなく、ターンの終わりごとに届くイベントです。
+
+  | Hermes のイベント | 読み替え先 | 状態 |
+  | --- | --- | --- |
+  | `on_session_start`、`on_session_reset` | SessionStart | 待機 |
+  | `pre_llm_call` | UserPromptSubmit | 作業中 |
+  | `pre_tool_call`、`post_tool_call` | PreToolUse、PostToolUse | 作業中。聞き返しのツール `clarify` の間だけ承認待ち |
+  | `pre_approval_request` | PermissionRequest | 承認待ち（危険なコマンドの承認を利用者に求めている間） |
+  | `post_approval_response` | PostToolUse か PermissionDenied | 作業中 |
+  | `post_llm_call`、`on_session_end`（`completed`） | Stop | 完了 |
+  | `on_session_end`（`interrupted`） | Interrupt | 待機 |
+  | `on_session_end`（`failed`）、`api_request_error`（`retryable` が偽） | StopFailure | エラー |
+  | `on_session_finalize` | SessionEnd | 行を消す |
+
+- **裏の見直し** Hermes は応答の後に、同じ session_id のまま記憶とスキルの見直しを裏で走らせます。この見直しは `pre_llm_call` を出さずにツールを使うので、`pre_llm_call` で知らされたターンの ID（`extra.turn_id`）と違う ID のイベントは捨てます。捨てないと、完了した行が作業中へ戻ってしまいます。
+- **作業の要約** Hermes のツールを、要約の作り方が同じ Claude Code のツールに置き換えます。`terminal` は Bash、`read_file`、`write_file`、`patch` はそれぞれ Read、Write、Edit、`search_files` は Grep、`web_search` と `web_extract` は WebSearch と WebFetch、`delegate_task` は Agent、`clarify` は Codex の質問のツールの `request_user_input` として扱います。それ以外のツールは、ツール名と引数をそのまま短く出します。
+- **コンテキスト使用率** モデルを呼ぶたびに届く `post_api_request` の `usage.prompt_tokens` を、`context_length` で割って出します。`prompt_tokens` は、キャッシュから読んだ分も含めてモデルに渡した入力のトークン数です。
+- **題名と開く先** ターンの始まりに、Hermes のフォルダの `sessions/sessions.json` から session_id が一致する行を探します。このファイルは gateway がチャットごとの今のセッションを書く対応表で、Hermes 自身はこれを `state.db` の写し（legacy mirror）と呼んでいます。チャンネルでは `サーバー名 / #チャンネル名` の形の名前からチャンネル名だけを題名にし、DM では相手の名前を使わずに `DM` を題名にします。Discord の会話では、サーバーとチャンネル（DM では DM のチャンネル）の ID から `discord://-/channels/<サーバー>/<チャンネル>` の形の URL を組み立てて記録します。CLI の会話はこの表に載らないので、題名も URL もありません。
+- **作業フォルダ** gateway は Hermes のフォルダを作業フォルダにして動くので、その場所は会話の居場所ではありません。Hermes のフォルダと同じ `cwd` は記録せず、パネルの行の名前と吹き出しの `{folder}` には題名を使います。CLI の会話は、起動したフォルダを記録します。
+- **起動元** Hermes のフックの祖先のプロセスは会話のウィンドウではないので、起動元の手がかりは記録しません。行を押したときは、記録した URL が marimo の組み立てる Discord のチャンネルの形であることを確かめてから開きます。Windows の Discord は、動いている本体へリンクを渡して画面を切り替えるだけで前面には出てこないので、marimo が Discord のウィンドウを前面に出します。URL の無いセッションでは何もしません。
+- **記録しないもの** 利用制限は記録しません。Hermes のフックの入力に、利用制限の値が無いためです。サブエージェント（`delegate_task` で動く子のエージェント）は自分の session_id でフックを出すので、親とは別の行になります。gateway の `/stop` は session_id を持たないイベントしか出さないので、止めた行は作業中のまま残ることがあり、次のターンで正しい状態に戻ります。会話の圧縮で Hermes が session_id を付け替えたときは、新しい ID の行が現れ、古い行は 24 時間で消えます。
 
 ### 起動元のアプリの見分け方
 

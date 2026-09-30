@@ -12,8 +12,9 @@ fn run_with_env(home: &Path, args: &[&str], stdin: &[u8], envs: &[(&str, &str)])
     let mut child = Command::new(env!("CARGO_BIN_EXE_marimo-hook"))
         .args(args)
         .env("MARIMO_HOME", home)
-        // 利用者の本物の Codex のフォルダを読まないよう、存在しない場所を指しておく。
+        // 利用者の本物の Codex と Hermes のフォルダを読まないよう、存在しない場所を指しておく。
         .env("CODEX_HOME", home.join("no-codex-home"))
+        .env("HERMES_HOME", home.join("no-hermes-home"))
         .env_remove("TERM_PROGRAM")
         .env_remove("__CFBundleIdentifier")
         .envs(envs.iter().copied())
@@ -220,6 +221,97 @@ fn codex_hook_tracks_state_context_title_and_rate_limits() {
 }
 
 #[test]
+fn hermes_hook_tracks_a_discord_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("marimo");
+    let hermes = dir.path().join("hermes");
+    std::fs::create_dir_all(hermes.join("sessions")).unwrap();
+    std::fs::write(
+        hermes.join("sessions").join("sessions.json"),
+        json!({
+            "agent:main:discord:group:222222222222222222:333333333333333333": {
+                "session_id": "20260101_000000_abcd1234",
+                "platform": "discord",
+                "chat_type": "group",
+                "origin": {
+                    "platform": "discord", "chat_type": "group",
+                    "chat_id": "222222222222222222", "chat_name": "Server / #general",
+                    "guild_id": "444444444444444444"
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let hermes_env = hermes.to_string_lossy().into_owned();
+    let send = |event: Value| {
+        let mut payload = json!({
+            "session_id": "20260101_000000_abcd1234",
+            "cwd": hermes_env,
+            "tool_name": null,
+            "tool_input": null,
+            "profile": "default",
+        });
+        payload
+            .as_object_mut()
+            .unwrap()
+            .extend(event.as_object().unwrap().clone());
+        let out = run_with_env(
+            &home,
+            &["hermes-hook"],
+            payload.to_string().as_bytes(),
+            &[("HERMES_HOME", &hermes_env)],
+        );
+        assert_eq!(out.status.code(), Some(0));
+        assert!(out.stdout.is_empty());
+        assert!(
+            out.stderr.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    let state = || session(&home, "hermes-20260101_000000_abcd1234");
+
+    send(json!({
+        "hook_event_name": "pre_llm_call",
+        "extra": { "turn_id": "t1", "platform": "discord", "user_message": "hi" }
+    }));
+    let s = state().unwrap();
+    assert_eq!(s["provider"], "hermes");
+    assert_eq!(s["status"], "working");
+    assert_eq!(s["title"], "#general");
+    assert_eq!(
+        s["link"],
+        "discord://-/channels/444444444444444444/222222222222222222"
+    );
+    assert!(s.get("cwd").is_none_or(Value::is_null), "{s}");
+    assert!(s.get("origin").is_none_or(Value::is_null), "{s}");
+
+    send(json!({
+        "hook_event_name": "post_api_request",
+        "extra": { "turn_id": "t1", "usage": { "prompt_tokens": 27200 }, "context_length": 272000 }
+    }));
+    assert_eq!(state().unwrap()["context"]["used_percentage"], 10.0);
+
+    send(json!({
+        "hook_event_name": "post_llm_call",
+        "extra": { "turn_id": "t1", "assistant_response": "done" }
+    }));
+    send(json!({
+        "hook_event_name": "pre_tool_call",
+        "tool_name": "memory",
+        "tool_input": {},
+        "extra": { "turn_id": "background-review" }
+    }));
+    assert_eq!(state().unwrap()["status"], "done");
+
+    send(json!({ "hook_event_name": "on_session_finalize", "extra": {} }));
+    assert!(state().is_none());
+    // Hermes のファイルは接頭辞で Claude Code のファイルと分けるので、接頭辞の無い名前では作らない。
+    assert!(session(&home, "20260101_000000_abcd1234").is_none());
+}
+
+#[test]
 fn broken_input_exits_zero_with_empty_stdout() {
     let dir = tempfile::tempdir().unwrap();
     let inputs: [&[u8]; 5] = [
@@ -233,6 +325,7 @@ fn broken_input_exits_zero_with_empty_stdout() {
         for args in [
             &["hook"][..],
             &["codex-hook"][..],
+            &["hermes-hook"][..],
             &["statusline"][..],
             &["record", "x"][..],
             &["nope"][..],

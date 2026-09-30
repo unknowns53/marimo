@@ -37,6 +37,7 @@ pub enum Provider {
     #[default]
     Claude,
     Codex,
+    Hermes,
 }
 
 pub fn aggregate<I: IntoIterator<Item = Status>>(statuses: I) -> Status {
@@ -260,6 +261,13 @@ pub struct SessionState {
     /// 今のターンが始まった時刻（UserPromptSubmit を受けた時刻）。完了までにかかった時間を出すのに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_started_at: Option<u64>,
+    /// 今のターンの ID。Hermes だけがフックの入力に持たせてくる。Hermes は応答の後に同じ session_id のまま
+    /// 記憶やスキルの見直しを裏で走らせるので、そのツールの実行で完了の行が作業中へ戻らないよう見分けに使う。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    /// 行を押したときに開く URL。チャットアプリの中で動く Hermes のセッションだけが持つ。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
     #[serde(
         default,
         alias = "line",
@@ -314,6 +322,8 @@ impl SessionState {
             started_at: 0,
             status_reason: None,
             turn_started_at: None,
+            turn_id: None,
+            link: None,
             activity: None,
             last_event: None,
             updated_at: 0,
@@ -392,8 +402,8 @@ pub struct Snapshot {
 
 /// 項目名は https://code.claude.com/docs/en/hooks の Common input fields と、
 /// 各イベントの input の節に従う。Codex のフックの入力も同じ名前の項目を持つ
-/// （codex-rs/hooks/src/schema.rs の各 CommandInput）。
-#[derive(Debug, Clone, Default, Deserialize)]
+/// （codex-rs/hooks/src/schema.rs の各 CommandInput）。Hermes の入力は hermes.rs がこの形に読み替える。
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct HookInput {
     /// 入力には含まれず、どのサブコマンドで受けたかで決まる。
     #[serde(skip)]
@@ -425,6 +435,9 @@ pub struct HookInput {
     /// 形の分からない項目が混ざっても入力全体を捨てないよう、中身は使う時に読む。
     #[serde(default)]
     pub background_tasks: Option<Value>,
+    /// ターンの ID。Claude Code と Codex の入力には無く、Hermes の入力を読み替えたときだけ入る。
+    #[serde(default)]
+    pub turn_id: Option<String>,
 }
 
 impl HookInput {
@@ -467,6 +480,8 @@ impl HookInput {
         let events: &[&str] = match self.provider {
             Provider::Claude => &["PostToolUse", "Stop"],
             Provider::Codex => &["PostToolUse", "Stop", "SessionStart"],
+            // Hermes の使用量は、モデルの呼び出しごとのフックが直接知らせてくる。
+            Provider::Hermes => &[],
         };
         self.subagent().is_none()
             && events.contains(&self.hook_event_name.as_str())
@@ -660,7 +675,10 @@ fn main_update(
         next.own_status_reason = reason;
     }
     match input.hook_event_name.as_str() {
-        "UserPromptSubmit" => next.turn_started_at = Some(now_ms),
+        "UserPromptSubmit" => {
+            next.turn_started_at = Some(now_ms);
+            next.turn_id = input.turn_id.clone();
+        }
         // startup、resume、clear では Claude Code のプロセスか会話が新しくなり、前のサブエージェントは続かない。
         "SessionStart" if input.source.as_deref() != Some("compact") => {
             next.turn_started_at = None;

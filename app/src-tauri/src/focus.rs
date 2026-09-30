@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use marimo_core::{Origin, ProcessRef, SessionState, WindowRef};
+use marimo_core::{Origin, ProcessRef, Provider, SessionState, WindowRef, hermes};
 
 const TERMINAL: &str = "com.apple.Terminal";
 const ITERM: &str = "com.googlecode.iterm2";
@@ -29,6 +29,10 @@ pub enum Target {
         window: Option<WindowRef>,
         editor: Option<(String, String)>,
         ancestors: Vec<ProcessRef>,
+    },
+    /// Hermes の会話が行われているチャットを開く URL。
+    Link {
+        url: String,
     },
     Nothing,
 }
@@ -59,6 +63,14 @@ const WINDOWS_SHELL: [&str; 7] = [
 // シェル統合スクリプトが同じ値で判定している。VS Code の TERM_PROGRAM=vscode は
 // https://code.visualstudio.com/docs/terminal/shell-integration に記載がある。
 pub fn plan(session: &SessionState) -> Target {
+    // Hermes は gateway の裏で動き、会話はチャットアプリの中にあるので、そのチャンネルを開く。
+    // 状態ファイルの値を OS に渡すので、marimo が組み立てる形の URL だけを通す。
+    if session.provider == Provider::Hermes {
+        return match session.link.clone().filter(|l| hermes::is_discord_link(l)) {
+            Some(url) => Target::Link { url },
+            None => Target::Nothing,
+        };
+    }
     let origin = session.origin.clone().unwrap_or_default();
     if origin.window.is_some() || !origin.ancestors.is_empty() {
         return windows_target(origin, session.cwd.as_deref());
@@ -159,8 +171,32 @@ pub fn run(target: Target) {
             editor,
             ancestors,
         } => focus_on_windows(window, editor, ancestors),
+        Target::Link { url } => open_link(&url),
         Target::Nothing => {}
     });
+}
+
+// Discord のリンクを開く Windows の実行ファイル。安定版のほかに、公開試験版と開発版がある。
+#[cfg(windows)]
+const DISCORD_EXES: [&str; 3] = ["Discord.exe", "DiscordPTB.exe", "DiscordCanary.exe"];
+
+// URL の scheme に結び付いたアプリ（Discord）が開く。シェルを通さないので、URL の文字が命令として
+// 読まれることはない。Windows の Discord は、動いている本体へリンクを渡して画面を切り替えるだけで、
+// 前面には出てこない（実機で確かめた）。行を押した直後の marimo は前面に出す権利を持っているので、
+// 画面が切り替わるのを少し待ってから、Discord のウィンドウをこちらから前面に出す。
+#[cfg(windows)]
+fn open_link(url: &str) {
+    use marimo_core::winfocus;
+    if winfocus::open_url(url) {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let _ = winfocus::focus_app(&DISCORD_EXES);
+    }
+}
+
+// macOS の open は、URL を渡したアプリを前面に出す。
+#[cfg(not(windows))]
+fn open_link(url: &str) {
+    open(&[url]);
 }
 
 #[cfg(windows)]
@@ -525,5 +561,25 @@ mod tests {
         ] {
             assert!(!is_windows_absolute(path), "{path}");
         }
+    }
+
+    #[test]
+    fn hermes_opens_its_chat_and_ignores_the_launching_terminal() {
+        let hermes = |link: Option<&str>| SessionState {
+            provider: Provider::Hermes,
+            link: link.map(Into::into),
+            ..session(Some(TERMINAL), Some("Apple_Terminal"), Some("/dev/ttys001"))
+        };
+        assert_eq!(
+            plan(&hermes(Some("discord://-/channels/1/2"))),
+            Target::Link {
+                url: "discord://-/channels/1/2".into()
+            }
+        );
+        assert_eq!(plan(&hermes(None)), Target::Nothing);
+        assert_eq!(
+            plan(&hermes(Some("file:///C:/Windows/System32/calc.exe"))),
+            Target::Nothing
+        );
     }
 }

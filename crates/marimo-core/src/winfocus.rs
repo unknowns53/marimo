@@ -1,7 +1,9 @@
 use crate::state::ProcessRef;
 
 #[cfg(windows)]
-pub use imp::{console_window, focus_process, focus_window, lineage, open_folder_with};
+pub use imp::{
+    console_window, focus_app, focus_process, focus_window, lineage, open_folder_with, open_url,
+};
 
 const MAX_ANCESTORS: usize = 8;
 
@@ -276,6 +278,51 @@ mod imp {
         // SAFETY: search は EnumWindows が戻るまで生きており、visit はその間だけ参照する。
         unsafe { EnumWindows(Some(visit), &mut search as *mut Search as LPARAM) };
         !search.found.is_null() && bring_forward(search.found)
+    }
+
+    struct ExeSearch<'a> {
+        names: &'a [&'a str],
+        found: HWND,
+    }
+
+    unsafe extern "system" fn visit_exe(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        // SAFETY: lparam は focus_app が EnumWindows の間だけ渡す ExeSearch への可変参照である。
+        let search = unsafe { &mut *(lparam as *mut ExeSearch) };
+        let exe = || {
+            window_pid(hwnd)
+                .and_then(open_process)
+                .and_then(|p| image_path(&p))
+        };
+        if is_app_window(hwnd)
+            && let Some(path) = exe()
+            && let Some(file) = path.rsplit(['\\', '/']).next()
+            && search.names.iter().any(|n| file.eq_ignore_ascii_case(n))
+        {
+            search.found = hwnd;
+            return 0;
+        }
+        1
+    }
+
+    /// 実行ファイルの名前が names のどれかであるアプリのウィンドウのうち、EnumWindows が最初に返すものを
+    /// 前面に出す。前面に出せたかを返す。
+    pub fn focus_app(names: &[&str]) -> bool {
+        let mut search = ExeSearch {
+            names,
+            found: ptr::null_mut(),
+        };
+        // SAFETY: search は EnumWindows が戻るまで生きており、visit_exe はその間だけ参照する。
+        unsafe { EnumWindows(Some(visit_exe), &mut search as *mut ExeSearch as LPARAM) };
+        !search.found.is_null() && bring_forward(search.found)
+    }
+
+    /// URL を、その scheme に結び付いたアプリで開く。シェルは通さない。起動できたかを返す。
+    pub fn open_url(url: &str) -> bool {
+        // 開いたアプリは、既に動いている本体に URL を渡して終わることがある。その本体は marimo の子では
+        // ないので、どのプロセスにも前面に出ることを許しておく。
+        // SAFETY: 引数は値だけである。
+        unsafe { AllowSetForegroundWindow(ASFW_ANY) };
+        Command::new("explorer.exe").arg(url).spawn().is_ok()
     }
 
     /// エディタの実行ファイルに作業フォルダを一つだけ渡して起動する。シェルは通さない。

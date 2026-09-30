@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { folderName, formatAge } from "./format";
+import { folderName, formatAge, titleIsName } from "./format";
 
 describe("folderName", () => {
   it("prefers the repository, then the cwd folder, then the session id", () => {
@@ -24,6 +24,16 @@ describe("folderName", () => {
     expect(folderName({ ...scratch, repo: "marimo" })).toBe("marimo");
     expect(folderName({ ...scratch, provider: "claude" })).toBe("touch-test-txt");
     expect(folderName({ ...scratch, cwd: "/Users/u/Documents/Codex/notes" })).toBe("notes");
+  });
+
+  it("names a Hermes chat by its channel and a Hermes CLI session by its folder", () => {
+    const chat = { session_id: "20260101_000000_abcd1234", cwd: null, title: "#general", provider: "hermes" as const };
+    expect(folderName(chat)).toBe("#general");
+    expect(titleIsName(chat)).toBe(true);
+    expect(folderName({ ...chat, title: undefined })).toBe("Hermes");
+    const cli = { ...chat, cwd: "/w/proj", title: undefined };
+    expect(folderName(cli)).toBe("proj");
+    expect(titleIsName(cli)).toBe(false);
   });
 });
 

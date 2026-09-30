@@ -103,7 +103,7 @@ let dialogue: Dialogue = {};
 let defaultDialogue: Dialogue = {};
 let speechTimer: number | undefined;
 let panelDisplay: PanelDisplay = DEFAULT_PANEL_DISPLAY;
-let appIcons: AppIcons = { claude: null, codex: null };
+let appIcons: AppIcons = { claude: null, codex: null, hermes: null };
 let scale: ScaleControl | undefined;
 // スナップショットは続けて届くことがあり、セリフの読み込みを待つ間に順序が入れ替わらないよう直列にする。
 let applying: Promise<void> = Promise.resolve();

@@ -178,8 +178,10 @@ pub struct HookExtras {
     pub origin: Option<Origin>,
     pub transcript: Option<TranscriptTail>,
     pub rollout: Option<RolloutTail>,
-    /// Codex の session_index.jsonl から読んだ題名。
+    /// Codex の session_index.jsonl か、Hermes のセッションの一覧から読んだ題名。
     pub title: Option<String>,
+    /// Hermes のセッションの一覧から組み立てた、行を押したときに開く URL。
+    pub link: Option<String>,
 }
 
 pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> io::Result<()> {
@@ -222,6 +224,9 @@ fn apply_session(
             if let Some(title) = title.or_else(|| extras.title.clone()) {
                 next.title = Some(title);
             }
+            if let Some(link) = extras.link.clone() {
+                next.link = Some(link);
+            }
             // 調べ直すかどうかは保存済みの cwd で決まるので、ロックの内側で調べる。
             // 調べるのは cwd が変わったときなどに限られ、数回の stat で済む。
             refresh_repo(input, current.as_ref(), &mut next, |cwd| {
@@ -235,6 +240,25 @@ fn apply_session(
         },
         Transition::Nothing => Ok(()),
     }
+}
+
+/// 状態を変えずに、コンテキストの使用量だけを書き換える。statusLine と同じく、セッションのファイルは
+/// フックだけが作るので、まだ無いセッションや消した後のセッションには書かない。
+pub fn apply_context(
+    home: &MarimoHome,
+    provider: Provider,
+    session_id: &str,
+    context: ContextUsage,
+) -> io::Result<()> {
+    let _lock = lock_home(home);
+    let (Some(path), Some(mut session)) = (
+        home.session_file(provider, session_id),
+        read_session(home, provider, session_id),
+    ) else {
+        return Ok(());
+    };
+    session.context = Some(context);
+    write_json_atomic(&path, &session)
 }
 
 /// 項目名は https://code.claude.com/docs/en/statusline の Available data の節に従う。
