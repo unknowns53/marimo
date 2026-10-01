@@ -11,6 +11,7 @@ mod tray;
 mod watch;
 mod window_pos;
 
+use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use marimo_core::{MarimoHome, Provider, Snapshot, store};
@@ -153,6 +154,29 @@ fn quit(app: AppHandle) {
     app.exit(0);
 }
 
+/// 自動起動の登録は、有効にした時点の実行ファイルのパスを指したまま残る。有効かどうかは
+/// 登録の名前だけで判定されるので、別の場所の実行ファイルで有効にした登録が残っていても
+/// メニューには有効と出て、ログイン時にはそちらが起動する。有効なら今の実行ファイルで
+/// 登録し直して、パスを追従させる。ソースツリーのビルド用フォルダから起動したときは、
+/// 試しに動かしただけで登録を奪わないよう何もしない。
+fn follow_autostart_path(app: &AppHandle) {
+    use tauri_plugin_autostart::ManagerExt;
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let in_source_tree = match (std::env::current_exe(), source_root.canonicalize()) {
+        (Ok(exe), Ok(root)) => exe.canonicalize().is_ok_and(|exe| exe.starts_with(root)),
+        _ => false,
+    };
+    if in_source_tree {
+        return;
+    }
+    let autolaunch = app.autolaunch();
+    if autolaunch.is_enabled().unwrap_or(false)
+        && let Err(e) = autolaunch.enable()
+    {
+        eprintln!("marimo: cannot update the autostart entry: {e}");
+    }
+}
+
 fn main() {
     let home =
         MarimoHome::resolve().expect("cannot resolve the marimo home directory; set MARIMO_HOME");
@@ -226,6 +250,7 @@ fn main() {
             watch::spawn(app.handle().clone(), home.clone());
             watch::spawn_pruner(home.clone());
             hit::spawn(app.handle().clone(), window, hits.clone());
+            follow_autostart_path(app.handle());
             Ok(())
         })
         .build(context)
