@@ -28,9 +28,11 @@ marimo を導入したあと、毎日使う人のための文書です。導入�
 
 ログインのたびに手で起動しなくて済むよう、自動起動を有効にできます。macOS では `/Applications` に置いた `marimo.app` を、Windows ではインストーラで入れた `%LOCALAPPDATA%\marimo\marimo.exe` を起動してから、立ち絵を右クリックして「ログイン時に起動」を選びます。
 
-macOS では、`~/Library/LaunchAgents/com.marimo.desktop.plist` に LaunchAgent（ログイン時に macOS がプログラムを起動するための設定ファイル）を置きます。この plist は、有効にした時点で動いている実行ファイルのパスを指します。このため、`marimo.app` を別の場所へ移したときは、一度無効にしてから有効にし直してください。
+macOS では、`~/Library/LaunchAgents/com.marimo.desktop.plist` に LaunchAgent（ログイン時に macOS がプログラムを起動するための設定ファイル）を置きます。この plist は、有効にした時点で動いている実行ファイルのパスを指します。
 
-Windows では、レジストリの `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` に、有効にした時点で動いている `marimo.exe` のパスを登録します。`target\release\marimo.exe` から起動したまま有効にすると、ビルド用のフォルダの実行ファイルが登録されてしまうので、インストーラで入れた方から起動してください。
+Windows では、レジストリの `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` に、有効にした時点で動いている `marimo.exe` のパスを登録します。
+
+どちらの OS でも、自動起動が有効なまま marimo を起動すると、その実行ファイルのパスで登録し直します。`marimo.app` を別の場所へ移したときや、`target\release\marimo.exe` から起動したまま有効にしていたときも、インストールした方の marimo を一度起動すれば、次のログインからはそちらが起動します。ソースツリーの `target` から起動したときは、試しに動かしただけで登録を書き換えないよう、登録し直しません。
 
 どちらの OS でも既定では無効で、marimo が勝手にログイン項目を増やすことはありません。
 
