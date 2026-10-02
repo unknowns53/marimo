@@ -4,6 +4,7 @@ pub mod cloud;
 pub mod codex;
 pub mod hermes;
 pub mod paths;
+pub mod process;
 pub mod repo;
 pub mod state;
 pub mod store;
@@ -16,7 +17,7 @@ pub mod winfocus;
 pub use activity::{Activity, ActivityKind};
 pub use paths::MarimoHome;
 pub use state::{
-    AgentRun, CodexRateLimits, CodexRateWindow, ContextUsage, HookInput, Origin, ProcessRef,
-    Provider, RateLimits, RateWindow, SessionState, Snapshot, Status, Transition, WindowRef,
-    aggregate,
+    AgentRun, CodexRateLimits, CodexRateWindow, ContextUsage, HookInput, HostProcess, Origin,
+    ProcessRef, Provider, RateLimits, RateWindow, SessionState, Snapshot, Status, Transition,
+    WindowRef, aggregate,
 };

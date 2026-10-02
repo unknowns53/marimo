@@ -167,7 +167,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。日付の無い名前の `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
 
-セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前の版のアプリは、Hermes のセッションのファイルを読み飛ばします。
+セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id`、行を押したときに開く URL の `link`、ターンを動かしている Hermes のプロセスの ID と起動した時刻の `host` も持ちます。`hermes` を知らない以前の版のアプリは、Hermes のセッションのファイルを読み飛ばします。
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
 
@@ -196,6 +196,7 @@ marimo は Claude Code の作業を一切妨げないことを最優先にして
 - **会話ログ** PostToolUse と Stop のときに、会話ログの末尾から最大 4 MB を読み、最後の応答のトークン数と、読んだ範囲にあるチャットの題名だけを取り出します。コンテキスト使用率と題名を出すためです。
 - **Codex の rollout と session_index.jsonl** Codex のセッションでは、rollout の末尾から最大 4 MB を読んで最後の `token_count` のトークン数と利用制限だけを取り出し、`session_index.jsonl` の末尾から最大 512 KB を読んでそのセッションの題名だけを取り出します。macOS で起動元のアプリが分からないときは、セッションの開始時とプロンプトを送ったときに rollout の先頭から最大 64 KB を読み、最初の行の `originator` だけを取り出します。Codex の `auth.json` と `config.toml` は読みません。
 - **Hermes のセッションの一覧** Hermes のセッションでは、ターンの始まりに、Hermes のフォルダの `sessions/sessions.json` から、そのセッションの行を探してチャットの種類と名前、Discord のサーバーとチャンネルの ID だけを取り出します。Hermes の `.env`、`auth.json`、`state.db` は読みません。
+- **Hermes を動かしているプロセス** Hermes のセッションでは、ターンの始まりに、フックの親のプロセスの ID と起動した時刻を状態ファイルに記録します。アプリは、そのプロセスがまだ動いているかを OS に尋ねるだけで、実行ファイルのパスや引数は読みません。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）、API の応答を待った時間の累計（`cost.total_api_duration_ms`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。
 - **アプリのアイコン** パネルの印に使うため、起動したときに一度だけ、Claude と Codex のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop` と `com.openai.codex` のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。
 
@@ -213,7 +214,7 @@ marimo は、状態ファイルも会話の内容も、手元のコンピュー�
 
 | パス | 内容 |
 | --- | --- |
-| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、Hermes のフックの入力の読み替えとセッションの一覧の読み取り、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
+| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、Hermes のフックの入力の読み替えとセッションの一覧の読み取り、フックを起動したプロセスが動いているかの確認、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
 | `crates/marimo-hook` | Claude Code、Codex、Hermes から呼ばれるコマンド。`hook`、`codex-hook`、`hermes-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます |
 | `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、窓の制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、macOS でのアプリのアイコンの読み取りを受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
@@ -331,6 +332,7 @@ Hermes のフックの入力は、どのイベントでも `hook_event_name`、`
 - **コンテキスト使用率** モデルを呼ぶたびに届く `post_api_request` の `usage.prompt_tokens` を、`context_length` で割って出します。`prompt_tokens` は、キャッシュから読んだ分も含めてモデルに渡した入力のトークン数です。
 - **題名と開く先** ターンの始まりに、Hermes のフォルダの `sessions/sessions.json` から session_id が一致する行を探します。このファイルは gateway がチャットごとの今のセッションを書く対応表で、Hermes 自身はこれを `state.db` の写し（legacy mirror）と呼んでいます。チャンネルでは `サーバー名 / #チャンネル名` の形の名前からチャンネル名だけを題名にし、DM では相手の名前を使わずに `DM` を題名にします。Discord の会話では、サーバーとチャンネル（DM では DM のチャンネル）の ID から `discord://-/channels/<サーバー>/<チャンネル>` の形の URL を組み立てて記録します。CLI の会話はこの表に載らないので、題名も URL もありません。
 - **作業フォルダ** gateway は Hermes のフォルダを作業フォルダにして動くので、その場所は会話の居場所ではありません。Hermes のフォルダと同じ `cwd` は記録せず、パネルの行の名前と吹き出しの `{folder}` には題名を使います。CLI の会話は、起動したフォルダを記録します。
+- **プロセスの終わり** cron のジョブのセッションは、終わりを知らせるフック（`on_session_finalize`）を出しません。gateway や CLI が異常な終わり方をしたときも同じです。そこで、ターンの始まりと、まだ記録の無い行へのフックで、フックの親のプロセスの ID と起動した時刻を記録します。Hermes はフックをシェルを通さずに起動するので、親はターンを動かしている Hermes のプロセスそのものです。アプリは起動したときと 10 分ごとに、作業中か承認待ちの行のプロセスが終わっていれば、`on_session_end`（`interrupted`）と同じく待機へ戻します。gateway を起動し直したときに作業中だった cron のジョブの行も、これで遅くとも 10 分ほどでパネルから消えます。プロセスがまだ動いているかを確かめられないとき（権限が足りないなど）は、動いているものとみなします。
 - **起動元** Hermes のフックの祖先のプロセスは会話のウィンドウではないので、起動元の手がかりは記録しません。行を押したときは、記録した URL が marimo の組み立てる Discord のチャンネルの形であることを確かめてから開きます。Windows の Discord は、動いている本体へリンクを渡して画面を切り替えるだけで前面には出てこないので、marimo が Discord のウィンドウを前面に出します。URL の無いセッションでは何もしません。
 - **記録しないもの** 利用制限は記録しません。Hermes のフックの入力に、利用制限の値が無いためです。サブエージェント（`delegate_task` で動く子のエージェント）は自分の session_id でフックを出すので、親とは別の行になります。gateway の `/stop` は session_id を持たないイベントしか出さないので、止めた行は作業中のまま残ることがあり、次のターンで正しい状態に戻ります。会話の圧縮で Hermes が session_id を付け替えたときは、新しい ID の行が現れ、古い行は 24 時間で消えます。
 

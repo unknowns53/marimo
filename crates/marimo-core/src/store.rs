@@ -11,11 +11,12 @@ use serde_json::{Value, json};
 
 use crate::codex::RolloutTail;
 use crate::paths::MarimoHome;
+use crate::process;
 use crate::repo::repo_name;
 use crate::state::{
-    CodexRateLimits, ContextUsage, HookInput, Origin, Provider, RateLimits, RateWindow,
-    SessionState, Snapshot, Transition, aggregate, clean_title, context_from_codex,
-    context_from_transcript, expire_agents, refresh_repo, transition,
+    CodexRateLimits, ContextUsage, HookInput, HostProcess, Origin, Provider, RateLimits,
+    RateWindow, SessionState, Snapshot, Status, Transition, aggregate, clean_title,
+    context_from_codex, context_from_transcript, expire_agents, refresh_repo, transition,
 };
 use crate::time::{now_ms, rfc3339_utc, utc_date};
 use crate::transcript::TranscriptTail;
@@ -183,6 +184,8 @@ pub struct HookExtras {
     pub title: Option<String>,
     /// Hermes のセッションの一覧から組み立てた、行を押したときに開く URL。
     pub link: Option<String>,
+    /// フックを起動した Hermes のプロセス。
+    pub host: Option<HostProcess>,
 }
 
 pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> io::Result<()> {
@@ -227,6 +230,9 @@ fn apply_session(
             }
             if let Some(link) = extras.link.clone() {
                 next.link = Some(link);
+            }
+            if let Some(host) = extras.host {
+                next.host = Some(host);
             }
             // 調べ直すかどうかは保存済みの cwd で決まるので、ロックの内側で調べる。
             // 調べるのは cwd が変わったときなどに限られ、数回の stat で済む。
@@ -452,7 +458,8 @@ fn is_temp_file_name(name: &str) -> bool {
 /// `max_age` のあいだ更新のないセッションのファイルと、残った一時ファイルを消し、消した数を返す。
 /// 残したセッションのうち、SubagentStop が届かないまま `AGENT_STALE_MS` を過ぎたサブエージェントを
 /// 持つものは、そのサブエージェントを外して書き直す。親の会話もサブエージェントもフックを送らなく
-/// なったセッションは、次のフックを待っていると作業中のまま残るからである。
+/// なったセッションは、次のフックを待っていると作業中のまま残るからである。同じ理由で、ターンを
+/// 動かしていたプロセスが終わった作業中か承認待ちのセッションは、中断されたものとして待機へ戻す。
 ///
 /// 消したセッションがまだ動いていても、SessionEnd と SubagentStop 以外のフックが次に届けば
 /// `transition` がファイルを作り直すので、行は次の操作で戻る。`transition` がファイルのないセッションに
@@ -495,7 +502,8 @@ pub fn prune_stale_sessions(
                 None => modified_before(&path, now, max_age),
             };
             if !stale
-                && let Some(next) = session.and_then(|s| expire_agents(&s, now_ms))
+                && let Some(next) = session
+                    .and_then(|s| release_orphan(&s, now_ms).or_else(|| expire_agents(&s, now_ms)))
                 && let Err(e) = write_json_atomic(&path, &next)
             {
                 first_err.get_or_insert(e);
@@ -516,6 +524,28 @@ pub fn prune_stale_sessions(
         }
     }
     first_err.map_or(Ok(removed), Err)
+}
+
+fn release_orphan(session: &SessionState, now_ms: u64) -> Option<SessionState> {
+    let busy = matches!(session.status, Status::Working | Status::Waiting);
+    if !busy || !session.host.as_ref().is_some_and(process::has_exited) {
+        return None;
+    }
+    let interrupt = HookInput {
+        provider: session.provider,
+        session_id: session.session_id.clone(),
+        hook_event_name: "Interrupt".to_owned(),
+        ..HookInput::default()
+    };
+    // updated_at は変えない。expire_agents と同じく、セッションを消すまでの 24 時間を最後のフックから
+    // 数え続けるためである。
+    match transition(&interrupt, Some(session), now_ms) {
+        Transition::Write(next) => Some(SessionState {
+            updated_at: session.updated_at,
+            ..*next
+        }),
+        _ => None,
+    }
 }
 
 // mtime が未来にあるファイルは、時計が戻ったものとみなして古くないと判定する。
@@ -1110,6 +1140,46 @@ mod tests {
                 .status,
             Status::Working
         );
+    }
+
+    #[test]
+    fn prune_releases_busy_sessions_whose_process_ended() {
+        let (_d, home) = home();
+        let alive = process::parent().expect("the test runner has a parent");
+        let ended = HostProcess {
+            created: alive.created + 1,
+            ..alive
+        };
+        let cases = [
+            (
+                "working-alive",
+                Status::Working,
+                Some(alive),
+                Status::Working,
+            ),
+            ("working-ended", Status::Working, Some(ended), Status::Idle),
+            ("waiting-ended", Status::Waiting, Some(ended), Status::Idle),
+            ("done-ended", Status::Done, Some(ended), Status::Done),
+            ("working-unknown", Status::Working, None, Status::Working),
+        ];
+        for (id, status, host, _) in &cases {
+            let session = SessionState {
+                provider: Provider::Hermes,
+                status: *status,
+                own_status: Some(*status),
+                updated_at: NOW_MS - HOUR_MS,
+                host: *host,
+                ..SessionState::new(*id)
+            };
+            let path = home.session_file(Provider::Hermes, id).unwrap();
+            write_json_atomic(&path, &session).unwrap();
+        }
+        prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
+        for (id, _, _, expected) in cases {
+            let after = read_session(&home, Provider::Hermes, id).unwrap();
+            assert_eq!(after.status, expected, "{id}");
+            assert_eq!(after.updated_at, NOW_MS - HOUR_MS, "{id}");
+        }
     }
 
     #[test]

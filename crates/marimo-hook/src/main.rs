@@ -5,7 +5,7 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::thread;
 
 use marimo_core::time::now_ms;
-use marimo_core::{HookInput, MarimoHome, Provider, codex, hermes, store, transcript};
+use marimo_core::{HookInput, MarimoHome, Provider, codex, hermes, process, store, transcript};
 
 mod install;
 mod origin;
@@ -147,7 +147,7 @@ fn hook(provider: Provider) -> Result<(), String> {
         transcript,
         rollout,
         title,
-        link: None,
+        ..store::HookExtras::default()
     };
     store::apply_hook(&home()?, &parsed, &extras).map_err(|e| format!("write failed: {e}"))
 }
@@ -163,20 +163,26 @@ fn hermes_hook() -> Result<(), String> {
     let current = store::read_session(&home, Provider::Hermes, &raw.session_id);
     match hermes::translate(&raw, current.as_ref(), hermes_home.as_deref(), now_ms()) {
         hermes::Event::Hook(parsed) => {
+            let starts = matches!(
+                parsed.hook_event_name.as_str(),
+                "SessionStart" | "UserPromptSubmit"
+            );
             // 題名とリンクはターンの始まりに読み直す。会話の一覧はターンの前に gateway が書く。
             let meta = hermes_home
                 .as_deref()
-                .filter(|_| {
-                    matches!(
-                        parsed.hook_event_name.as_str(),
-                        "SessionStart" | "UserPromptSubmit"
-                    )
-                })
+                .filter(|_| starts)
                 .map(|h| hermes::chat_meta(h, &parsed.session_id))
                 .unwrap_or_default();
+            // Hermes はフックをシェルを通さずに起動するので、親はターンを動かしている Hermes のプロセスである。
+            // Windows で親をたどるには全プロセスの一覧を取るので、ターンの始まりと、まだ記録の無い行でだけ調べる。
+            // 再起動の後に再開したターンは pre_llm_call から始まるので、新しいプロセスに置き換わる。
+            let host = (starts || current.as_ref().is_none_or(|c| c.host.is_none()))
+                .then(process::parent)
+                .flatten();
             let extras = store::HookExtras {
                 title: meta.title,
                 link: meta.link,
+                host,
                 ..store::HookExtras::default()
             };
             store::apply_hook(&home, &parsed, &extras)
