@@ -232,6 +232,8 @@ pub fn context_from_transcript(
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionState {
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud: Option<crate::cloud::Observation>,
     /// セッションは (provider, session_id) で一意になる。二つのツールの session_id は別々に振られる。
     #[serde(default)]
     pub provider: Provider,
@@ -313,6 +315,7 @@ impl SessionState {
     pub fn new(session_id: impl Into<String>) -> Self {
         Self {
             session_id: session_id.into(),
+            cloud: None,
             provider: Provider::Claude,
             cwd: None,
             repo: None,

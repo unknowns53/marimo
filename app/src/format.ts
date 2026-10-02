@@ -1,6 +1,6 @@
 import type { SessionState } from "./types";
 
-type Named = Pick<SessionState, "cwd" | "session_id" | "repo" | "title" | "provider">;
+type Named = Pick<SessionState, "cwd" | "session_id" | "repo" | "title" | "provider" | "cloud">;
 
 // Codex のデスクトップアプリは、プロジェクトを選ばずに始めた会話ごとに ~/Documents/Codex/<日付>/<名前> の
 // 作業フォルダを作り、その名前を最初のプロンプトから付ける。フォルダ名は題名の言い換えでしかないので、
@@ -18,11 +18,12 @@ function isChatSession(session: Pick<SessionState, "cwd" | "provider">): boolean
 }
 
 // 題名が行の名前の役をしているセッション。パネルは同じ題名を名前の横に重ねて出さない。
-export function titleIsName(session: Pick<SessionState, "cwd" | "provider">): boolean {
-  return isCodexScratch(session) || isChatSession(session);
+export function titleIsName(session: Pick<SessionState, "cwd" | "provider" | "cloud">): boolean {
+  return !!session.cloud || isCodexScratch(session) || isChatSession(session);
 }
 
 export function folderName(session: Named): string {
+  if (session.cloud) return `Cloud・手動 | ${session.title || session.cloud.thread_id.slice(0, 8)}`;
   if (session.repo) return session.repo;
   if (isCodexScratch(session)) return session.title || "Codex";
   if (isChatSession(session)) return session.title || "Hermes";

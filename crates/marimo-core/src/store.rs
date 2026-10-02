@@ -360,15 +360,30 @@ pub fn read_codex_rate_limits(home: &MarimoHome) -> Option<CodexRateLimits> {
     serde_json::from_slice(&bytes).ok()
 }
 
-pub fn load_snapshot(home: &MarimoHome) -> Snapshot {
-    let mut sessions: Vec<SessionState> = fs::read_dir(home.sessions_dir())
+fn read_sessions(home: &MarimoHome) -> Vec<SessionState> {
+    fs::read_dir(home.sessions_dir())
         .into_iter()
         .flatten()
         .flatten()
         .filter(|entry| is_session_file_name(&entry.file_name().to_string_lossy()))
         .filter_map(|entry| read_file(&entry.path()).ok())
         .filter_map(|bytes| serde_json::from_slice::<SessionState>(&bytes).ok())
-        .collect();
+        .collect()
+}
+
+pub fn load_snapshot(home: &MarimoHome) -> Snapshot {
+    snapshot_from_sessions(home, read_sessions(home))
+}
+
+pub fn load_snapshot_with_cloud(home: &MarimoHome, enabled: bool, now: u64) -> Snapshot {
+    let mut sessions = read_sessions(home);
+    if enabled {
+        sessions.extend(crate::cloud::load(home, now));
+    }
+    snapshot_from_sessions(home, sessions)
+}
+
+fn snapshot_from_sessions(home: &MarimoHome, mut sessions: Vec<SessionState>) -> Snapshot {
     sessions.sort_by(|a, b| {
         b.status
             .priority()

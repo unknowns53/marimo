@@ -20,7 +20,8 @@ const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
 
 /**
  * 待機以外のセッションは作業中も畳まずに 1 行ずつ並べ、パネルに収まらない分はスクロールで見せるので、
- * 行の数に上限を設けない。
+ * 行の数に上限を設けない。期限の切れた Cloud の観測は待機として届くが、取り込んだ会話がまだあることは
+ * 分かっているので、状態不明の行として残す。
  * 見たと示された完了は畳むが、押した直後に行が消えると何を押したのか見失うので、READ_LINGER_MS の
  * 間だけその場で薄くして残す。完了のまま放っておかれるセッションは多く、いつまでも残すと古い既読で埋まる。
  *
@@ -35,7 +36,7 @@ export function planPanel(
   order: RowOrder = "started",
   now: number = Date.now(),
 ): PanelPlan {
-  const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle");
+  const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle" || s.cloud?.expired);
   const isRead = (s: SessionState) => s.status === "done" && ack.has(s);
   const lingering = active.filter((s) => {
     const at = isRead(s) ? ack.seenAt(s) : undefined;
@@ -77,6 +78,7 @@ export const DEFAULT_PANEL_OPACITY = 0.8;
 /** Rust の scale::PanelDisplay と同じ形で、display.json に保存する。 */
 export interface PanelDisplay {
   show_character: boolean;
+  show_cloud_sessions: boolean;
   panel_style: PanelStyle;
   row_order: RowOrder;
   /** パネルの地だけの不透明度。文字やアイコンや状態の点は薄くしない。 */
@@ -85,6 +87,7 @@ export interface PanelDisplay {
 
 export const DEFAULT_PANEL_DISPLAY: PanelDisplay = {
   show_character: true,
+  show_cloud_sessions: false,
   panel_style: "detail",
   row_order: "started",
   panel_opacity: DEFAULT_PANEL_OPACITY,

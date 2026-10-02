@@ -31,6 +31,7 @@ export interface Origin {
 
 export interface SessionState {
   session_id: string;
+  cloud?: { thread_id: string; observed_at: number; expires_at: number; expired: boolean };
   provider?: Provider;
   cwd: string | null;
   repo?: string;

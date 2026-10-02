@@ -251,7 +251,8 @@ body {
   margin-top: 1px;
 }
 
-.row.read {
+.row.read,
+.row.stale {
   opacity: 0.45;
 }
 

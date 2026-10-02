@@ -420,3 +420,35 @@ fn statusline_exit_code_follows_the_original() {
     assert_eq!(out.status.code(), Some(0));
     assert!(out.stdout.is_empty());
 }
+
+#[test]
+fn cloud_metadata_is_explicit_and_clear_does_not_touch_hooks() {
+    let d = tempfile::tempdir().unwrap();
+    let home = d.path();
+    let input = json!({"observed_at": marimo_core::time::now_ms(), "threads": [{
+        "id": "cloud-test", "title": "実タスク", "cwd": "/w/project", "status": "active", "hostId": "durable"
+    }]}).to_string();
+    let out = run(home, &["cloud-snapshot"], input.as_bytes());
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    assert!(home.join("cloud_snapshot.json").exists());
+    let bad = run(home, &["cloud-snapshot"], b"{broken");
+    assert!(!bad.status.success());
+    assert!(home.join("cloud_snapshot.json").exists());
+    assert!(
+        run(
+            home,
+            &["hook"],
+            br#"{"session_id":"normal","hook_event_name":"UserPromptSubmit"}"#
+        )
+        .status
+        .success()
+    );
+    assert!(
+        run(home, &["cloud-snapshot", "--clear"], b"")
+            .status
+            .success()
+    );
+    assert!(!home.join("cloud_snapshot.json").exists());
+    assert!(session(home, "normal").is_some());
+}
