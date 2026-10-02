@@ -51,6 +51,7 @@ fn hook_updates_state_and_prints_nothing() {
     assert_eq!(s["status"], "working");
     assert_eq!(s["activity"]["summary"], "cargo build");
     assert_eq!(s["activity"]["detail"], "cargo build");
+    assert_eq!(s["host"]["pid"], std::process::id(), "{s}");
 
     // displayContent を返さなければ元の文章がそのまま表示される（hooks のドキュメントの
     // MessageDisplay output の節）ので、marimo は何も出力してはいけない。
@@ -286,7 +287,6 @@ fn hermes_hook_tracks_a_discord_turn() {
     );
     assert!(s.get("cwd").is_none_or(Value::is_null), "{s}");
     assert!(s.get("origin").is_none_or(Value::is_null), "{s}");
-    // フックの親はこのテストのプロセスで、Hermes ではターンを動かしているプロセスにあたる。
     assert_eq!(s["host"]["pid"], std::process::id(), "{s}");
 
     send(json!({

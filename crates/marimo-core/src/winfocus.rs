@@ -3,7 +3,7 @@ use crate::state::ProcessRef;
 #[cfg(windows)]
 pub use imp::{
     console_window, describe_process, focus_app, focus_process, focus_window, lineage,
-    open_folder_with, open_url, parent_pid, process_exited,
+    open_folder_with, open_url, process_exited, process_table,
 };
 
 const MAX_ANCESTORS: usize = 8;
@@ -112,7 +112,8 @@ mod imp {
         created_at(&open_process(pid)?)
     }
 
-    fn parent_map() -> HashMap<u32, u32> {
+    /// 動いているプロセスの ID から、親の ID と実行ファイルの名前（パスを含まない）を引く表。
+    pub fn process_table() -> HashMap<u32, (u32, String)> {
         let mut map = HashMap::new();
         // SAFETY: 引数は値だけで、失敗すると INVALID_HANDLE_VALUE が返る。
         let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
@@ -127,7 +128,10 @@ mod imp {
         // SAFETY: entry の dwSize に構造体の大きさを入れてあり、スナップショットは開いたままである。
         let mut ok = unsafe { Process32FirstW(snap.0, &mut entry) };
         while ok != 0 {
-            map.insert(entry.th32ProcessID, entry.th32ParentProcessID);
+            let exe = &entry.szExeFile;
+            let len = exe.iter().position(|&c| c == 0).unwrap_or(exe.len());
+            let name = String::from_utf16_lossy(&exe[..len]);
+            map.insert(entry.th32ProcessID, (entry.th32ParentProcessID, name));
             // SAFETY: 上と同じ。
             ok = unsafe { Process32NextW(snap.0, &mut entry) };
         }
@@ -136,22 +140,18 @@ mod imp {
 
     /// このプロセスの祖先を、近い順に最大 8 個返す。
     pub fn lineage() -> Vec<ProcessRef> {
-        let parents = parent_map();
+        let parents = process_table();
         let me = std::process::id();
         walk_ancestors(
             me,
             process_created(me),
-            |pid| parents.get(&pid).copied(),
+            |pid| parents.get(&pid).map(|&(parent, _)| parent),
             |pid| {
                 let process = open_process(pid)?;
                 let created = created_at(&process)?;
                 Some((created, image_path(&process).unwrap_or_default()))
             },
         )
-    }
-
-    pub fn parent_pid() -> Option<u32> {
-        parent_map().get(&std::process::id()).copied()
     }
 
     pub fn describe_process(pid: u32) -> Option<HostProcess> {

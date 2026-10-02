@@ -184,7 +184,7 @@ pub struct HookExtras {
     pub title: Option<String>,
     /// Hermes のセッションの一覧から組み立てた、行を押したときに開く URL。
     pub link: Option<String>,
-    /// フックを起動した Hermes のプロセス。
+    /// フックを起動したプロセス。
     pub host: Option<HostProcess>,
 }
 
@@ -537,9 +537,14 @@ fn release_orphan(session: &SessionState, now_ms: u64) -> Option<SessionState> {
         hook_event_name: "Interrupt".to_owned(),
         ..HookInput::default()
     };
+    // サブエージェントも同じプロセスの中で動くので、一緒に終わっている。
+    let ended = SessionState {
+        agents: BTreeMap::new(),
+        ..session.clone()
+    };
     // updated_at は変えない。expire_agents と同じく、セッションを消すまでの 24 時間を最後のフックから
     // 数え続けるためである。
-    match transition(&interrupt, Some(session), now_ms) {
+    match transition(&interrupt, Some(&ended), now_ms) {
         Transition::Write(next) => Some(SessionState {
             updated_at: session.updated_at,
             ..*next
@@ -1145,7 +1150,7 @@ mod tests {
     #[test]
     fn prune_releases_busy_sessions_whose_process_ended() {
         let (_d, home) = home();
-        let alive = process::parent().expect("the test runner has a parent");
+        let alive = process::host().expect("the test runner has a parent");
         let ended = HostProcess {
             created: alive.created + 1,
             ..alive

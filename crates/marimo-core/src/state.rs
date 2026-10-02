@@ -293,9 +293,9 @@ pub struct SessionState {
     pub context: Option<ContextUsage>,
     #[serde(default)]
     pub origin: Option<Origin>,
-    /// ターンを動かしているプロセス。Hermes のセッションだけが持つ。Hermes は cron のセッションの終わりと、
-    /// 異常な終わり方をしたプロセスのセッションの終わりをフックで知らせないので、このプロセスが消えた
-    /// 作業中の行を待機へ戻すのに使う。
+    /// ターンを動かしているプロセス。プロセスが異常な終わり方をすると、Claude Code も Codex も Hermes も
+    /// セッションの終わりをフックで知らせない。Hermes は cron のセッションの終わりも知らせない。そこで、
+    /// このプロセスが消えた作業中の行を待機へ戻すのに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<HostProcess>,
     /// 親の会話だけで決まる状態。status、activity、status_reason は、これに動いているサブエージェントを
