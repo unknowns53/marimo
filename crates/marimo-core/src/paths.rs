@@ -54,6 +54,10 @@ impl MarimoHome {
         self.root.join("codex_rate_limits.json")
     }
 
+    pub fn statusline_responses_file(&self) -> PathBuf {
+        self.root.join("statusline_responses.json")
+    }
+
     pub fn logs_dir(&self) -> PathBuf {
         self.root.join("logs")
     }

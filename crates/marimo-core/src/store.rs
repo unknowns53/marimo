@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Write};
 use std::path::Path;
@@ -5,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::codex::RolloutTail;
@@ -266,9 +267,7 @@ pub fn apply_statusline(home: &MarimoHome, input: &Value) -> io::Result<()> {
     let now = now_ms();
     let mut first_err = None;
 
-    if let Some(limits) = rate_limits_from(input, now)
-        && let Err(e) = write_rate_limits(home, &limits)
-    {
+    if let Err(e) = observe_rate_limits(home, input, now) {
         first_err.get_or_insert(e);
     }
 
@@ -333,10 +332,48 @@ fn rate_limits_from(input: &Value, now: u64) -> Option<RateLimits> {
     (limits.five_hour.is_some() || limits.seven_day.is_some()).then_some(limits)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+struct LastResponse {
+    api_ms: u64,
+    seen_at: u64,
+}
+
+/// statusLine は応答が届いたときのほかに、prompt cache が期限を迎えたときや利用制限の窓が
+/// 戻ったときにも呼ばれる（statusline のドキュメントの When it updates の節）。そのときも入力の
+/// rate_limits はそのセッションが最後の応答で受け取った値のままなので、放置しているセッションが
+/// 古い値を送ってくる。そこで、セッションごとに cost.total_api_duration_ms を覚えておき、前回より
+/// 増えたとき、つまり新しい応答が届いたときだけ書く。初めて見たセッションの値はいつの応答のものか
+/// 分からないので書かない。この値を持たない入力は、見分けられないので受け取るたびに書く。
 /// ロックは内側で取るので、呼び出し側は `lock_home` を持ったまま呼ばない。
-fn write_rate_limits(home: &MarimoHome, limits: &RateLimits) -> io::Result<()> {
+fn observe_rate_limits(home: &MarimoHome, input: &Value, now: u64) -> io::Result<()> {
+    let limits = rate_limits_from(input, now);
+    let id = input.get("session_id").and_then(Value::as_str);
+    let api_ms = input
+        .get("cost")
+        .and_then(|c| c.get("total_api_duration_ms"))
+        .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)));
     let _lock = lock_home(home);
-    write_json_atomic(&home.rate_limits_file(), limits)
+    let (Some(id), Some(api_ms)) = (id, api_ms) else {
+        return limits.map_or(Ok(()), |l| write_json_atomic(&home.rate_limits_file(), &l));
+    };
+
+    let path = home.statusline_responses_file();
+    let mut seen: BTreeMap<String, LastResponse> = read_file(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let previous = seen.get(id).copied();
+    let fresh = previous.is_some_and(|p| api_ms > p.api_ms);
+    if previous.is_none_or(|p| p.api_ms != api_ms) {
+        let stale_before = now.saturating_sub(STALE_SESSION_AGE.as_millis() as u64);
+        seen.retain(|_, r| r.seen_at >= stale_before);
+        seen.insert(id.to_owned(), LastResponse { api_ms, seen_at: now });
+        write_json_atomic(&path, &seen)?;
+    }
+    match limits {
+        Some(l) if fresh => write_json_atomic(&home.rate_limits_file(), &l),
+        _ => Ok(()),
+    }
 }
 
 pub fn read_rate_limits(home: &MarimoHome) -> Option<RateLimits> {
@@ -710,6 +747,33 @@ mod tests {
                 .used_percentage,
             23.5
         );
+    }
+
+    #[test]
+    fn statusline_keeps_rate_limits_only_from_new_responses() {
+        let (_d, home) = home();
+        let five_hour = |home: &MarimoHome| {
+            read_rate_limits(home).map(|rl| rl.five_hour.unwrap().used_percentage)
+        };
+        // (session_id, total_api_duration_ms, 5 時間の使用率, 保存されているはずの値)
+        let steps = [
+            ("s1", 0, None, None),
+            ("s1", 100, Some(10.0), Some(10.0)),
+            // 初めて見たセッションの値は、いつの応答のものか分からない。
+            ("s2", 500, Some(5.0), Some(10.0)),
+            // 応答が増えていない呼び出しは、prompt cache の期限などで再び呼ばれただけである。
+            ("s2", 500, Some(5.0), Some(10.0)),
+            ("s2", 600, Some(12.0), Some(12.0)),
+            ("s1", 100, Some(10.0), Some(12.0)),
+        ];
+        for (i, (id, api_ms, used, expected)) in steps.into_iter().enumerate() {
+            let mut status = json!({"session_id": id, "cost": {"total_api_duration_ms": api_ms}});
+            if let Some(used) = used {
+                status["rate_limits"] = json!({"five_hour": {"used_percentage": used}});
+            }
+            apply_statusline(&home, &status).unwrap();
+            assert_eq!(five_hour(&home), expected, "step {i}");
+        }
     }
 
     #[test]
