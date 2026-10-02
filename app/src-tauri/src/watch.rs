@@ -79,7 +79,7 @@ fn is_relevant(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
-    if name == "rate_limits.json" {
+    if matches!(name, "rate_limits.json" | "codex_rate_limits.json") {
         return true;
     }
     let in_sessions = path
@@ -97,6 +97,7 @@ mod tests {
     fn relevance_filter() {
         assert!(is_relevant(Path::new("/h/sessions/abc.json")));
         assert!(is_relevant(Path::new("/h/rate_limits.json")));
+        assert!(is_relevant(Path::new("/h/codex_rate_limits.json")));
         assert!(!is_relevant(Path::new("/h/sessions/.abc.json.1.2.tmp")));
         assert!(!is_relevant(Path::new("/h/window.json")));
         assert!(!is_relevant(Path::new("/h/logs/record.jsonl")));
