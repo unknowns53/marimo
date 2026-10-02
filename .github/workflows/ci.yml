@@ -20,10 +20,10 @@ permissions:
   contents: read
 
 # 同じブランチに続けて push したときは、古い方の実行を止めてランナーを空ける。
-# main への push では、公開の途中で実行ごと止めると作りかけのリリースが残るので、実行ごとに別のグループにする。
+# main への push と main での手動の実行では、公開の途中で実行ごと止めると作りかけのリリースが残るので、実行ごとに別のグループにする。
 # main で古いビルドを止めるかどうかは、下のジョブごとの concurrency で決める。
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_id || 'latest' }}
+  group: ci-${{ github.ref }}-${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.run_id || 'latest' }}
   cancel-in-progress: true
 
 jobs:
@@ -91,9 +91,11 @@ jobs:
   # それらだけを変えた push では、そのコミットのビルドがすでにあればビルドしない。
   # 同じ push の中でそれらだけのコミットが後に続いたときにも見つかるよう、タグもそのコミットの名前で付ける。
   # この一覧を変えるときは、tools/update.sh と tools/update.ps1 の同じ一覧も直す。
+  # 中身の変わらないコミットへ force push すると push では CI が起動せず、そのコミットのビルドができない。
+  # それを作り直せるよう、main での手動の実行でもビルドと公開を行う。
   target:
     name: find the build to publish
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.find.outputs.sha }}
