@@ -407,7 +407,6 @@ async function openMenu(): Promise<void> {
       CheckMenuItem.new({
         text: p.label,
         checked: p.scale === marked,
-        enabled: scale !== undefined,
         action: () => scale?.set(p.scale),
       }),
     ),
@@ -452,6 +451,19 @@ async function openMenu(): Promise<void> {
       ),
     )),
   ];
+  const panelItems = [
+    ...(await Promise.all(
+      ROW_ORDERS.map((order) =>
+        CheckMenuItem.new({
+          text: ROW_ORDER_LABEL[order],
+          checked: order === panelDisplay.row_order,
+          action: () => setRowOrder(order),
+        }),
+      ),
+    )),
+    await PredefinedMenuItem.new({ item: "Separator" }),
+    await MenuItem.new({ text: "背景の不透明度…", action: openOpacityPopover }),
+  ];
   const menu = await Menu.new({
     items: [
       await CheckMenuItem.new({
@@ -468,21 +480,10 @@ async function openMenu(): Promise<void> {
           }),
         ),
       )),
-      await MenuItem.new({ text: "背景の不透明度…", action: openOpacityPopover }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+      await Submenu.new({ text: "パネル", items: panelItems }),
       await Submenu.new({ text: "吹き出し", items: bubbleItems }),
-      await PredefinedMenuItem.new({ item: "Separator" }),
-      ...(await Promise.all(
-        ROW_ORDERS.map((order) =>
-          CheckMenuItem.new({
-            text: ROW_ORDER_LABEL[order],
-            checked: order === panelDisplay.row_order,
-            action: () => setRowOrder(order),
-          }),
-        ),
-      )),
-      await PredefinedMenuItem.new({ item: "Separator" }),
-      ...sizeItems,
-      await PredefinedMenuItem.new({ item: "Separator" }),
+      await Submenu.new({ text: "大きさ", enabled: scale !== undefined, items: sizeItems }),
       await Submenu.new({ text: "キャラクター", enabled: characterItems.length > 0, items: characterItems }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await CheckMenuItem.new({
