@@ -186,7 +186,7 @@ function renderRow(
   now: number,
   onSelect: (session: SessionState) => void,
 ): HTMLElement {
-  const row = el("div", read ? "row read" : "row");
+  const row = el("div", read ? "row read" : s.cloud?.expired ? "row stale" : "row");
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
   const detail = s.activity?.detail ?? "";
   const place = [s.title, s.cwd ?? s.session_id].filter(Boolean).join("\n");

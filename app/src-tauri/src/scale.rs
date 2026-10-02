@@ -105,6 +105,8 @@ impl Default for BubbleSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PanelDisplay {
     pub show_character: bool,
+    #[serde(default)]
+    pub show_cloud_sessions: bool,
     pub panel_style: PanelStyle,
     #[serde(default)]
     pub row_order: RowOrder,
@@ -123,6 +125,7 @@ impl Default for PanelDisplay {
             panel_style: PanelStyle::Detail,
             row_order: RowOrder::Started,
             panel_opacity: DEFAULT_OPACITY,
+            show_cloud_sessions: false,
         }
     }
 }
@@ -141,6 +144,7 @@ fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
         panel_style,
         row_order: RowOrder::default(),
         panel_opacity: DEFAULT_OPACITY,
+        show_cloud_sessions: false,
     })
 }
 
@@ -157,6 +161,8 @@ struct Display {
     scale: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     show_character: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    show_cloud_sessions: Option<bool>,
     // 知らない値が書かれていてもファイル全体を読み損ねないよう、文字列のまま読んでから解釈する。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     panel_style: Option<String>,
@@ -212,7 +218,8 @@ pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
     let order = d.row_order.as_deref().and_then(RowOrder::parse);
     let opacity = d.panel_opacity.as_ref().and_then(serde_json::Value::as_f64);
     let legacy = d.panel_mode.as_deref().and_then(legacy_panel_mode);
-    if d.show_character.is_none()
+    if d.show_cloud_sessions.is_none()
+        && d.show_character.is_none()
         && style.is_none()
         && order.is_none()
         && opacity.is_none()
@@ -223,15 +230,27 @@ pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
     let fallback = legacy.unwrap_or_default();
     Some(PanelDisplay {
         show_character: d.show_character.unwrap_or(fallback.show_character),
+        show_cloud_sessions: d.show_cloud_sessions.unwrap_or(false),
         panel_style: style.unwrap_or(fallback.panel_style),
         row_order: order.unwrap_or_default(),
         panel_opacity: opacity.map_or(DEFAULT_OPACITY, clamp_opacity),
     })
 }
 
+pub fn snapshot(home: &MarimoHome) -> marimo_core::Snapshot {
+    store::load_snapshot_with_cloud(
+        home,
+        load_panel_display(home)
+            .unwrap_or_default()
+            .show_cloud_sessions,
+        marimo_core::time::now_ms(),
+    )
+}
+
 pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Result<()> {
     let mut d = read_display(home);
     d.show_character = Some(display.show_character);
+    d.show_cloud_sessions = Some(display.show_cloud_sessions);
     d.panel_style = Some(
         match display.panel_style {
             PanelStyle::Detail => "detail",
@@ -392,6 +411,7 @@ mod tests {
             panel_style,
             row_order: RowOrder::Started,
             panel_opacity: DEFAULT_OPACITY,
+            show_cloud_sessions: false,
         }
     }
 
@@ -486,6 +506,7 @@ mod tests {
                     panel_style,
                     row_order,
                     panel_opacity: DEFAULT_OPACITY,
+                    show_cloud_sessions: false,
                 }),
                 "content {content:?}"
             );
@@ -508,8 +529,34 @@ mod tests {
             serde_json::from_slice(&fs::read(home.display_file()).unwrap()).unwrap();
         assert_eq!(
             saved,
-            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status", "panel_opacity": 0.8})
+            serde_json::json!({"scale": 1.3, "show_character": true, "show_cloud_sessions": false, "panel_style": "detail", "row_order": "status", "panel_opacity": 0.8})
         );
+    }
+
+    #[test]
+    fn cloud_toggle_preserves_other_display_settings() {
+        let (_dir, home) = home();
+        fs::write(
+            home.display_file(),
+            r#"{"scale":1.3,"character":"koharu","panel_style":"counts"}"#,
+        )
+        .unwrap();
+        assert!(!load_panel_display(&home).unwrap().show_cloud_sessions);
+        for enabled in [true, false, true] {
+            let mut current = load_panel_display(&home).unwrap();
+            current.show_cloud_sessions = enabled;
+            save_panel_display(&home, current).unwrap();
+            assert_eq!(
+                load_panel_display(&home).unwrap().show_cloud_sessions,
+                enabled
+            );
+            assert_eq!(load(&home), 1.3);
+            assert_eq!(load_character(&home), "koharu");
+            assert_eq!(
+                load_panel_display(&home).unwrap().panel_style,
+                PanelStyle::Counts
+            );
+        }
     }
 
     #[test]

@@ -8,7 +8,8 @@ import type { Snapshot } from "./types";
 const ids = (list: { session_id: string }[]) => list.map((s) => s.session_id);
 
 describe("planPanel", () => {
-  it("lists every non-idle session as its own row, newest session on top", () => {
+  it("lists every non-idle session and every expired cloud observation as its own row, newest session on top", () => {
+    const cloud = { thread_id: "c1", observed_at: 7, expires_at: 8, expired: true };
     const plan = planPanel(
       snap(
         session("w1", "working", 1),
@@ -17,10 +18,11 @@ describe("planPanel", () => {
         session("ask", "waiting", 4),
         session("d1", "done", 5),
         session("e1", "error", 6),
+        { ...session("cloud-c1", "idle", 7), cloud },
       ),
       new Acknowledged(),
     );
-    expect(ids(plan.rows)).toEqual(["e1", "d1", "ask", "w2", "w1"]);
+    expect(ids(plan.rows)).toEqual(["cloud-c1", "e1", "d1", "ask", "w2", "w1"]);
   });
 
   it("keeps rows in started_at order through status changes and puts legacy sessions at the bottom", () => {

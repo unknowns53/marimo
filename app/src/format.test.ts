@@ -35,6 +35,14 @@ describe("folderName", () => {
     expect(folderName(cli)).toBe("proj");
     expect(titleIsName(cli)).toBe(false);
   });
+
+  it("names a cloud observation by its title and keeps the title out of the second column", () => {
+    const cloud = { thread_id: "t1", observed_at: 100, expires_at: 120100, expired: false };
+    const session = { session_id: "cloud-t1", cwd: "/w/project", title: "実タスク", provider: "codex" as const, cloud };
+    expect(folderName(session)).toBe("Cloud・手動 | 実タスク");
+    expect(titleIsName(session)).toBe(true);
+    expect(folderName({ ...session, cloud: undefined })).toBe("project");
+  });
 });
 
 describe("formatAge", () => {

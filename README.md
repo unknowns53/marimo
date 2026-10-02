@@ -57,6 +57,8 @@ marimo の窓は、立ち絵、吹き出し、パネルの三つでできてい�
 
 marimo は、OpenAI の Codex CLI のセッションも記録して表示できます。情報源は Codex のフックで、Claude Code と同じ名前のイベントを受け取り、同じ規則で状態を決めます。Codex のセッションは Claude Code のセッションと同じパネルに並び、立ち絵の表情と吹き出しにも同じように反映されます。どちらのセッションかはパネルの行のアイコンで見分け（[パネルの見方](docs/usage.md#パネルの見方)を参照）、Codex の利用制限は Claude Code の利用制限と同じ行に並びます（[利用制限の行](docs/usage.md#利用制限の行)を参照）。Codex のフックから何を記録するかは、[Codex のフックから記録するもの](docs/development.md#codex-のフックから記録するもの)に書いています。
 
+ChatGPT のエージェントの Dots がクラウドから動かす会話は、フックで記録できないので、手で取り込んだ一覧を試験的にパネルへ並べられます。右クリックメニューの「パネル」にある「Cloud の会話を表示（手動観測）」で切り替え、既定では表示しません。行の名前には「Cloud・手動」が付きます。取り込んだ状態が有効なのは観測から 2 分間で、それを過ぎた行は「状態不明」として薄く残ります。自動での取得と、トークン使用量の表示には対応していません。取り込み方は [Cloud の手動観測](docs/development.md#cloud-の手動観測)に書いています。
+
 ### Hermes Agent への対応
 
 marimo は、Nous Research の Hermes Agent のセッションも記録して表示できます。情報源は Hermes のシェルフック（決まった出来事のたびに Hermes が呼び出す外部コマンド）で、`marimo-hook hermes-hook` が Hermes のイベントとツールを Claude Code のものに読み替え、同じ規則で状態を決めます。Discord などのチャットから使う gateway（Hermes をチャットにつないで常駐させる部分）のセッションは、行の名前にチャンネル名（DM では `DM`）が出て、行を押すと Discord のそのチャンネルが開きます。Hermes にはデスクトップアプリが無いので、パネルの印はいつも `HM` の文字です。Hermes のフックは `install` では登録しないので、[Hermes のフック](docs/development.md#hermes-のフック)の手順で登録します。何を記録するかは、[Hermes のフックから記録するもの](docs/development.md#hermes-のフックから記録するもの)に書いています。

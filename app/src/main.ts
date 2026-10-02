@@ -238,9 +238,11 @@ function redrawPanel(): void {
 // 行を押してセッションへ移動したら、そのきっかけを見たものとして扱う。完了の行は既読として薄くしてから畳み、
 // 同じきっかけの吹き出しも閉じる。承認待ちとエラーの行は、解決するまで残す。
 function selectSession(session: SessionState): void {
-  void invoke("focus_session", { provider: session.provider ?? "claude", sessionId: session.session_id }).catch(
-    (e) => console.error("focus", e),
-  );
+  if (!session.cloud) {
+    void invoke("focus_session", { provider: session.provider ?? "claude", sessionId: session.session_id }).catch(
+      (e) => console.error("focus", e),
+    );
+  }
   acknowledged.add(triggerKey(session));
   if (bubbleModel.view?.key === triggerKey(session)) bubbleModel.dismiss();
   refreshAcknowledged();
@@ -462,6 +464,11 @@ async function openMenu(): Promise<void> {
       ),
     )),
     await PredefinedMenuItem.new({ item: "Separator" }),
+    await CheckMenuItem.new({
+      text: "Cloud の会話を表示（手動観測）",
+      checked: panelDisplay.show_cloud_sessions,
+      action: () => setPanelDisplay({ ...panelDisplay, show_cloud_sessions: !panelDisplay.show_cloud_sessions }),
+    }),
     await MenuItem.new({ text: "背景の不透明度…", action: openOpacityPopover }),
   ];
   const menu = await Menu.new({

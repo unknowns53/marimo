@@ -8,7 +8,7 @@ use marimo_core::{MarimoHome, store};
 use notify::{Event, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter};
 
-use crate::tray;
+use crate::{scale, tray};
 
 pub const SNAPSHOT_EVENT: &str = "snapshot";
 
@@ -44,16 +44,37 @@ pub fn spawn(app: AppHandle, home: MarimoHome) {
             }
         }
 
-        while rx.recv().is_ok() {
-            let first = Instant::now();
-            loop {
-                match rx.recv_timeout(QUIET) {
-                    Ok(()) if first.elapsed() < MAX_DELAY => continue,
-                    Ok(()) | Err(RecvTimeoutError::Timeout) => break,
-                    Err(RecvTimeoutError::Disconnected) => return,
+        let mut previous = None;
+        loop {
+            // 手動観測の期限はファイルが変わらないまま切れるので、期限内の観測があればその時刻にも起きる。
+            let woke = match marimo_core::cloud::expires_at(&home, now_ms()) {
+                Some(at) => {
+                    match rx.recv_timeout(Duration::from_millis(at.saturating_sub(now_ms()))) {
+                        Ok(()) => true,
+                        Err(RecvTimeoutError::Timeout) => false,
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+                None => match rx.recv() {
+                    Ok(()) => true,
+                    Err(_) => return,
+                },
+            };
+            if woke {
+                let first = Instant::now();
+                loop {
+                    match rx.recv_timeout(QUIET) {
+                        Ok(()) if first.elapsed() < MAX_DELAY => continue,
+                        Ok(()) | Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
                 }
             }
-            let snapshot = store::load_snapshot(&home);
+            let snapshot = scale::snapshot(&home);
+            if previous.as_ref() == Some(&snapshot) {
+                continue;
+            }
+            previous = Some(snapshot.clone());
             tray::show_status(&app, snapshot.aggregate);
             let _ = app.emit(SNAPSHOT_EVENT, snapshot);
         }
@@ -79,7 +100,10 @@ fn is_relevant(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
-    if matches!(name, "rate_limits.json" | "codex_rate_limits.json") {
+    if matches!(
+        name,
+        "rate_limits.json" | "codex_rate_limits.json" | "cloud_snapshot.json" | "display.json"
+    ) {
         return true;
     }
     let in_sessions = path
@@ -98,6 +122,8 @@ mod tests {
         assert!(is_relevant(Path::new("/h/sessions/abc.json")));
         assert!(is_relevant(Path::new("/h/rate_limits.json")));
         assert!(is_relevant(Path::new("/h/codex_rate_limits.json")));
+        assert!(is_relevant(Path::new("/h/cloud_snapshot.json")));
+        assert!(is_relevant(Path::new("/h/display.json")));
         assert!(!is_relevant(Path::new("/h/sessions/.abc.json.1.2.tmp")));
         assert!(!is_relevant(Path::new("/h/window.json")));
         assert!(!is_relevant(Path::new("/h/logs/record.jsonl")));

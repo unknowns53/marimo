@@ -29,7 +29,7 @@ fn main() -> ExitCode {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let interactive = matches!(
         args.first().and_then(|a| a.to_str()),
-        Some("install" | "uninstall")
+        Some("install" | "uninstall" | "cloud-snapshot")
     );
     let on_panic = if interactive {
         ExitCode::FAILURE
@@ -56,6 +56,7 @@ fn run(args: &[OsString]) -> ExitCode {
             ExitCode::SUCCESS
         }
         "statusline" => statusline(rest),
+        "cloud-snapshot" => interactive(cloud_snapshot(rest)),
         "install" => interactive(install::run(install::Mode::Install, rest)),
         "uninstall" => interactive(install::run(install::Mode::Uninstall, rest)),
         "record" => {
@@ -68,6 +69,17 @@ fn run(args: &[OsString]) -> ExitCode {
             ExitCode::SUCCESS
         }
     }
+}
+
+fn cloud_snapshot(rest: &[OsString]) -> Result<(), String> {
+    let home = home()?;
+    if rest.first().and_then(|a| a.to_str()) == Some("--clear") && rest.len() == 1 {
+        return marimo_core::cloud::clear(&home).map_err(|e| e.to_string());
+    }
+    if !rest.is_empty() {
+        return Err("usage: cloud-snapshot [--clear]; read metadata JSON from stdin".into());
+    }
+    marimo_core::cloud::import(&home, &read_stdin(), now_ms())
 }
 
 fn interactive(result: Result<(), String>) -> ExitCode {
