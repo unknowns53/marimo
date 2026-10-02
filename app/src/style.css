@@ -480,10 +480,21 @@ body {
   background: var(--waiting);
 }
 
+/* 桁数でバーが動かないよう、いちばん広い 100% の幅を見えない行で確保して右に寄せる。 */
 .ctx-label {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
   font-size: 10px;
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
+}
+
+.ctx-label::before {
+  content: "100%";
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
 }
 
 /* 上限が分からずトークン数だけのときは、バーと見分けがつくよう枠で囲んだ数値にする。 */
