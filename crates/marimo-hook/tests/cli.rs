@@ -286,6 +286,8 @@ fn hermes_hook_tracks_a_discord_turn() {
     );
     assert!(s.get("cwd").is_none_or(Value::is_null), "{s}");
     assert!(s.get("origin").is_none_or(Value::is_null), "{s}");
+    // フックの親はこのテストのプロセスで、Hermes ではターンを動かしているプロセスにあたる。
+    assert_eq!(s["host"]["pid"], std::process::id(), "{s}");
 
     send(json!({
         "hook_event_name": "post_api_request",

@@ -2,7 +2,8 @@ use crate::state::ProcessRef;
 
 #[cfg(windows)]
 pub use imp::{
-    console_window, focus_app, focus_process, focus_window, lineage, open_folder_with, open_url,
+    console_window, describe_process, focus_app, focus_process, focus_window, lineage,
+    open_folder_with, open_url, parent_pid, process_exited,
 };
 
 const MAX_ANCESTORS: usize = 8;
@@ -47,7 +48,8 @@ mod imp {
     use std::ptr;
 
     use windows_sys::Win32::Foundation::{
-        CloseHandle, FILETIME, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM,
+        CloseHandle, ERROR_INVALID_PARAMETER, FILETIME, GetLastError, HANDLE, HWND,
+        INVALID_HANDLE_VALUE, LPARAM, STILL_ACTIVE,
     };
     use windows_sys::Win32::System::Console::{
         ATTACH_PARENT_PROCESS, AttachConsole, FreeConsole, GetConsoleWindow, GetStdHandle,
@@ -58,8 +60,8 @@ mod imp {
         TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::System::Threading::{
-        GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-        QueryFullProcessImageNameW,
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         ASFW_ANY, AllowSetForegroundWindow, EnumWindows, GA_ROOTOWNER, GW_OWNER, GWL_EXSTYLE,
@@ -69,7 +71,7 @@ mod imp {
     use windows_sys::core::BOOL;
 
     use super::walk_ancestors;
-    use crate::state::{ProcessRef, WindowRef};
+    use crate::state::{HostProcess, ProcessRef, WindowRef};
 
     struct Handle(HANDLE);
 
@@ -146,6 +148,36 @@ mod imp {
                 Some((created, image_path(&process).unwrap_or_default()))
             },
         )
+    }
+
+    pub fn parent_pid() -> Option<u32> {
+        parent_map().get(&std::process::id()).copied()
+    }
+
+    pub fn describe_process(pid: u32) -> Option<HostProcess> {
+        Some(HostProcess {
+            pid,
+            created: process_created(pid)?,
+        })
+    }
+
+    // 終わったプロセスも、誰かがハンドルを持っている間は開けて作成時刻も読めるので、終了コードも見る。
+    // 存在しない ID を開くと ERROR_INVALID_PARAMETER になる。権限が足りないなど、それ以外の失敗では
+    // 終わったと言い切れない。
+    pub fn process_exited(p: &HostProcess) -> bool {
+        let Some(process) = open_process(p.pid) else {
+            // SAFETY: 引数を取らず、直前の OpenProcess の失敗の理由を返すだけである。
+            return unsafe { GetLastError() } == ERROR_INVALID_PARAMETER;
+        };
+        match created_at(&process) {
+            Some(created) if created != p.created => return true,
+            Some(_) => {}
+            None => return false,
+        }
+        let mut code = 0u32;
+        // SAFETY: ハンドルは開いたままで、code はこの関数の間だけ有効な可変参照である。
+        let ok = unsafe { GetExitCodeProcess(process.0, &mut code) };
+        ok != 0 && code != STILL_ACTIVE as u32
     }
 
     fn window_pid(hwnd: HWND) -> Option<u32> {

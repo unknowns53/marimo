@@ -95,6 +95,15 @@ pub struct WindowRef {
     pub created: u64,
 }
 
+/// フックを起動したプロセス。プロセス ID は使い回されるので、作成時刻と組にして同じものかを確かめる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostProcess {
+    pub pid: u32,
+    /// 作成時刻。Windows では GetProcessTimes の FILETIME を 64 ビットの整数にしたもの、macOS では
+    /// proc_bsdinfo の開始時刻をマイクロ秒にしたもの。同じ機械の上で比べるだけなので、単位は揃えない。
+    pub created: u64,
+}
+
 /// Windows のプロセス。プロセス ID は使い回されるので、作成時刻と組にして同じものかを確かめる。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessRef {
@@ -284,6 +293,11 @@ pub struct SessionState {
     pub context: Option<ContextUsage>,
     #[serde(default)]
     pub origin: Option<Origin>,
+    /// ターンを動かしているプロセス。Hermes のセッションだけが持つ。Hermes は cron のセッションの終わりと、
+    /// 異常な終わり方をしたプロセスのセッションの終わりをフックで知らせないので、このプロセスが消えた
+    /// 作業中の行を待機へ戻すのに使う。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<HostProcess>,
     /// 親の会話だけで決まる状態。status、activity、status_reason は、これに動いているサブエージェントを
     /// 重ねて表示用に組み立てた値である。サブエージェントのフックは親と同じ session_id で届くので、
     /// 分けて持たないと親が終えた後もサブエージェントのイベントで作業中へ戻ってしまう。
@@ -332,6 +346,7 @@ impl SessionState {
             updated_at: 0,
             context: None,
             origin: None,
+            host: None,
             own_status: None,
             own_activity: None,
             own_status_reason: None,
