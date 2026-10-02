@@ -5,7 +5,10 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::thread;
 
 use marimo_core::time::now_ms;
-use marimo_core::{HookInput, MarimoHome, Provider, codex, hermes, process, store, transcript};
+use marimo_core::{
+    HookInput, HostProcess, MarimoHome, Provider, SessionState, codex, hermes, process, store,
+    transcript,
+};
 
 mod install;
 mod origin;
@@ -137,6 +140,8 @@ fn hook(provider: Provider) -> Result<(), String> {
         .as_deref()
         .filter(|_| provider == Provider::Codex)
         .map(std::path::Path::new);
+    let home = home()?;
+    let current = store::read_session(&home, provider, &parsed.session_id);
     // サブエージェントのフックで親の行を書くのは承認待ちの出入りだけなので、起動元の手がかりは
     // 親の会話のフックからだけ取る。
     let extras = store::HookExtras {
@@ -147,9 +152,19 @@ fn hook(provider: Provider) -> Result<(), String> {
         transcript,
         rollout,
         title,
+        host: host(&parsed.hook_event_name, current.as_ref()),
         ..store::HookExtras::default()
     };
-    store::apply_hook(&home()?, &parsed, &extras).map_err(|e| format!("write failed: {e}"))
+    store::apply_hook(&home, &parsed, &extras).map_err(|e| format!("write failed: {e}"))
+}
+
+// Windows で祖先をたどるには全プロセスの一覧を取るので、ターンの始まりと、まだ記録の無い行でだけ調べる。
+// --resume や、Hermes の再起動の後に再開したターンは、新しいプロセスで始まるのでここで置き換わる。
+fn host(event: &str, current: Option<&SessionState>) -> Option<HostProcess> {
+    let starts = matches!(event, "SessionStart" | "UserPromptSubmit");
+    (starts || current.is_none_or(|c| c.host.is_none()))
+        .then(process::host)
+        .flatten()
 }
 
 // Hermes の入力は Claude Code の入力に読み替えてから、同じ規則で状態を決める。Hermes は gateway の
@@ -173,16 +188,10 @@ fn hermes_hook() -> Result<(), String> {
                 .filter(|_| starts)
                 .map(|h| hermes::chat_meta(h, &parsed.session_id))
                 .unwrap_or_default();
-            // Hermes はフックをシェルを通さずに起動するので、親はターンを動かしている Hermes のプロセスである。
-            // Windows で親をたどるには全プロセスの一覧を取るので、ターンの始まりと、まだ記録の無い行でだけ調べる。
-            // 再起動の後に再開したターンは pre_llm_call から始まるので、新しいプロセスに置き換わる。
-            let host = (starts || current.as_ref().is_none_or(|c| c.host.is_none()))
-                .then(process::parent)
-                .flatten();
             let extras = store::HookExtras {
                 title: meta.title,
                 link: meta.link,
-                host,
+                host: host(&parsed.hook_event_name, current.as_ref()),
                 ..store::HookExtras::default()
             };
             store::apply_hook(&home, &parsed, &extras)
