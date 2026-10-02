@@ -367,7 +367,13 @@ fn observe_rate_limits(home: &MarimoHome, input: &Value, now: u64) -> io::Result
     if previous.is_none_or(|p| p.api_ms != api_ms) {
         let stale_before = now.saturating_sub(STALE_SESSION_AGE.as_millis() as u64);
         seen.retain(|_, r| r.seen_at >= stale_before);
-        seen.insert(id.to_owned(), LastResponse { api_ms, seen_at: now });
+        seen.insert(
+            id.to_owned(),
+            LastResponse {
+                api_ms,
+                seen_at: now,
+            },
+        );
         write_json_atomic(&path, &seen)?;
     }
     match limits {
