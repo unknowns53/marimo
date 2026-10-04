@@ -143,11 +143,12 @@ fn rate_limits(limits: Limits, observed_at: u64, now_ms: u64) -> Option<CodexRat
     })
 }
 
-/// rollout の先頭の session_meta から、Codex のデスクトップアプリが始めた会話かを判断する。
+/// rollout の先頭の session_meta から、会話を始めたクライアントの名前（originator）を読む。
 /// originator の値は Codex のドキュメントに無く、手元の rollout で、デスクトップアプリが "Codex Desktop" を、
-/// 端末の Codex CLI が "codex-tui" を書くことを確かめた。先頭の行は基本の指示を含んで 20 KB ほどになるので、
+/// 端末の Codex CLI が "codex-tui" を書くことを確かめた。app-server を通して始めた会話では、クライアントが
+/// initialize で名乗った clientInfo.name が入る。先頭の行は基本の指示を含んで 20 KB ほどになるので、
 /// 64 KB まで読んで行が終わらなければ諦める。
-pub fn started_by_desktop_app(path: &Path) -> bool {
+pub fn originator(path: &Path) -> Option<String> {
     #[derive(Deserialize)]
     struct Meta {
         #[serde(rename = "type")]
@@ -161,12 +162,22 @@ pub fn started_by_desktop_app(path: &Path) -> bool {
     const HEAD_LIMIT: u64 = 64 * 1024;
     let mut head = Vec::new();
     let read = File::open(path).and_then(|f| f.take(HEAD_LIMIT).read_to_end(&mut head));
-    let Some(end) = read.ok().and(head.iter().position(|b| *b == b'\n')) else {
-        return false;
-    };
-    serde_json::from_slice::<Meta>(&head[..end]).is_ok_and(|m| {
-        m.kind == "session_meta" && m.payload.originator.as_deref() == Some("Codex Desktop")
-    })
+    let end = read.ok().and(head.iter().position(|b| *b == b'\n'))?;
+    serde_json::from_slice::<Meta>(&head[..end])
+        .ok()
+        .filter(|m| m.kind == "session_meta")
+        .and_then(|m| m.payload.originator)
+}
+
+pub fn started_by_desktop_app(originator: &str) -> bool {
+    originator == "Codex Desktop"
+}
+
+/// Claude Code から作業を任された会話かを判断する。codex-async-bridge は Claude Code の MCP サーバーから
+/// 会話を始める codex-async の名乗り、"Claude Code" は Claude Code 向けの Codex プラグイン
+/// （openai-codex の codex プラグイン）が clientInfo の既定に持つ名前。
+pub fn delegated_by_claude(originator: &str) -> bool {
+    matches!(originator, "codex-async-bridge" | "Claude Code")
 }
 
 /// `$CODEX_HOME/session_index.jsonl` の末尾から、この会話の最後の thread_name を探す。
@@ -311,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn started_by_desktop_app_reads_the_session_meta_originator() {
+    fn originator_reads_the_session_meta() {
         let meta = |originator: &str, instructions: usize| {
             json!({"timestamp": "2026-09-20T01:00:00.000Z", "type": "session_meta",
                    "payload": {"id": "t1", "originator": originator, "cli_version": "0.130.0",
@@ -322,14 +333,17 @@ mod tests {
                            "payload": {"type": "user_message", "originator": "Codex Desktop"}})
         .to_string();
         let cases = [
-            (vec![meta("Codex Desktop", 20_000)], true),
-            (vec![meta("codex-tui", 20_000)], false),
-            (vec![meta("Codex Desktop", 70_000)], false),
-            (vec![event, meta("Codex Desktop", 10)], false),
+            (vec![meta("Codex Desktop", 20_000)], Some("Codex Desktop")),
+            (
+                vec![meta("codex-async-bridge", 20_000)],
+                Some("codex-async-bridge"),
+            ),
+            (vec![meta("Codex Desktop", 70_000)], None),
+            (vec![event, meta("Codex Desktop", 10)], None),
         ];
         for (i, (lines, want)) in cases.iter().enumerate() {
             assert_eq!(
-                started_by_desktop_app(write(lines).path()),
+                originator(write(lines).path()).as_deref(),
                 *want,
                 "case {i}"
             );

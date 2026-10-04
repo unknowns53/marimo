@@ -135,11 +135,11 @@ fn hook(provider: Provider) -> Result<(), String> {
     let title = codex::codex_home()
         .filter(|_| parsed.wants_codex_title())
         .and_then(|home| codex::thread_name(&home, &parsed.session_id));
-    let codex_rollout = parsed
+    let originator = parsed
         .transcript_path
         .as_deref()
         .filter(|_| provider == Provider::Codex)
-        .map(std::path::Path::new);
+        .and_then(|p| codex::originator(std::path::Path::new(p)));
     let home = home()?;
     let current = store::read_session(&home, provider, &parsed.session_id);
     // サブエージェントのフックで親の行を書くのは承認待ちの出入りだけなので、起動元の手がかりは
@@ -148,11 +148,14 @@ fn hook(provider: Provider) -> Result<(), String> {
         origin: parsed
             .subagent()
             .is_none()
-            .then(|| origin::detect(&parsed.hook_event_name, codex_rollout)),
+            .then(|| origin::detect(&parsed.hook_event_name, originator.as_deref())),
         transcript,
         rollout,
         title,
         host: host(&parsed.hook_event_name, current.as_ref()),
+        hidden: originator
+            .as_deref()
+            .is_some_and(codex::delegated_by_claude),
         ..store::HookExtras::default()
     };
     store::apply_hook(&home, &parsed, &extras).map_err(|e| format!("write failed: {e}"))

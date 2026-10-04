@@ -1,5 +1,4 @@
 use std::env;
-use std::path::Path;
 
 use marimo_core::Origin;
 
@@ -7,7 +6,7 @@ use marimo_core::Origin;
 // OS と端末が設定するものだけを使う。Terminal.app では TERM_PROGRAM=Apple_Terminal と
 // __CFBundleIdentifier=com.apple.Terminal、デスクトップアプリの Code タブでは
 // __CFBundleIdentifier=com.anthropic.claudefordesktop が、フックの環境に入ることを確かめてある。
-pub fn detect(event: &str, codex_rollout: Option<&Path>) -> Origin {
+pub fn detect(event: &str, codex_originator: Option<&str>) -> Origin {
     let mut origin = Origin {
         bundle_id: var("__CFBundleIdentifier"),
         term_program: var("TERM_PROGRAM"),
@@ -15,7 +14,7 @@ pub fn detect(event: &str, codex_rollout: Option<&Path>) -> Origin {
         ..Origin::default()
     };
     if origin.bundle_id.is_none() && may_have_moved(event) {
-        origin.bundle_id = app_bundle_clue(codex_rollout);
+        origin.bundle_id = app_bundle_clue(codex_originator);
     }
     windows_clues(&mut origin, event);
     origin
@@ -97,17 +96,17 @@ fn ancestor_tty() -> Option<String> {
 // Info.plist から bundle id を読む。アプリの外にある常駐のプロセスから動く会話は祖先にアプリを
 // 持たないので、Codex のフックでは rollout の originator も見る。
 #[cfg(target_os = "macos")]
-fn app_bundle_clue(codex_rollout: Option<&Path>) -> Option<String> {
+fn app_bundle_clue(codex_originator: Option<&str>) -> Option<String> {
     const CODEX_DESKTOP: &str = "com.openai.codex";
     ancestor_bundle_id().or_else(|| {
-        codex_rollout
-            .filter(|p| marimo_core::codex::started_by_desktop_app(p))
+        codex_originator
+            .filter(|o| marimo_core::codex::started_by_desktop_app(o))
             .map(|_| CODEX_DESKTOP.to_owned())
     })
 }
 
 #[cfg(not(target_os = "macos"))]
-fn app_bundle_clue(_: Option<&Path>) -> Option<String> {
+fn app_bundle_clue(_: Option<&str>) -> Option<String> {
     None
 }
 
@@ -118,7 +117,7 @@ fn ancestor_bundle_id() -> Option<String> {
     ancestors().find_map(|info| {
         let exe = pid_path(info.pbi_pid as libc::c_int)?;
         let app = outermost_app(&exe)?;
-        let plist = std::fs::read(Path::new(app).join("Contents/Info.plist")).ok()?;
+        let plist = std::fs::read(std::path::Path::new(app).join("Contents/Info.plist")).ok()?;
         foreground_bundle_id(std::str::from_utf8(&plist).ok()?).map(str::to_owned)
     })
 }

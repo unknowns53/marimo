@@ -186,6 +186,9 @@ pub struct HookExtras {
     pub link: Option<String>,
     /// フックを起動したプロセス。
     pub host: Option<HostProcess>,
+    /// 行を作らない会話。Claude Code から作業を任された Codex の会話は、任せた側の Claude Code の行が
+    /// すでに作業中を示しているので、別の行として並べない。rollout ができる前に作った行は、ここで消す。
+    pub hidden: bool,
 }
 
 pub fn apply_hook(home: &MarimoHome, input: &HookInput, extras: &HookExtras) -> io::Result<()> {
@@ -210,7 +213,12 @@ fn apply_session(
 ) -> io::Result<()> {
     let _lock = lock_home(home);
     let current = read_session(home, input.provider, &input.session_id);
-    match transition(input, current.as_ref(), now_ms()) {
+    let transition = if extras.hidden {
+        Transition::Delete
+    } else {
+        transition(input, current.as_ref(), now_ms())
+    };
+    match transition {
         Transition::Write(mut next) => {
             let usage = extras.transcript.as_ref().and_then(|t| t.usage.as_ref());
             let entrypoint = usage.and_then(|u| u.entrypoint.as_deref());
@@ -1019,6 +1027,31 @@ mod tests {
         );
         assert!(read_session(&home, Provider::Codex, "s1").is_none());
         assert!(read_session(&home, Provider::Claude, "s1").is_some());
+    }
+
+    #[test]
+    fn hidden_sessions_drop_their_row_but_keep_rate_limits() {
+        let (_d, home) = home();
+        let mut input: HookInput = serde_json::from_value(
+            json!({"session_id":"s1","hook_event_name":"SessionStart","cwd":"/w"}),
+        )
+        .unwrap();
+        input.provider = Provider::Codex;
+        apply_hook(&home, &input, &HookExtras::default()).unwrap();
+        assert!(read_session(&home, Provider::Codex, "s1").is_some());
+
+        input.hook_event_name = "PostToolUse".to_owned();
+        let extras = HookExtras {
+            rollout: Some(RolloutTail {
+                usage: None,
+                rate_limits: Some(codex_limits(10, 5.0)),
+            }),
+            hidden: true,
+            ..HookExtras::default()
+        };
+        apply_hook(&home, &input, &extras).unwrap();
+        assert!(read_session(&home, Provider::Codex, "s1").is_none());
+        assert_eq!(read_codex_rate_limits(&home), Some(codex_limits(10, 5.0)));
     }
 
     #[test]
