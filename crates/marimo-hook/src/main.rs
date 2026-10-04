@@ -153,9 +153,10 @@ fn hook(provider: Provider) -> Result<(), String> {
         rollout,
         title,
         host: host(&parsed.hook_event_name, current.as_ref()),
+        // originator を読めない会話は、手で始めたものでありうるので隠さない。
         hidden: originator
             .as_deref()
-            .is_some_and(codex::delegated_by_claude),
+            .is_some_and(|o| !codex::started_by_hand(o)),
         ..store::HookExtras::default()
     };
     store::apply_hook(&home, &parsed, &extras).map_err(|e| format!("write failed: {e}"))

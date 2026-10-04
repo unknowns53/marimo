@@ -186,8 +186,9 @@ pub struct HookExtras {
     pub link: Option<String>,
     /// フックを起動したプロセス。
     pub host: Option<HostProcess>,
-    /// 行を作らない会話。Claude Code から作業を任された Codex の会話は、任せた側の Claude Code の行が
-    /// すでに作業中を示しているので、別の行として並べない。rollout ができる前に作った行は、ここで消す。
+    /// 行を作らない会話。プログラムから始めた Codex の会話は、利用者が見守る相手ではなく、Claude Code から
+    /// 任されたものなら任せた側の行がすでに作業中を示しているので、並べない。rollout ができる前に作った行は、
+    /// ここで消す。
     pub hidden: bool,
 }
 

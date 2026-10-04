@@ -144,8 +144,7 @@ fn rate_limits(limits: Limits, observed_at: u64, now_ms: u64) -> Option<CodexRat
 }
 
 /// rollout の先頭の session_meta から、会話を始めたクライアントの名前（originator）を読む。
-/// originator の値は Codex のドキュメントに無く、手元の rollout で、デスクトップアプリが "Codex Desktop" を、
-/// 端末の Codex CLI が "codex-tui" を書くことを確かめた。app-server を通して始めた会話では、クライアントが
+/// originator の値は Codex のドキュメントに無く、app-server を通して始めた会話では、クライアントが
 /// initialize で名乗った clientInfo.name が入る。先頭の行は基本の指示を含んで 20 KB ほどになるので、
 /// 64 KB まで読んで行が終わらなければ諦める。
 pub fn originator(path: &Path) -> Option<String> {
@@ -173,11 +172,13 @@ pub fn started_by_desktop_app(originator: &str) -> bool {
     originator == "Codex Desktop"
 }
 
-/// Claude Code から作業を任された会話かを判断する。codex-async-bridge は Claude Code の MCP サーバーから
-/// 会話を始める codex-async の名乗り、"Claude Code" は Claude Code 向けの Codex プラグイン
-/// （openai-codex の codex プラグイン）が clientInfo の既定に持つ名前。
-pub fn delegated_by_claude(originator: &str) -> bool {
-    matches!(originator, "codex-async-bridge" | "Claude Code")
+/// 利用者が自分で開いたクライアントから始めた会話かを判断する。macOS と Windows の手元の rollout で、
+/// デスクトップアプリが "Codex Desktop" を、端末の Codex CLI が "codex-tui" を、VS Code の拡張機能が
+/// "codex_vscode" を書くことを確かめた。`codex exec`（"codex_exec"）や、Claude Code から作業を任された
+/// codex-async（"codex-async-bridge"）と Codex プラグイン（"Claude Code"）のように、プログラムから始めた
+/// 会話はここに入らない。
+pub fn started_by_hand(originator: &str) -> bool {
+    matches!(originator, "Codex Desktop" | "codex-tui" | "codex_vscode")
 }
 
 /// `$CODEX_HOME/session_index.jsonl` の末尾から、この会話の最後の thread_name を探す。
