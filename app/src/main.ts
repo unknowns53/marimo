@@ -228,21 +228,25 @@ function collectHitRegions(): HitRegions {
 function redrawPanel(): void {
   const view = panelView(shown, acknowledged, panelDisplay.panel_style, panelDisplay.row_order, Date.now());
   const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null };
-  renderPanel(panelElements, view, limits, appIcons, Date.now(), selectSession);
+  renderPanel(panelElements, view, limits, appIcons, Date.now(), { select: selectSession, markRead });
   placeBubble();
   opacityPopover.place();
   expansion.evaluate();
   hits.schedule();
 }
 
-// 行を押してセッションへ移動したら、そのきっかけを見たものとして扱う。完了の行は既読として薄くしてから畳み、
-// 同じきっかけの吹き出しも閉じる。承認待ちとエラーの行は、解決するまで残す。
 function selectSession(session: SessionState): void {
   if (!session.cloud) {
     void invoke("focus_session", { provider: session.provider ?? "claude", sessionId: session.session_id }).catch(
       (e) => console.error("focus", e),
     );
   }
+  markRead(session);
+}
+
+// 行のきっかけを見たものとして扱う。完了の行は既読として薄くしてから畳み、同じきっかけの吹き出しも閉じる。
+// 承認待ちとエラーの行は、解決するまで残す。
+function markRead(session: SessionState): void {
   acknowledged.add(triggerKey(session));
   if (bubbleModel.view?.key === triggerKey(session)) bubbleModel.dismiss();
   refreshAcknowledged();

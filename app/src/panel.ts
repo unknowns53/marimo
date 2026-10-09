@@ -36,6 +36,20 @@ const PROVIDER_BADGE: Record<Provider, string> = {
   hermes: "HM",
 };
 
+/** 行を押したときの操作。markRead は移動せずに、そのきっかけを見たものとして扱う。 */
+export interface RowActions {
+  select: (session: SessionState) => void;
+  markRead: (session: SessionState) => void;
+}
+
+// 移動せずに既読にする修飾キー。macOS の Option と、それ以外の Alt は同じ altKey で届く。
+const READ_KEY = navigator.userAgent.includes("Mac") ? "Option" : "Alt";
+
+function press(e: MouseEvent, session: SessionState, actions: RowActions): void {
+  if (e.altKey) actions.markRead(session);
+  else actions.select(session);
+}
+
 export interface PanelLimits {
   claude: RateLimits | null;
   codex: CodexRateLimits | null;
@@ -55,14 +69,14 @@ export function renderPanel(
   rateLimits: PanelLimits,
   icons: AppIcons,
   now: number,
-  onSelect: (session: SessionState) => void,
+  actions: RowActions,
 ): void {
   const line = limitLine(rateLimits.claude, rateLimits.codex, now);
   if (line) renderLimits(limits, line, icons);
   let children: HTMLElement[];
   if (!hasContent(view)) children = [el("div", "empty", EMPTY_LIST_TEXT)];
-  else if (view.style === "counts") children = [renderCounts(view, icons, now, onSelect)];
-  else children = detailChildren(view.plan, icons, now, onSelect);
+  else if (view.style === "counts") children = [renderCounts(view, icons, now, actions)];
+  else children = detailChildren(view.plan, icons, now, actions);
   const kept = keepScroll(rows);
   rows.replaceChildren(...children);
   // 件数の行の層は #rows の外へ伸びるので、件数だけの表示では #rows をスクロールの枠にしない。
@@ -134,9 +148,9 @@ function detailChildren(
   plan: PanelPlan,
   icons: AppIcons,
   now: number,
-  onSelect: (session: SessionState) => void,
+  actions: RowActions,
 ): HTMLElement[] {
-  return plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, now, onSelect));
+  return plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, now, actions));
 }
 
 // 件数だけの表示は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
@@ -145,7 +159,7 @@ function renderCounts(
   view: PanelView,
   icons: AppIcons,
   now: number,
-  onSelect: (session: SessionState) => void,
+  actions: RowActions,
 ): HTMLElement {
   const line = () => {
     const node = el("div", "counts-line");
@@ -162,14 +176,14 @@ function renderCounts(
   const layer = el("div", "counts-detail hover-layer");
   // 件数の行まで一緒に流れないよう、スクロールの枠はその上の行だけにする。
   const list = el("div", "layer-rows row-scroll");
-  list.append(...detailChildren(view.plan, icons, now, onSelect));
+  list.append(...detailChildren(view.plan, icons, now, actions));
   layer.append(list, line());
   wrap.append(line(), layer);
   const target = view.target;
   if (target) {
     wrap.classList.add("clickable");
     wrap.addEventListener("click", (e) => {
-      if (!onScrollbar(e)) onSelect(target);
+      if (!onScrollbar(e)) press(e, target, actions);
     });
   }
   return wrap;
@@ -179,12 +193,13 @@ function renderCounts(
 // 1 回で移動できないことがある。要約の全文とコマンドは title のツールチップで読める。
 // どのツールのセッションかの印は、2 段目の左の空いている場所に状態の点と縦に並べ、行の高さを変えない。
 // 最後にフックが届いてからの時間は、2 段目の右のコンテキスト使用率の下に置く。
+// まだ見ていない完了の行は、マウスを載せている間だけ時間の場所に既読にするボタンを出し、アプリを開かずに畳めるようにする。
 function renderRow(
   s: SessionState,
   read: boolean,
   icons: AppIcons,
   now: number,
-  onSelect: (session: SessionState) => void,
+  actions: RowActions,
 ): HTMLElement {
   const row = el("div", read ? "row read" : s.cloud?.expired ? "row stale" : "row");
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
@@ -193,7 +208,7 @@ function renderRow(
   row.title = [place, summary, detail].filter(Boolean).join("\n\n");
   row.addEventListener("click", (e) => {
     e.stopPropagation();
-    onSelect(s);
+    press(e, s, actions);
   });
 
   const names = el("span", "names");
@@ -207,7 +222,23 @@ function renderRow(
     el("div", "row-summary", summary),
     renderAge(s.updated_at, now),
   );
+  if (s.status === "done" && !read) {
+    row.classList.add("markable");
+    row.append(markReadButton(s, actions));
+  }
   return row;
+}
+
+function markReadButton(s: SessionState, actions: RowActions): HTMLElement {
+  const button = el("button", "row-read", "✓");
+  button.type = "button";
+  button.title = `既読にする（アプリは開きません。${READ_KEY} を押しながら行を押しても同じです）`;
+  button.setAttribute("aria-label", "既読にする");
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    actions.markRead(s);
+  });
+  return button;
 }
 
 function renderAge(updatedAt: number, now: number): HTMLElement {
