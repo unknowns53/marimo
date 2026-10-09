@@ -20,6 +20,7 @@ import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterIn
 import { OpacityPopover } from "./opacityPopover";
 import { onScrollbar, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
+import { RowHover } from "./rowHover";
 import {
   DEFAULT_PANEL_DISPLAY,
   PANEL_STYLES,
@@ -76,6 +77,7 @@ const expansion = new PanelExpansion(
   () => hits.flush(),
   () => hits.schedule(),
 );
+const rowHover = new RowHover(panelElements.panel);
 const opacityNode = $("opacity-popover");
 const opacityPopover = new OpacityPopover(opacityNode, {
   anchor: () =>
@@ -232,6 +234,7 @@ function redrawPanel(): void {
   placeBubble();
   opacityPopover.place();
   expansion.evaluate();
+  rowHover.apply();
   hits.schedule();
 }
 
@@ -591,7 +594,10 @@ async function start(): Promise<void> {
   // マウスが立ち絵の上にあるかは Rust 側がクリックを通す判定のついでに調べて知らせる。透明な部分では
   // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
   await listen<boolean>("portrait-hover", (e) => renderer?.setHover(e.payload));
-  await listen<{ x: number; y: number } | null>("window-cursor", (e) => expansion.setCursor(e.payload));
+  await listen<{ x: number; y: number } | null>("window-cursor", (e) => {
+    expansion.setCursor(e.payload);
+    rowHover.setCursor(e.payload);
+  });
   // 最初のスナップショットより先に戻さないと、既読の完了の吹き出しが一度出てしまう。
   acknowledged.restore(
     await invoke<string[]>("get_acknowledged").catch((e) => {

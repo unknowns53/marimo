@@ -332,7 +332,8 @@ body {
 }
 
 /* 既読にするボタンはマウスを載せている間だけ時間の上に重ねて出す。グリッドの升に入れると、時間より広い分だけ
-   パネルの幅が変わり、ほかの行まで横にずれるので、行の右下に重ねて置き、幅の計算に加えない。 */
+   パネルの幅が変わり、ほかの行まで横にずれるので、行の右下に重ねて置き、幅の計算に加えない。
+   前面に無い窓には :hover が付かないので、マウスが載っていることは rowHover.ts が付ける hover の印で見る。 */
 .row-read {
   display: none;
   position: absolute;
@@ -349,15 +350,15 @@ body {
   cursor: pointer;
 }
 
-.row-read:hover {
+.row-read.hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
-.row.markable:hover .row-read {
+.row.markable.hover .row-read {
   display: block;
 }
 
-.row.markable:hover .row-age {
+.row.markable.hover .row-age {
   visibility: hidden;
 }
 
