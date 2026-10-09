@@ -331,6 +331,36 @@ body {
   opacity: 0.5;
 }
 
+/* 既読にするボタンはマウスを載せている間だけ時間の上に重ねて出す。グリッドの升に入れると、時間より広い分だけ
+   パネルの幅が変わり、ほかの行まで横にずれるので、行の右下に重ねて置き、幅の計算に加えない。 */
+.row-read {
+  display: none;
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--panel-fg);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.row-read:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.row.markable:hover .row-read {
+  display: block;
+}
+
+.row.markable:hover .row-age {
+  visibility: hidden;
+}
+
 .provider {
   display: block;
   flex: none;
