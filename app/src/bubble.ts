@@ -1,9 +1,9 @@
 export class Bubble {
   constructor(
     private readonly node: HTMLElement,
-    onDismiss: () => void,
+    onClick: (e: MouseEvent) => void,
   ) {
-    node.addEventListener("click", onDismiss);
+    node.addEventListener("click", onClick);
   }
 
   show(text: string): void {

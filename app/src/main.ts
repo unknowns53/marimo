@@ -63,11 +63,18 @@ const acknowledged = new Acknowledged((keys) =>
 );
 let bubbleSettings: BubbleSettings = DEFAULT_BUBBLE_SETTINGS;
 const bubbleModel = new BubbleModel(acknowledged, undefined, (status) => bubbleEnabled(bubbleSettings, status));
-// 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も既読として薄くしてから畳む。
-// 完了の吹き出しを閉じるのは知らせを受け取ったという意思表示だからである。
+// 知らせの吹き出しは、押すとその行を押したのと同じ操作になる。移動せずに閉じたいときは行と同じ修飾キーを使う。
+// 立ち絵を押したときのひとことにはセッションが無いので、押しても閉じるだけである。
 const speech = new Speech();
-const bubble = new Bubble(bubbleNode, () => {
-  if (bubbleModel.view) bubbleModel.dismiss();
+const bubble = new Bubble(bubbleNode, (e) => {
+  const view = bubbleModel.view;
+  const session = view ? shown?.sessions.find((s) => triggerKey(s) === view.key) : undefined;
+  if (session && !e.altKey) {
+    selectSession(session);
+    speech.clearReaction();
+    return;
+  }
+  if (view) bubbleModel.dismiss();
   speech.clearReaction();
   refreshAcknowledged();
 });
