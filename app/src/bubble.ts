@@ -6,9 +6,9 @@ export class Bubble {
     node.addEventListener("click", onClick);
   }
 
-  show(text: string): void {
+  show(text: string, title: string): void {
     renderPhrases(this.node, text);
-    this.node.title = "押すと閉じます";
+    this.node.title = title;
     fitToLines(this.node);
     this.node.classList.add("show");
   }

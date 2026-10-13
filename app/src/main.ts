@@ -18,7 +18,7 @@ import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./h
 import { union } from "./expander";
 import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
 import { OpacityPopover } from "./opacityPopover";
-import { onScrollbar, renderPanel } from "./panel";
+import { onScrollbar, READ_KEY, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
 import { RowHover } from "./rowHover";
 import {
@@ -166,7 +166,11 @@ function showSpeech(): void {
   const visible = panelDisplay.show_character;
   const text = visible ? speech.current(bubbleModel.view, performance.now()) : null;
   scheduleExpiry(visible ? bubbleModel.view : null);
-  if (text) bubble.show(text);
+  if (text)
+    bubble.show(
+      text,
+      bubbleModel.view ? `押すとセッションへ移動します（${READ_KEY} を押しながら押すと閉じます）` : "押すと閉じます",
+    );
   else bubble.hide();
   placeBubble();
   hits.schedule();

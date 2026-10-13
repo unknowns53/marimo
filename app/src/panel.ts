@@ -43,7 +43,7 @@ export interface RowActions {
 }
 
 // 移動せずに既読にする修飾キー。macOS の Option と、それ以外の Alt は同じ altKey で届く。
-const READ_KEY = navigator.userAgent.includes("Mac") ? "Option" : "Alt";
+export const READ_KEY = navigator.userAgent.includes("Mac") ? "Option" : "Alt";
 
 function press(e: MouseEvent, session: SessionState, actions: RowActions): void {
   if (e.altKey) actions.markRead(session);
