@@ -14,12 +14,16 @@ use crate::scale::{self, PanelDisplay, PanelStyle};
 /// 続けて選んだ反転が同じ保存値から作られて一回分になるからである。
 const PANEL_DISPLAY_EVENT: &str = "tray-panel-display";
 
+/// 既読の集合はフロントエンドが持つので、トレイの「完了をすべて既読にする」は押されたことだけを送る。
+const MARK_ALL_READ_EVENT: &str = "tray-mark-all-read";
+
 // 右クリックメニューの項目もこのアイコンの on_menu_event に届くので、自動で振られる ID と重ならない
 // 接頭辞を付けて見分ける。
 const TOGGLE: &str = "tray:toggle";
 const SHOW_CHARACTER: &str = "tray:show-character";
 const STYLE_DETAIL: &str = "tray:style-detail";
 const STYLE_COUNTS: &str = "tray:style-counts";
+const MARK_ALL_READ: &str = "tray:mark-all-read";
 const QUIT: &str = "tray:quit";
 
 pub struct Tray {
@@ -29,6 +33,7 @@ pub struct Tray {
     show_character: CheckMenuItem<Wry>,
     detail: CheckMenuItem<Wry>,
     counts: CheckMenuItem<Wry>,
+    mark_all_read: MenuItem<Wry>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +64,12 @@ impl Tray {
                 .set_checked(display.panel_style == PanelStyle::Counts),
         ];
         if let Some(Err(e)) = results.into_iter().find(Result::is_err) {
+            eprintln!("marimo: cannot update the tray menu: {e}");
+        }
+    }
+
+    pub fn set_unread_done(&self, any: bool) {
+        if let Err(e) = self.mark_all_read.set_enabled(any) {
             eprintln!("marimo: cannot update the tray menu: {e}");
         }
     }
@@ -141,6 +152,13 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         display.panel_style == PanelStyle::Counts,
         None::<&str>,
     )?;
+    let mark_all_read = MenuItem::with_id(
+        app,
+        MARK_ALL_READ,
+        "完了をすべて既読にする",
+        false,
+        None::<&str>,
+    )?;
     let menu = Menu::with_items(
         app,
         &[
@@ -149,6 +167,8 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
             &show_character,
             &detail,
             &counts,
+            &PredefinedMenuItem::separator(app)?,
+            &mark_all_read,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, QUIT, "終了", true, None::<&str>)?,
         ],
@@ -179,6 +199,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         show_character,
         detail,
         counts,
+        mark_all_read,
     })
 }
 
@@ -203,6 +224,11 @@ fn chosen_display(id: &str, current: PanelDisplay) -> Option<PanelDisplay> {
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
         TOGGLE => toggle(app),
+        MARK_ALL_READ => {
+            if let Err(e) = app.emit(MARK_ALL_READ_EVENT, ()) {
+                eprintln!("marimo: cannot send the tray choice: {e}");
+            }
+        }
         QUIT => app.exit(0),
         id => {
             let Some(state) = app.try_state::<AppState>() else {

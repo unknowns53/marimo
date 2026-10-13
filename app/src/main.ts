@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
-import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
+import { Acknowledged, triggerKey, unreadDone, withAcknowledged } from "./acknowledged";
 import { BubbleModel, type BubbleView } from "./bubbleModel";
 import {
   BUBBLE_SECONDS_CHOICES,
@@ -125,6 +125,7 @@ async function applySnapshot(next: Snapshot): Promise<void> {
   snapshot = next;
   acknowledged.prune(next);
   shown = withAcknowledged(next, acknowledged);
+  syncUnreadDone();
   renderer?.update(rendererInput(shown));
   // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
   if (bubbleModel.needsText(shown)) await reloadDialogue();
@@ -137,6 +138,7 @@ async function applySnapshot(next: Snapshot): Promise<void> {
 function refreshAcknowledged(): void {
   if (snapshot) {
     shown = withAcknowledged(snapshot, acknowledged);
+    syncUnreadDone();
     renderer?.update(rendererInput(shown));
     bubbleModel.update(shown, dialogue);
   }
@@ -259,6 +261,24 @@ function selectSession(session: SessionState): void {
 function markRead(session: SessionState): void {
   acknowledged.add(triggerKey(session));
   if (bubbleModel.view?.key === triggerKey(session)) bubbleModel.dismiss();
+  refreshAcknowledged();
+}
+
+// 未読の完了の有無は、トレイのメニューの項目を使えるかどうかに要る。変わったときだけ Rust に知らせる。
+let unreadDoneKnown: boolean | undefined;
+
+function syncUnreadDone(): void {
+  const any = unreadDone(snapshot, acknowledged).length > 0;
+  if (any === unreadDoneKnown) return;
+  unreadDoneKnown = any;
+  void invoke("set_unread_done", { any }).catch((e) => console.error("unread done", e));
+}
+
+// 承認待ちとエラーは、解決するまで残す行なので対象にしない。
+function markAllDoneRead(): void {
+  const unread = unreadDone(snapshot, acknowledged);
+  for (const s of unread) acknowledged.add(triggerKey(s));
+  if (bubbleModel.view && unread.some((s) => triggerKey(s) === bubbleModel.view?.key)) bubbleModel.dismiss();
   refreshAcknowledged();
 }
 
@@ -514,6 +534,12 @@ async function openMenu(): Promise<void> {
         action: () => void (autostart ? disable() : enable()).catch((e) => console.error("autostart", e)),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
+      await MenuItem.new({
+        text: "完了をすべて既読にする",
+        enabled: unreadDone(snapshot, acknowledged).length > 0,
+        action: markAllDoneRead,
+      }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({ text: "終了", action: () => void invoke("quit") }),
     ],
   });
@@ -575,6 +601,7 @@ async function start(): Promise<void> {
     trayChose = true;
     applyPanelDisplay(e.payload);
   });
+  await listen("tray-mark-all-read", markAllDoneRead);
   const savedDisplay = await loadPanelDisplay();
   if (!trayChose) panelDisplay = savedDisplay;
   bubbleSettings = await invoke<BubbleSettings>("get_bubble_settings").catch((e) => {

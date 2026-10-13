@@ -63,6 +63,11 @@ export class Acknowledged {
   }
 }
 
+// まだ既読にしていない完了のセッション。
+export function unreadDone(snapshot: Snapshot | null, ack: Acknowledged): SessionState[] {
+  return (snapshot?.sessions ?? []).filter((s) => s.status === "done" && !ack.has(s));
+}
+
 /**
  * 見たと示された完了を待機とみなして集約し直したスナップショットを返す。フックは利用者が
  * 結果を読んだかどうかを知らないので、Rust 側の集約のままだと、読み終えた後も表情が完了の

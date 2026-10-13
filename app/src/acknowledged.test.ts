@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
+import { Acknowledged, triggerKey, unreadDone, withAcknowledged } from "./acknowledged";
 import { session, snap } from "./testFixtures";
 
 describe("withAcknowledged", () => {
@@ -44,5 +44,16 @@ describe("Acknowledged persistence", () => {
     expect(saved).toEqual([[triggerKey(a)]]);
     ack.prune(snap(a));
     expect(saved).toHaveLength(1);
+  });
+});
+
+describe("unreadDone", () => {
+  it("lists only done sessions that are not acknowledged", () => {
+    const read = session("a", "done", 10);
+    const s = snap(read, session("b", "done", 20), session("c", "waiting", 30), session("d", "error", 40));
+    const ack = new Acknowledged();
+    ack.add(triggerKey(read));
+    expect(unreadDone(s, ack).map((x) => x.session_id)).toEqual(["b"]);
+    expect(unreadDone(null, ack)).toEqual([]);
   });
 });

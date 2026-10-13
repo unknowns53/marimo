@@ -150,6 +150,13 @@ fn set_hit_regions(state: State<'_, AppState>, regions: hit::HitRegions) {
 }
 
 #[tauri::command]
+fn set_unread_done(state: State<'_, AppState>, any: bool) {
+    if let Some(tray) = state.tray.get() {
+        tray.set_unread_done(any);
+    }
+}
+
+#[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
 }
@@ -225,6 +232,7 @@ fn main() {
             set_stage_aspect,
             get_acknowledged,
             set_acknowledged,
+            set_unread_done,
             focus_session,
             app_icons,
             set_hit_regions,
