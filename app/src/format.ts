@@ -1,4 +1,4 @@
-import type { SessionState } from "./types";
+import type { SessionState, Status } from "./types";
 
 type Named = Pick<SessionState, "cwd" | "session_id" | "repo" | "title" | "provider" | "cloud">;
 
@@ -20,6 +20,20 @@ function isChatSession(session: Pick<SessionState, "cwd" | "provider">): boolean
 // 題名が行の名前の役をしているセッション。パネルは同じ題名を名前の横に重ねて出さない。
 export function titleIsName(session: Pick<SessionState, "cwd" | "provider" | "cloud">): boolean {
   return !!session.cloud || isCodexScratch(session) || isChatSession(session);
+}
+
+/** 件数の行やトレイのメニューで、状態を示す語。 */
+export const STATUS_LABEL: Record<Status, string> = {
+  idle: "待機",
+  working: "作業中",
+  waiting: "承認待ち",
+  done: "完了",
+  error: "エラー",
+};
+
+// 名前の横に添える会話の題名。repo が名前のときは題名が名前の役をしていないので、添える。
+export function chatTitle(session: Named): string | null {
+  return session.title && (session.repo || !titleIsName(session)) ? session.title : null;
 }
 
 export function folderName(session: Named): string {

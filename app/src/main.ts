@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
-import { Acknowledged, triggerKey, unreadDone, withAcknowledged } from "./acknowledged";
+import { Acknowledged, sessionKey, triggerKey, unreadDone, withAcknowledged } from "./acknowledged";
 import { BubbleModel, type BubbleView } from "./bubbleModel";
 import {
   BUBBLE_SECONDS_CHOICES,
@@ -26,6 +26,7 @@ import {
   PANEL_STYLES,
   panelView,
   ROW_ORDERS,
+  trayList,
   type PanelDisplay,
   type PanelStyle,
   type RowOrder,
@@ -126,6 +127,7 @@ async function applySnapshot(next: Snapshot): Promise<void> {
   acknowledged.prune(next);
   shown = withAcknowledged(next, acknowledged);
   syncUnreadDone();
+  syncTraySessions();
   renderer?.update(rendererInput(shown));
   // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
   if (bubbleModel.needsText(shown)) await reloadDialogue();
@@ -139,6 +141,7 @@ function refreshAcknowledged(): void {
   if (snapshot) {
     shown = withAcknowledged(snapshot, acknowledged);
     syncUnreadDone();
+    syncTraySessions();
     renderer?.update(rendererInput(shown));
     bubbleModel.update(shown, dialogue);
   }
@@ -276,6 +279,26 @@ function syncUnreadDone(): void {
   if (any === unreadDoneKnown) return;
   unreadDoneKnown = any;
   void invoke("set_unread_done", { any }).catch((e) => console.error("unread done", e));
+}
+
+// トレイのメニューは Rust が持つので、並べるセッションの一覧が変わったときだけ送る。
+let traySessionsSent: string | undefined;
+
+function syncTraySessions(): void {
+  const list = trayList(snapshot, acknowledged);
+  const serialized = JSON.stringify(list);
+  if (serialized === traySessionsSent) return;
+  traySessionsSent = serialized;
+  void invoke("set_tray_sessions", { items: list.items, more: list.more }).catch((e) =>
+    console.error("tray sessions", e),
+  );
+}
+
+// 選ばれたときに一覧を送ってから状態が変わっていることがあるので、今のスナップショットから探す。
+// 見つからなければ、そのセッションはもう無いので何もしない。
+function selectTraySession(key: string): void {
+  const session = shown?.sessions.find((s) => sessionKey(s) === key);
+  if (session) selectSession(session);
 }
 
 // 承認待ちとエラーは、解決するまで残す行なので対象にしない。
@@ -606,6 +629,7 @@ async function start(): Promise<void> {
     applyPanelDisplay(e.payload);
   });
   await listen("tray-mark-all-read", markAllDoneRead);
+  await listen<string>("tray-session", (e) => selectTraySession(e.payload));
   const savedDisplay = await loadPanelDisplay();
   if (!trayChose) panelDisplay = savedDisplay;
   bubbleSettings = await invoke<BubbleSettings>("get_bubble_settings").catch((e) => {

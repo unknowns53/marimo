@@ -1,5 +1,5 @@
 import { sessionKey } from "./acknowledged";
-import { folderName, formatAge, formatClock, formatTokens, titleIsName } from "./format";
+import { chatTitle, folderName, formatAge, formatClock, formatTokens, STATUS_LABEL } from "./format";
 import { limitLine, type LimitLine } from "./limits";
 import { hasContent, type PanelPlan, type PanelView } from "./panelModel";
 import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
@@ -54,14 +54,6 @@ export interface PanelLimits {
   claude: RateLimits | null;
   codex: CodexRateLimits | null;
 }
-
-const STATUS_LABEL: Record<Status, string> = {
-  idle: "待機",
-  working: "作業中",
-  waiting: "承認待ち",
-  done: "完了",
-  error: "エラー",
-};
 
 export function renderPanel(
   { panel, rows, limits, toggle, order }: PanelElements,
@@ -213,7 +205,8 @@ function renderRow(
 
   const names = el("span", "names");
   names.append(el("span", "folder", folderName(s)));
-  if (s.title && (s.repo || !titleIsName(s))) names.append(el("span", "chat-title", s.title));
+  const title = chatTitle(s);
+  if (title) names.append(el("span", "chat-title", title));
   row.append(
     el("span", `dot ${s.status}`),
     names,

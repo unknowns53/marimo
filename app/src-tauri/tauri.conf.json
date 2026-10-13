@@ -28,6 +28,7 @@
         "visibleOnAllWorkspaces": true,
         "focus": false,
         "acceptFirstMouse": true,
+        "backgroundThrottling": "disabled",
         "visible": false
       }
     ],

@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import { Acknowledged, triggerKey } from "./acknowledged";
-import { hasContent, type PanelStyle, panelView, planPanel, READ_LINGER_MS, type RowOrder } from "./panelModel";
+import {
+  hasContent,
+  type PanelStyle,
+  panelView,
+  planPanel,
+  READ_LINGER_MS,
+  type RowOrder,
+  type TrayList,
+  trayList,
+} from "./panelModel";
 import { session, snap } from "./testFixtures";
-import type { Snapshot } from "./types";
+import type { SessionState, Snapshot } from "./types";
 
 const ids = (list: { session_id: string }[]) => list.map((s) => s.session_id);
 
@@ -220,5 +229,70 @@ describe("panelView", () => {
     expect(panelView(snap(session("w", "working", 1)), new Acknowledged(), "counts").counts).toEqual([
       { status: "working", count: 1 },
     ]);
+  });
+});
+
+describe("trayList", () => {
+  it("lists waiting, error and unread done sessions, newest first within a status, with clipped titles and an overflow count", () => {
+    const seen = session("seen", "done", 50);
+    const ack = new Acknowledged();
+    ack.add(triggerKey(seen));
+    const longName = "n".repeat(36);
+    const cases: [string, SessionState[], TrayList][] = [
+      [
+        "order and unread filter",
+        [
+          session("w1", "waiting", 10),
+          session("w2", "waiting", 20),
+          session("e1", "error", 30),
+          session("d1", "done", 40),
+          seen,
+          session("busy", "working", 60),
+          session("idle", "idle", 70),
+        ],
+        {
+          items: [
+            { key: "w2", label: "承認待ち  w2" },
+            { key: "w1", label: "承認待ち  w1" },
+            { key: "e1", label: "エラー  e1" },
+            { key: "d1", label: "完了  d1" },
+          ],
+          more: 0,
+        },
+      ],
+      [
+        "titles, clipped to about 40 characters",
+        [
+          { ...session("short", "done", 1), title: "短い題名" },
+          { ...session("long", "error", 2), title: "あ".repeat(50) },
+          { ...session(longName, "error", 1), title: "い".repeat(20) },
+          { ...session("chat", "waiting", 3), provider: "hermes", cwd: null, title: "#general" },
+        ],
+        {
+          items: [
+            { key: "hermes:chat", label: "承認待ち  #general" },
+            { key: "long", label: `エラー  long  ${"あ".repeat(28)}…` },
+            { key: longName, label: `エラー  ${longName}  ${"い".repeat(9)}…` },
+            { key: "short", label: "完了  short  短い題名" },
+          ],
+          more: 0,
+        },
+      ],
+      [
+        "overflow",
+        Array.from({ length: 12 }, (_, i) => session(`w${String(i).padStart(2, "0")}`, "waiting", i)),
+        {
+          items: Array.from({ length: 10 }, (_, i) => {
+            const id = `w${String(11 - i).padStart(2, "0")}`;
+            return { key: id, label: `承認待ち  ${id}` };
+          }),
+          more: 2,
+        },
+      ],
+    ];
+    for (const [name, sessions, expected] of cases) {
+      expect(trayList(snap(...sessions), ack), name).toEqual(expected);
+    }
+    expect(trayList(null, ack)).toEqual({ items: [], more: 0 });
   });
 });

@@ -1,4 +1,5 @@
 import { sessionKey, type Acknowledged } from "./acknowledged";
+import { chatTitle, folderName, STATUS_LABEL } from "./format";
 import type { SessionState, Snapshot, Status } from "./types";
 
 // 見たと示した完了の行を、薄くして残しておく時間。
@@ -138,4 +139,51 @@ export function panelView(
  */
 export function hasContent(view: PanelView): boolean {
   return view.style === "detail" ? !isEmpty(view.plan) : view.counts.length > 0;
+}
+
+/** トレイのメニューの先頭に並べる、手を貸す必要のあるセッション。key は sessionKey である。 */
+export interface TrayItem {
+  key: string;
+  label: string;
+}
+
+export interface TrayList {
+  items: TrayItem[];
+  /** 上限を超えて並べなかった件数。 */
+  more: number;
+}
+
+// メニューが長くなると下の操作が画面の外へ押し出されるので、件数と 1 項目の長さを抑える。
+export const TRAY_LIMIT = 10;
+const TRAY_LABEL_CHARS = 40;
+// 名前が長くても題名の頭は読めるよう、題名にはこれだけの字数を残す。
+const TRAY_TITLE_MIN_CHARS = 10;
+const TRAY_ORDER: Status[] = ["waiting", "error", "done"];
+
+/**
+ * 承認待ち、エラー、まだ既読にしていない完了を、この状態の順に、同じ状態の中では更新の新しい順に並べる。
+ * 並べ方の選択には従わない。メニューは開いたときに一番上から読むので、急ぐものを上に置く。
+ */
+export function trayList(snapshot: Snapshot | null, ack: Acknowledged): TrayList {
+  const sessions = (snapshot?.sessions ?? [])
+    .filter((s) => TRAY_ORDER.includes(s.status) && !(s.status === "done" && ack.has(s)))
+    .sort(
+      (a, b) =>
+        TRAY_ORDER.indexOf(a.status) - TRAY_ORDER.indexOf(b.status) ||
+        b.updated_at - a.updated_at ||
+        compareIds(sessionKey(a), sessionKey(b)),
+    );
+  const items = sessions.slice(0, TRAY_LIMIT).map((s) => ({ key: sessionKey(s), label: trayLabel(s) }));
+  return { items, more: sessions.length - items.length };
+}
+
+// 字数はコードポイントで数え、Rust の activity::clip と同じく末尾を … にする。
+function trayLabel(s: SessionState): string {
+  const head = `${STATUS_LABEL[s.status]}  ${folderName(s)}`;
+  const title = chatTitle(s);
+  if (!title) return head;
+  const room = Math.max(TRAY_LABEL_CHARS - [...head].length - 2, TRAY_TITLE_MIN_CHARS);
+  const chars = [...title];
+  const clipped = chars.length <= room ? title : `${chars.slice(0, room - 1).join("").trimEnd()}…`;
+  return `${head}  ${clipped}`;
 }
