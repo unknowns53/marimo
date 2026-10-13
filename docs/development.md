@@ -152,7 +152,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 
 | パス | 用途 |
 | --- | --- |
-| `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。24 時間更新のないファイルは、アプリが消します |
+| `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。完了とエラーのセッションは、SessionEnd の `reason` が `clear`、`resume`、`logout`、`prompt_input_exit` のどれかのときだけ消し、それ以外では残します。24 時間更新のないファイルは、アプリが消します |
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID（セッションに振られる識別子）の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `sessions/hermes-<session_id>.json` | Hermes のセッションごとの状態です。Codex と同じく名前に `hermes-` を付けて分けます。書き方と消し方は Claude Code のセッションと同じです |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine の入力から、そのセッションに新しい応答が届いていたときだけ書きます |
@@ -326,7 +326,7 @@ Hermes のフックの入力は、どのイベントでも `hook_event_name`、`
 
   | Hermes のイベント | 読み替え先 | 状態 |
   | --- | --- | --- |
-  | `on_session_start`、`on_session_reset` | SessionStart | 待機 |
+  | `on_session_start`、`on_session_reset` | SessionStart | 待機。完了とエラーの行はそのまま残す |
   | `pre_llm_call` | UserPromptSubmit | 作業中 |
   | `pre_tool_call`、`post_tool_call` | PreToolUse、PostToolUse | 作業中。聞き返しのツール `clarify` の間だけ承認待ち |
   | `pre_approval_request` | PermissionRequest | 承認待ち（危険なコマンドの承認を利用者に求めている間） |
@@ -334,7 +334,7 @@ Hermes のフックの入力は、どのイベントでも `hook_event_name`、`
   | `post_llm_call`、`on_session_end`（`completed`） | Stop | 完了 |
   | `on_session_end`（`interrupted`） | Interrupt | 待機 |
   | `on_session_end`（`failed`）、`api_request_error`（`retryable` が偽） | StopFailure | エラー |
-  | `on_session_finalize` | SessionEnd | 行を消す |
+  | `on_session_finalize` | SessionEnd | 行を消す。完了とエラーの行は残す |
 
 - **裏の見直し** Hermes は応答の後に、同じ session_id のまま記憶とスキルの見直しを裏で走らせます。この見直しは `pre_llm_call` を出さずにツールを使うので、`pre_llm_call` で知らされたターンの ID（`extra.turn_id`）と違う ID のイベントは捨てます。捨てないと、完了した行が作業中へ戻ってしまいます。
 - **作業の要約** Hermes のツールを、要約の作り方が同じ Claude Code のツールに置き換えます。`terminal` は Bash、`read_file`、`write_file`、`patch` はそれぞれ Read、Write、Edit、`search_files` は Grep、`web_search` と `web_extract` は WebSearch と WebFetch、`delegate_task` は Agent、`clarify` は Codex の質問のツールの `request_user_input` として扱います。それ以外のツールは、ツール名と引数をそのまま短く出します。

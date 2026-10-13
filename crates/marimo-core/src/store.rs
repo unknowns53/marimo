@@ -1023,7 +1023,7 @@ mod tests {
         assert_eq!(snap.rate_limits, None);
 
         codex(
-            json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"exit"}),
+            json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"prompt_input_exit"}),
             &HookExtras::default(),
         );
         assert!(read_session(&home, Provider::Codex, "s1").is_none());
