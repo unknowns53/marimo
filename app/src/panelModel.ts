@@ -1,8 +1,6 @@
-import { sessionKey, type Acknowledged } from "./acknowledged";
+import { sessionKey, triggerKey, type Acknowledged } from "./acknowledged";
+import { chatTitle, folderName, STATUS_LABEL } from "./format";
 import type { SessionState, Snapshot, Status } from "./types";
-
-// 見たと示した完了の行を、薄くして残しておく時間。
-export const READ_LINGER_MS = 3 * 60 * 1000;
 
 /** 並べ方は詳細と件数のどちらの出し方にも効く。 */
 export type RowOrder = "started" | "status" | "updated";
@@ -11,8 +9,10 @@ export const ROW_ORDERS: readonly RowOrder[] = ["started", "status", "updated"];
 
 export interface PanelPlan {
   rows: SessionState[];
-  /** 見たと示された直後の完了の行の sessionKey。薄く描く。 */
+  /** その場所に残している既読の完了の行の sessionKey。薄く描く。 */
   read: ReadonlySet<string>;
+  /** 今日完了して既読にしたセッションのうち、その場所に残していないもの。完了した時刻の新しい順。 */
+  today: SessionState[];
 }
 
 // 承認待ち、エラー、作業中、完了の順に重要とみなす。marimo-core の Status::priority と同じ順である。
@@ -22,8 +22,12 @@ const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
  * 待機以外のセッションは作業中も畳まずに 1 行ずつ並べ、パネルに収まらない分はスクロールで見せるので、
  * 行の数に上限を設けない。期限の切れた Cloud の観測は待機として届くが、取り込んだ会話がまだあることは
  * 分かっているので、状態不明の行として残す。
- * 見たと示された完了は畳むが、押した直後に行が消えると何を押したのか見失うので、READ_LINGER_MS の
- * 間だけその場で薄くして残す。完了のまま放っておかれるセッションは多く、いつまでも残すと古い既読で埋まる。
+ * 見たと示された完了は畳むが、keep に triggerKey のある行だけはその場所に薄くして残す。パネルは下端を
+ * 固定しているので、続けて ✓ を押す間に行が畳まれると上の行が下へずれ、次に押そうとした行がマウスの下から
+ * 動いてしまうからである。keep はマウスがパネルの上にある間に既読にした行で、呼び出し側がマウスがパネルを
+ * 離れたときに空にする。状態順でも、残した行は未読の完了と同じ規則で並べて動かさない。
+ * 畳んだ既読の完了のうち、完了したのが今日のものは today に集め、パネルの下の 1 行から開いて見せる。
+ * 完了のまま放っておかれるセッションは多く、前の日の分まで並べると古い既読で埋まる。
  *
  * started は started_at の新しい順に並べる。パネルは下端を固定して上へ伸びるので、新しいセッションが
  * 一番上に加わっても既にある行は画面上の位置が変わらず、状態が変わっても行は動かない。started_at を
@@ -35,26 +39,32 @@ export function planPanel(
   ack: Acknowledged,
   order: RowOrder = "started",
   now: number = Date.now(),
+  keep: ReadonlySet<string> = new Set(),
 ): PanelPlan {
   const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle" || s.cloud?.expired);
   const isRead = (s: SessionState) => s.status === "done" && ack.has(s);
-  const lingering = active.filter((s) => {
-    const at = isRead(s) ? ack.seenAt(s) : undefined;
-    return at !== undefined && now - at < READ_LINGER_MS;
-  });
-  const read = new Set(lingering.map(sessionKey));
+  const kept = active.filter((s) => isRead(s) && keep.has(triggerKey(s)));
+  const read = new Set(kept.map(sessionKey));
   const compare: Record<RowOrder, (a: SessionState, b: SessionState) => number> = {
     started: (a, b) => b.started_at - a.started_at,
     status: (a, b) =>
-      Number(read.has(sessionKey(a))) - Number(read.has(sessionKey(b))) ||
       COUNT_ORDER.indexOf(a.status) - COUNT_ORDER.indexOf(b.status) ||
       b.updated_at - a.updated_at,
     updated: (a, b) => b.updated_at - a.updated_at,
   };
-  const rows = [...active.filter((s) => !isRead(s)), ...lingering].sort(
+  const rows = [...active.filter((s) => !isRead(s)), ...kept].sort(
     (a, b) => compare[order](a, b) || compareIds(sessionKey(a), sessionKey(b)),
   );
-  return { rows, read };
+  const today = active
+    .filter((s) => isRead(s) && !keep.has(triggerKey(s)) && sameLocalDay(s.status_since, now))
+    .sort((a, b) => b.status_since - a.status_since || compareIds(sessionKey(a), sessionKey(b)));
+  return { rows, read, today };
+}
+
+function sameLocalDay(a: number, b: number): boolean {
+  const x = new Date(a);
+  const y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
 }
 
 function compareIds(a: string, b: string): number {
@@ -119,8 +129,9 @@ export function panelView(
   style: PanelStyle,
   order: RowOrder = "started",
   now: number = Date.now(),
+  keep: ReadonlySet<string> = new Set(),
 ): PanelView {
-  const plan = planPanel(snapshot, ack, order, now);
+  const plan = planPanel(snapshot, ack, order, now, keep);
   const sessions = snapshot?.sessions ?? [];
   const counted = sessions.filter((s) => !(s.status === "done" && ack.has(s)));
   const counts = COUNT_ORDER.map((status) => ({
@@ -138,4 +149,51 @@ export function panelView(
  */
 export function hasContent(view: PanelView): boolean {
   return view.style === "detail" ? !isEmpty(view.plan) : view.counts.length > 0;
+}
+
+/** トレイのメニューの先頭に並べる、手を貸す必要のあるセッション。key は sessionKey である。 */
+export interface TrayItem {
+  key: string;
+  label: string;
+}
+
+export interface TrayList {
+  items: TrayItem[];
+  /** 上限を超えて並べなかった件数。 */
+  more: number;
+}
+
+// メニューが長くなると下の操作が画面の外へ押し出されるので、件数と 1 項目の長さを抑える。
+export const TRAY_LIMIT = 10;
+const TRAY_LABEL_CHARS = 40;
+// 名前が長くても題名の頭は読めるよう、題名にはこれだけの字数を残す。
+const TRAY_TITLE_MIN_CHARS = 10;
+const TRAY_ORDER: Status[] = ["waiting", "error", "done"];
+
+/**
+ * 承認待ち、エラー、まだ既読にしていない完了を、この状態の順に、同じ状態の中では更新の新しい順に並べる。
+ * 並べ方の選択には従わない。メニューは開いたときに一番上から読むので、急ぐものを上に置く。
+ */
+export function trayList(snapshot: Snapshot | null, ack: Acknowledged): TrayList {
+  const sessions = (snapshot?.sessions ?? [])
+    .filter((s) => TRAY_ORDER.includes(s.status) && !(s.status === "done" && ack.has(s)))
+    .sort(
+      (a, b) =>
+        TRAY_ORDER.indexOf(a.status) - TRAY_ORDER.indexOf(b.status) ||
+        b.updated_at - a.updated_at ||
+        compareIds(sessionKey(a), sessionKey(b)),
+    );
+  const items = sessions.slice(0, TRAY_LIMIT).map((s) => ({ key: sessionKey(s), label: trayLabel(s) }));
+  return { items, more: sessions.length - items.length };
+}
+
+// 字数はコードポイントで数え、Rust の activity::clip と同じく末尾を … にする。
+function trayLabel(s: SessionState): string {
+  const head = `${STATUS_LABEL[s.status]}  ${folderName(s)}`;
+  const title = chatTitle(s);
+  if (!title) return head;
+  const room = Math.max(TRAY_LABEL_CHARS - [...head].length - 2, TRAY_TITLE_MIN_CHARS);
+  const chars = [...title];
+  const clipped = chars.length <= room ? title : `${chars.slice(0, room - 1).join("").trimEnd()}…`;
+  return `${head}  ${clipped}`;
 }

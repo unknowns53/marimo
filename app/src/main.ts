@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
-import { Acknowledged, triggerKey, withAcknowledged } from "./acknowledged";
+import { Acknowledged, sessionKey, triggerKey, unreadDone, withAcknowledged } from "./acknowledged";
 import { BubbleModel, type BubbleView } from "./bubbleModel";
 import {
   BUBBLE_SECONDS_CHOICES,
@@ -15,10 +15,10 @@ import {
 } from "./bubbleSettings";
 import { categoryFor, fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
-import { union } from "./expander";
+import { union, type Point } from "./expander";
 import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
 import { OpacityPopover } from "./opacityPopover";
-import { onScrollbar, renderPanel } from "./panel";
+import { onScrollbar, READ_KEY, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
 import { RowHover } from "./rowHover";
 import {
@@ -26,6 +26,7 @@ import {
   PANEL_STYLES,
   panelView,
   ROW_ORDERS,
+  trayList,
   type PanelDisplay,
   type PanelStyle,
   type RowOrder,
@@ -39,7 +40,7 @@ const CHARACTER_ROOT = new URL("/character/", window.location.href).href;
 // 以前は行を隠す設定だけをこの名前で localStorage に持っていた。表示の保存先を MARIMO_HOME へ
 // 移したので、display.json に何も無いときだけ読み替えて引き継ぐ。
 const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";
-// 利用制限の「古い」「リセット済み」と既読の行を畳む時期は時間だけで変わるので、変更通知とは別に描き直す。
+// 利用制限の「古い」「リセット済み」と、今日の既読に数える日は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
 const REACTION_SPEECH_MS = 2500;
 // style.css の #bubble の bottom に足している、立ち絵と吹き出しの間の隙間と揃える必要がある。
@@ -63,11 +64,18 @@ const acknowledged = new Acknowledged((keys) =>
 );
 let bubbleSettings: BubbleSettings = DEFAULT_BUBBLE_SETTINGS;
 const bubbleModel = new BubbleModel(acknowledged, undefined, (status) => bubbleEnabled(bubbleSettings, status));
-// 吹き出しを押して閉じたら、そのきっかけを見たものとして扱い、完了なら行も既読として薄くしてから畳む。
-// 完了の吹き出しを閉じるのは知らせを受け取ったという意思表示だからである。
+// 知らせの吹き出しは、押すとその行を押したのと同じ操作になる。移動せずに閉じたいときは行と同じ修飾キーを使う。
+// 立ち絵を押したときのひとことにはセッションが無いので、押しても閉じるだけである。
 const speech = new Speech();
-const bubble = new Bubble(bubbleNode, () => {
-  if (bubbleModel.view) bubbleModel.dismiss();
+const bubble = new Bubble(bubbleNode, (e) => {
+  const view = bubbleModel.view;
+  const session = view ? shown?.sessions.find((s) => triggerKey(s) === view.key) : undefined;
+  if (session && !e.altKey) {
+    selectSession(session);
+    speech.clearReaction();
+    return;
+  }
+  if (view) bubbleModel.dismiss();
   speech.clearReaction();
   refreshAcknowledged();
 });
@@ -107,6 +115,12 @@ let speechTimer: number | undefined;
 let panelDisplay: PanelDisplay = DEFAULT_PANEL_DISPLAY;
 let appIcons: AppIcons = { claude: null, codex: null, hermes: null };
 let scale: ScaleControl | undefined;
+// Rust から届く、窓の中のカーソル位置。窓の外では null になる。
+let cursor: Point | null = null;
+// マウスがパネルの上にある間に既読にした完了の triggerKey。マウスがパネルを離れるまで、その行をその場所に残す。
+const keptRead = new Set<string>();
+// 今日の既読の一覧を開いているか。保存せず、起動のたびに閉じた状態から始める。
+let todayOpen = false;
 // スナップショットは続けて届くことがあり、セリフの読み込みを待つ間に順序が入れ替わらないよう直列にする。
 let applying: Promise<void> = Promise.resolve();
 
@@ -118,6 +132,8 @@ async function applySnapshot(next: Snapshot): Promise<void> {
   snapshot = next;
   acknowledged.prune(next);
   shown = withAcknowledged(next, acknowledged);
+  syncUnreadDone();
+  syncTraySessions();
   renderer?.update(rendererInput(shown));
   // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
   if (bubbleModel.needsText(shown)) await reloadDialogue();
@@ -130,6 +146,8 @@ async function applySnapshot(next: Snapshot): Promise<void> {
 function refreshAcknowledged(): void {
   if (snapshot) {
     shown = withAcknowledged(snapshot, acknowledged);
+    syncUnreadDone();
+    syncTraySessions();
     renderer?.update(rendererInput(shown));
     bubbleModel.update(shown, dialogue);
   }
@@ -157,7 +175,11 @@ function showSpeech(): void {
   const visible = panelDisplay.show_character;
   const text = visible ? speech.current(bubbleModel.view, performance.now()) : null;
   scheduleExpiry(visible ? bubbleModel.view : null);
-  if (text) bubble.show(text);
+  if (text)
+    bubble.show(
+      text,
+      bubbleModel.view ? `押すとセッションへ移動します（${READ_KEY} を押しながら押すと閉じます）` : "押すと閉じます",
+    );
   else bubble.hide();
   placeBubble();
   hits.schedule();
@@ -228,9 +250,11 @@ function collectHitRegions(): HitRegions {
 }
 
 function redrawPanel(): void {
-  const view = panelView(shown, acknowledged, panelDisplay.panel_style, panelDisplay.row_order, Date.now());
+  const now = Date.now();
+  const view = panelView(shown, acknowledged, panelDisplay.panel_style, panelDisplay.row_order, now, keptRead);
   const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null };
-  renderPanel(panelElements, view, limits, appIcons, Date.now(), { select: selectSession, markRead });
+  const actions = { select: selectSession, markRead, toggleToday };
+  renderPanel(panelElements, view, limits, appIcons, now, actions, todayOpen);
   placeBubble();
   opacityPopover.place();
   expansion.evaluate();
@@ -247,11 +271,74 @@ function selectSession(session: SessionState): void {
   markRead(session);
 }
 
-// 行のきっかけを見たものとして扱う。完了の行は既読として薄くしてから畳み、同じきっかけの吹き出しも閉じる。
-// 承認待ちとエラーの行は、解決するまで残す。
+function toggleToday(): void {
+  todayOpen = !todayOpen;
+  redrawPanel();
+}
+
+// 窓は透明な部分でマウスのイベントを受け取らないので、DOM の mouseleave ではなく Rust から届く位置で見る。
+// 件数の行に重ねた詳細はパネルの外へ伸びるが、DOM ではパネルの中にあるので、その上もパネルの上として扱う。
+function pointerOverPanel(): boolean {
+  const hit = cursor ? document.elementFromPoint(cursor.x, cursor.y) : null;
+  return !!hit && panelElements.panel.contains(hit);
+}
+
+// 既読にした完了の行は畳むが、マウスがパネルの上にあればその場所に薄く残し、離れたときに畳む。
+// 既に既読のもの（今日の既読の一覧の行）を押したときは、一覧から上へ戻さない。
+function acknowledge(session: SessionState): void {
+  const key = triggerKey(session);
+  if (session.status === "done" && !acknowledged.has(session) && pointerOverPanel()) keptRead.add(key);
+  acknowledged.add(key);
+}
+
+function releaseKeptRead(): void {
+  if (keptRead.size === 0 || pointerOverPanel()) return;
+  keptRead.clear();
+  redrawPanel();
+}
+
+// 行のきっかけを見たものとして扱い、同じきっかけの吹き出しも閉じる。承認待ちとエラーの行は、解決するまで残す。
 function markRead(session: SessionState): void {
-  acknowledged.add(triggerKey(session));
+  acknowledge(session);
   if (bubbleModel.view?.key === triggerKey(session)) bubbleModel.dismiss();
+  refreshAcknowledged();
+}
+
+// 未読の完了の有無は、トレイのメニューの項目を使えるかどうかに要る。変わったときだけ Rust に知らせる。
+let unreadDoneKnown: boolean | undefined;
+
+function syncUnreadDone(): void {
+  const any = unreadDone(snapshot, acknowledged).length > 0;
+  if (any === unreadDoneKnown) return;
+  unreadDoneKnown = any;
+  void invoke("set_unread_done", { any }).catch((e) => console.error("unread done", e));
+}
+
+// トレイのメニューは Rust が持つので、並べるセッションの一覧が変わったときだけ送る。
+let traySessionsSent: string | undefined;
+
+function syncTraySessions(): void {
+  const list = trayList(snapshot, acknowledged);
+  const serialized = JSON.stringify(list);
+  if (serialized === traySessionsSent) return;
+  traySessionsSent = serialized;
+  void invoke("set_tray_sessions", { items: list.items, more: list.more }).catch((e) =>
+    console.error("tray sessions", e),
+  );
+}
+
+// 選ばれたときに一覧を送ってから状態が変わっていることがあるので、今のスナップショットから探す。
+// 見つからなければ、そのセッションはもう無いので何もしない。
+function selectTraySession(key: string): void {
+  const session = shown?.sessions.find((s) => sessionKey(s) === key);
+  if (session) selectSession(session);
+}
+
+// 承認待ちとエラーは、解決するまで残す行なので対象にしない。
+function markAllDoneRead(): void {
+  const unread = unreadDone(snapshot, acknowledged);
+  for (const s of unread) acknowledge(s);
+  if (bubbleModel.view && unread.some((s) => triggerKey(s) === bubbleModel.view?.key)) bubbleModel.dismiss();
   refreshAcknowledged();
 }
 
@@ -507,6 +594,12 @@ async function openMenu(): Promise<void> {
         action: () => void (autostart ? disable() : enable()).catch((e) => console.error("autostart", e)),
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
+      await MenuItem.new({
+        text: "完了をすべて既読にする",
+        enabled: unreadDone(snapshot, acknowledged).length > 0,
+        action: markAllDoneRead,
+      }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({ text: "終了", action: () => void invoke("quit") }),
     ],
   });
@@ -535,7 +628,7 @@ function bindWindowControls(): void {
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .counts-group, #panel-toggle, #row-order, #bubble, #opacity-popover")) {
+    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .today-line, .counts-group, #panel-toggle, #row-order, #bubble, #opacity-popover")) {
       press = null;
       return;
     }
@@ -568,6 +661,8 @@ async function start(): Promise<void> {
     trayChose = true;
     applyPanelDisplay(e.payload);
   });
+  await listen("tray-mark-all-read", markAllDoneRead);
+  await listen<string>("tray-session", (e) => selectTraySession(e.payload));
   const savedDisplay = await loadPanelDisplay();
   if (!trayChose) panelDisplay = savedDisplay;
   bubbleSettings = await invoke<BubbleSettings>("get_bubble_settings").catch((e) => {
@@ -594,9 +689,11 @@ async function start(): Promise<void> {
   // マウスが立ち絵の上にあるかは Rust 側がクリックを通す判定のついでに調べて知らせる。透明な部分では
   // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
   await listen<boolean>("portrait-hover", (e) => renderer?.setHover(e.payload));
-  await listen<{ x: number; y: number } | null>("window-cursor", (e) => {
+  await listen<Point | null>("window-cursor", (e) => {
+    cursor = e.payload;
     expansion.setCursor(e.payload);
     rowHover.setCursor(e.payload);
+    releaseKeptRead();
   });
   // 最初のスナップショットより先に戻さないと、既読の完了の吹き出しが一度出てしまう。
   acknowledged.restore(

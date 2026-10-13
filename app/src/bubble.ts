@@ -1,14 +1,14 @@
 export class Bubble {
   constructor(
     private readonly node: HTMLElement,
-    onDismiss: () => void,
+    onClick: (e: MouseEvent) => void,
   ) {
-    node.addEventListener("click", onDismiss);
+    node.addEventListener("click", onClick);
   }
 
-  show(text: string): void {
+  show(text: string, title: string): void {
     renderPhrases(this.node, text);
-    this.node.title = "押すと閉じます";
+    this.node.title = title;
     fitToLines(this.node);
     this.node.classList.add("show");
   }

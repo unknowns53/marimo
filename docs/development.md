@@ -152,7 +152,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 
 | パス | 用途 |
 | --- | --- |
-| `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。24 時間更新のないファイルは、アプリが消します |
+| `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。完了とエラーのセッションは、SessionEnd の `reason` が `clear`、`resume`、`logout`、`prompt_input_exit` のどれかのときだけ消し、それ以外では残します。24 時間更新のないファイルは、アプリが消します |
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID（セッションに振られる識別子）の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `sessions/hermes-<session_id>.json` | Hermes のセッションごとの状態です。Codex と同じく名前に `hermes-` を付けて分けます。書き方と消し方は Claude Code のセッションと同じです |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine の入力から、そのセッションに新しい応答が届いていたときだけ書きます |
@@ -284,8 +284,8 @@ main への push では、両方の OS で検査が通ったあとに、更新�
 
 1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。Codex のフックからは `marimo-hook codex-hook` が呼ばれ、同じ規則で `sessions/codex-<session_id>.json` に書き、利用制限を `codex_rate_limits.json` へ書きます。Hermes のフックからは `marimo-hook hermes-hook` が呼ばれ、入力を Claude Code の入力に読み替えてから同じ規則で `sessions/hermes-<session_id>.json` に書きます。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、そのセッションに新しい応答が届いていれば利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
 2. アプリはファイルの監視（file watcher。フォルダの中のファイルが変わると OS から知らせを受け取る仕組み）で `sessions/` と `rate_limits.json` の変化を受け取ります。並列のツール呼び出しで書き込みが重なるので、120 ミリ秒静かになるまで待ち、遅くとも 500 ミリ秒で、全セッションをまとめたスナップショットを読みます。
-3. Rust 側は、スナップショットの全体の状態に合わせてメニューバーと通知領域のアイコンを替え、スナップショットを `snapshot` という名前のイベントで画面部分へ送ります。アイコンを画面部分に任せないのは、窓を隠している間は画面部分が止まることがあるからです。
-4. 画面部分は、既読の記録を加味して全体の状態を決め直し、表情、吹き出し、パネルを描き直します。
+3. Rust 側は、スナップショットの全体の状態に合わせてメニューバーと通知領域のアイコンを替え、スナップショットを `snapshot` という名前のイベントで画面部分へ送ります。アイコンを画面部分に任せないのは、窓を隠している間は画面部分が止まることがあるからです。macOS 14 以降では、隠した窓の画面部分を WebKit が止めないよう、`tauri.conf.json` の `backgroundThrottling` を `disabled` にしています。Tauri はこの設定を macOS 13 以前と Windows では扱いません。
+4. 画面部分は、既読の記録を加味して全体の状態を決め直し、表情、吹き出し、パネルを描き直します。アイコンのメニューの先頭に並べるセッションの一覧も画面部分が決め、変わったときだけ Rust 側へ送ります。メニューでセッションを選ぶと、Rust 側はそのセッションの鍵を `tray-session` という名前のイベントで画面部分へ返し、画面部分がパネルの行を押したときと同じ操作をします。
 
 ### 状態の決め方
 
@@ -326,7 +326,7 @@ Hermes のフックの入力は、どのイベントでも `hook_event_name`、`
 
   | Hermes のイベント | 読み替え先 | 状態 |
   | --- | --- | --- |
-  | `on_session_start`、`on_session_reset` | SessionStart | 待機 |
+  | `on_session_start`、`on_session_reset` | SessionStart | 待機。完了とエラーの行はそのまま残す |
   | `pre_llm_call` | UserPromptSubmit | 作業中 |
   | `pre_tool_call`、`post_tool_call` | PreToolUse、PostToolUse | 作業中。聞き返しのツール `clarify` の間だけ承認待ち |
   | `pre_approval_request` | PermissionRequest | 承認待ち（危険なコマンドの承認を利用者に求めている間） |
@@ -334,7 +334,7 @@ Hermes のフックの入力は、どのイベントでも `hook_event_name`、`
   | `post_llm_call`、`on_session_end`（`completed`） | Stop | 完了 |
   | `on_session_end`（`interrupted`） | Interrupt | 待機 |
   | `on_session_end`（`failed`）、`api_request_error`（`retryable` が偽） | StopFailure | エラー |
-  | `on_session_finalize` | SessionEnd | 行を消す |
+  | `on_session_finalize` | SessionEnd | 行を消す。完了とエラーの行は残す |
 
 - **裏の見直し** Hermes は応答の後に、同じ session_id のまま記憶とスキルの見直しを裏で走らせます。この見直しは `pre_llm_call` を出さずにツールを使うので、`pre_llm_call` で知らされたターンの ID（`extra.turn_id`）と違う ID のイベントは捨てます。捨てないと、完了した行が作業中へ戻ってしまいます。
 - **作業の要約** Hermes のツールを、要約の作り方が同じ Claude Code のツールに置き換えます。`terminal` は Bash、`read_file`、`write_file`、`patch` はそれぞれ Read、Write、Edit、`search_files` は Grep、`web_search` と `web_extract` は WebSearch と WebFetch、`delegate_task` は Agent、`clarify` は Codex の質問のツールの `request_user_input` として扱います。それ以外のツールは、ツール名と引数をそのまま短く出します。

@@ -432,6 +432,9 @@ pub struct HookInput {
     pub cwd: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
+    /// SessionEnd の理由。値は hooks のドキュメントの SessionEnd の matcher に列挙がある。
+    #[serde(default)]
+    pub reason: Option<String>,
     #[serde(default)]
     pub tool_name: Option<String>,
     #[serde(default)]
@@ -592,10 +595,22 @@ fn main_update(
         )
     };
     let agent_pending = current.is_some_and(|c| c.agents.values().any(|a| a.pending.is_some()));
+    // 完了とエラーは、利用者がまだ読んでいないかもしれない結果である。デスクトップアプリはメモリが
+    // 逼迫すると何もしていないセッションの CLI を止め（reason が other の SessionEnd）、会話を裏で
+    // 開き直す（source が resume の SessionStart）ので、利用者がその会話の画面で操作したと分かる
+    // 理由のときだけ消す。残したファイルは見回りが 24 時間で消す。
+    let holds_result = matches!(cur_status, Some(Status::Done | Status::Error));
+    let ended_by_user = matches!(
+        input.reason.as_deref(),
+        Some("clear" | "resume" | "logout" | "prompt_input_exit")
+    );
     let (status, act) = match input.hook_event_name.as_str() {
+        "SessionEnd" if holds_result && !ended_by_user => {
+            (cur_status.unwrap_or_default(), Act::Keep)
+        }
         "SessionEnd" => return Err(Transition::Delete),
         // compaction が作業の途中で起きても状態を戻さないよう、compact だけは現状を保つ。
-        "SessionStart" if input.source.as_deref() == Some("compact") => {
+        "SessionStart" if input.source.as_deref() == Some("compact") || holds_result => {
             (cur_status.unwrap_or_default(), Act::Keep)
         }
         "SessionStart" => (Status::Idle, Act::Clear),
@@ -698,8 +713,13 @@ fn main_update(
             next.turn_id = input.turn_id.clone();
         }
         // startup、resume、clear では Claude Code のプロセスか会話が新しくなり、前のサブエージェントは続かない。
+        // 終わったプロセスのサブエージェントは SubagentStop を送らない。
+        "SessionEnd" => next.agents.clear(),
         "SessionStart" if input.source.as_deref() != Some("compact") => {
-            next.turn_started_at = None;
+            // 残した完了の吹き出しは、かかった時間でセリフを選ぶのでターンの始まりを残す。
+            if !holds_result {
+                next.turn_started_at = None;
+            }
             next.agents.clear();
         }
         // 前景のサブエージェントを利用者が止めると SubagentStop が届かないが、前景のものは親のターンが
@@ -900,6 +920,32 @@ mod tests {
         use Status::*;
         let cases: Vec<(Value, Option<Status>, Option<Status>)> = vec![
             (ev("SessionStart"), None, Some(Idle)),
+            (
+                json!({"session_id":"s1","hook_event_name":"SessionStart","source":"resume"}),
+                Some(Done),
+                Some(Done),
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"SessionStart","source":"resume"}),
+                Some(Working),
+                Some(Idle),
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"other"}),
+                Some(Done),
+                Some(Done),
+            ),
+            (ev("SessionEnd"), Some(Error), Some(Error)),
+            (
+                json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"prompt_input_exit"}),
+                Some(Done),
+                None,
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"SessionEnd","reason":"other"}),
+                Some(Working),
+                None,
+            ),
             (ev("UserPromptSubmit"), Some(Done), Some(Working)),
             (
                 json!({"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}),
@@ -1008,10 +1054,6 @@ mod tests {
         assert_eq!(
             (s.status, s.started_at, s.updated_at),
             (Status::Done, 10, 40)
-        );
-        assert_eq!(
-            transition(&input(ev("SessionEnd")), Some(&s), 50),
-            Transition::Delete
         );
 
         // started_at を持たない古いファイルは、次のイベントの時刻で埋める。
@@ -1138,7 +1180,12 @@ mod tests {
         );
         let start = json!({"session_id":"s1","hook_event_name":"SessionStart","source":"startup"});
         assert_eq!(
-            write(transition(&input(start), Some(&s), 970)).turn_started_at,
+            write(transition(&input(start.clone()), Some(&s), 970)).turn_started_at,
+            Some(100)
+        );
+        let working = write(transition(&input(ev("UserPromptSubmit")), Some(&s), 980));
+        assert_eq!(
+            write(transition(&input(start), Some(&working), 990)).turn_started_at,
             None
         );
     }

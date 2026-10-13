@@ -307,8 +307,9 @@ fn hermes_hook_tracks_a_discord_turn() {
     }));
     assert_eq!(state().unwrap()["status"], "done");
 
+    // 完了はまだ読まれていないかもしれない結果なので、会話が閉じられても残す。
     send(json!({ "hook_event_name": "on_session_finalize", "extra": {} }));
-    assert!(state().is_none());
+    assert_eq!(state().unwrap()["status"], "done");
     // Hermes のファイルは接頭辞で Claude Code のファイルと分けるので、接頭辞の無い名前では作らない。
     assert!(session(&home, "20260101_000000_abcd1234").is_none());
 }

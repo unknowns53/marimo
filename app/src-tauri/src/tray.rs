@@ -1,8 +1,11 @@
 use std::sync::Mutex;
 
 use marimo_core::Status;
+use serde::Deserialize;
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tauri::menu::{
+    CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem,
+};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
@@ -14,21 +17,41 @@ use crate::scale::{self, PanelDisplay, PanelStyle};
 /// 続けて選んだ反転が同じ保存値から作られて一回分になるからである。
 const PANEL_DISPLAY_EVENT: &str = "tray-panel-display";
 
+/// 既読の集合はフロントエンドが持つので、トレイの「完了をすべて既読にする」は押されたことだけを送る。
+const MARK_ALL_READ_EVENT: &str = "tray-mark-all-read";
+
+/// どのセッションを開くかを決めるのに要る既読の集合はフロントエンドが持つので、選ばれた鍵だけを送る。
+const SESSION_EVENT: &str = "tray-session";
+
 // 右クリックメニューの項目もこのアイコンの on_menu_event に届くので、自動で振られる ID と重ならない
-// 接頭辞を付けて見分ける。
+// 接頭辞を付けて見分ける。自動の ID は数字だけなので、どちらの接頭辞とも重ならない。セッションの項目は
+// 鍵が何であっても固定の項目の ID にならないよう、別の接頭辞にする。
+const SESSION_PREFIX: &str = "tray-session:";
 const TOGGLE: &str = "tray:toggle";
 const SHOW_CHARACTER: &str = "tray:show-character";
 const STYLE_DETAIL: &str = "tray:style-detail";
 const STYLE_COUNTS: &str = "tray:style-counts";
+const MARK_ALL_READ: &str = "tray:mark-all-read";
 const QUIT: &str = "tray:quit";
 
 pub struct Tray {
     icon: TrayIcon<Wry>,
+    menu: Menu<Wry>,
+    // メニューの先頭に差し込んだセッションの項目と、その後ろの区切り。差し替えるときにこれだけを外す。
+    sessions: Mutex<Vec<MenuItemKind<Wry>>>,
     attention: Mutex<Attention>,
     toggle: MenuItem<Wry>,
     show_character: CheckMenuItem<Wry>,
     detail: CheckMenuItem<Wry>,
     counts: CheckMenuItem<Wry>,
+    mark_all_read: MenuItem<Wry>,
+}
+
+/// フロントエンドの panelModel.ts の TrayItem と同じ形。key は sessionKey である。
+#[derive(Debug, Deserialize)]
+pub struct TraySession {
+    key: String,
+    label: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +84,54 @@ impl Tray {
         if let Some(Err(e)) = results.into_iter().find(Result::is_err) {
             eprintln!("marimo: cannot update the tray menu: {e}");
         }
+    }
+
+    pub fn set_unread_done(&self, any: bool) {
+        if let Err(e) = self.mark_all_read.set_enabled(any) {
+            eprintln!("marimo: cannot update the tray menu: {e}");
+        }
+    }
+
+    /// メニューを作り直すと他の項目の印や使えるかどうかを付け直すことになるので、先頭の項目だけを差し替える。
+    pub fn set_sessions(&self, sessions: &[TraySession], more: usize) {
+        let mut leading = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if let Err(e) = self.replace_sessions(&mut leading, sessions, more) {
+            eprintln!("marimo: cannot update the tray menu: {e}");
+        }
+    }
+
+    // 途中で失敗しても、メニューに残っている項目だけを leading に残し、次の差し替えで外せるようにする。
+    fn replace_sessions(
+        &self,
+        leading: &mut Vec<MenuItemKind<Wry>>,
+        sessions: &[TraySession],
+        more: usize,
+    ) -> tauri::Result<()> {
+        while let Some(item) = leading.pop() {
+            if let Err(e) = self.menu.remove(&item) {
+                leading.push(item);
+                return Err(e);
+            }
+        }
+        let app = self.menu.app_handle();
+        let mut next = Vec::new();
+        for session in sessions {
+            // muda は & を手前の文字のニーモニックの印として扱うので、題名の & はそのまま見えるよう重ねる。
+            let label = session.label.replace('&', "&&");
+            let id = format!("{SESSION_PREFIX}{}", session.key);
+            next.push(MenuItem::with_id(app, id, label, true, None::<&str>)?.kind());
+        }
+        if more > 0 {
+            next.push(MenuItem::new(app, format!("ほか {more} 件"), false, None::<&str>)?.kind());
+        }
+        if !next.is_empty() {
+            next.push(PredefinedMenuItem::separator(app)?.kind());
+        }
+        for (position, item) in next.into_iter().enumerate() {
+            self.menu.insert(&item, position)?;
+            leading.push(item);
+        }
+        Ok(())
     }
 
     fn show_attention(&self, next: Attention) {
@@ -141,6 +212,13 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         display.panel_style == PanelStyle::Counts,
         None::<&str>,
     )?;
+    let mark_all_read = MenuItem::with_id(
+        app,
+        MARK_ALL_READ,
+        "完了をすべて既読にする",
+        false,
+        None::<&str>,
+    )?;
     let menu = Menu::with_items(
         app,
         &[
@@ -149,6 +227,8 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
             &show_character,
             &detail,
             &counts,
+            &PredefinedMenuItem::separator(app)?,
+            &mark_all_read,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, QUIT, "終了", true, None::<&str>)?,
         ],
@@ -174,11 +254,14 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         .build(app)?;
     Ok(Tray {
         icon,
+        menu,
+        sessions: Mutex::new(Vec::new()),
         attention: Mutex::new(Attention::None),
         toggle: toggle_item,
         show_character,
         detail,
         counts,
+        mark_all_read,
     })
 }
 
@@ -203,7 +286,18 @@ fn chosen_display(id: &str, current: PanelDisplay) -> Option<PanelDisplay> {
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
         TOGGLE => toggle(app),
+        MARK_ALL_READ => {
+            if let Err(e) = app.emit(MARK_ALL_READ_EVENT, ()) {
+                eprintln!("marimo: cannot send the tray choice: {e}");
+            }
+        }
         QUIT => app.exit(0),
+        id if id.starts_with(SESSION_PREFIX) => {
+            let key = &id[SESSION_PREFIX.len()..];
+            if let Err(e) = app.emit(SESSION_EVENT, key) {
+                eprintln!("marimo: cannot send the tray choice: {e}");
+            }
+        }
         id => {
             let Some(state) = app.try_state::<AppState>() else {
                 return;
