@@ -543,6 +543,21 @@ body {
   opacity: 0.6;
 }
 
+.today-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 0;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.today-marker {
+  width: 8px;
+  font-size: 9px;
+  text-align: center;
+}
+
 /* 背景の不透明度を変える小窓。位置は opacityPopover.ts がタブの列に合わせて入れる。
    動かしている間も読めるよう、地は背景の不透明度に合わせず不透明にする。 */
 #opacity-popover {

@@ -1,9 +1,6 @@
-import { sessionKey, type Acknowledged } from "./acknowledged";
+import { sessionKey, triggerKey, type Acknowledged } from "./acknowledged";
 import { chatTitle, folderName, STATUS_LABEL } from "./format";
 import type { SessionState, Snapshot, Status } from "./types";
-
-// 見たと示した完了の行を、薄くして残しておく時間。
-export const READ_LINGER_MS = 3 * 60 * 1000;
 
 /** 並べ方は詳細と件数のどちらの出し方にも効く。 */
 export type RowOrder = "started" | "status" | "updated";
@@ -12,8 +9,10 @@ export const ROW_ORDERS: readonly RowOrder[] = ["started", "status", "updated"];
 
 export interface PanelPlan {
   rows: SessionState[];
-  /** 見たと示された直後の完了の行の sessionKey。薄く描く。 */
+  /** その場所に残している既読の完了の行の sessionKey。薄く描く。 */
   read: ReadonlySet<string>;
+  /** 今日完了して既読にしたセッションのうち、その場所に残していないもの。完了した時刻の新しい順。 */
+  today: SessionState[];
 }
 
 // 承認待ち、エラー、作業中、完了の順に重要とみなす。marimo-core の Status::priority と同じ順である。
@@ -23,8 +22,12 @@ const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
  * 待機以外のセッションは作業中も畳まずに 1 行ずつ並べ、パネルに収まらない分はスクロールで見せるので、
  * 行の数に上限を設けない。期限の切れた Cloud の観測は待機として届くが、取り込んだ会話がまだあることは
  * 分かっているので、状態不明の行として残す。
- * 見たと示された完了は畳むが、押した直後に行が消えると何を押したのか見失うので、READ_LINGER_MS の
- * 間だけその場で薄くして残す。完了のまま放っておかれるセッションは多く、いつまでも残すと古い既読で埋まる。
+ * 見たと示された完了は畳むが、keep に triggerKey のある行だけはその場所に薄くして残す。パネルは下端を
+ * 固定しているので、続けて ✓ を押す間に行が畳まれると上の行が下へずれ、次に押そうとした行がマウスの下から
+ * 動いてしまうからである。keep はマウスがパネルの上にある間に既読にした行で、呼び出し側がマウスがパネルを
+ * 離れたときに空にする。
+ * 畳んだ既読の完了のうち、完了したのが今日のものは today に集め、パネルの下の 1 行から開いて見せる。
+ * 完了のまま放っておかれるセッションは多く、前の日の分まで並べると古い既読で埋まる。
  *
  * started は started_at の新しい順に並べる。パネルは下端を固定して上へ伸びるので、新しいセッションが
  * 一番上に加わっても既にある行は画面上の位置が変わらず、状態が変わっても行は動かない。started_at を
@@ -36,14 +39,12 @@ export function planPanel(
   ack: Acknowledged,
   order: RowOrder = "started",
   now: number = Date.now(),
+  keep: ReadonlySet<string> = new Set(),
 ): PanelPlan {
   const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle" || s.cloud?.expired);
   const isRead = (s: SessionState) => s.status === "done" && ack.has(s);
-  const lingering = active.filter((s) => {
-    const at = isRead(s) ? ack.seenAt(s) : undefined;
-    return at !== undefined && now - at < READ_LINGER_MS;
-  });
-  const read = new Set(lingering.map(sessionKey));
+  const kept = active.filter((s) => isRead(s) && keep.has(triggerKey(s)));
+  const read = new Set(kept.map(sessionKey));
   const compare: Record<RowOrder, (a: SessionState, b: SessionState) => number> = {
     started: (a, b) => b.started_at - a.started_at,
     status: (a, b) =>
@@ -52,10 +53,19 @@ export function planPanel(
       b.updated_at - a.updated_at,
     updated: (a, b) => b.updated_at - a.updated_at,
   };
-  const rows = [...active.filter((s) => !isRead(s)), ...lingering].sort(
+  const rows = [...active.filter((s) => !isRead(s)), ...kept].sort(
     (a, b) => compare[order](a, b) || compareIds(sessionKey(a), sessionKey(b)),
   );
-  return { rows, read };
+  const today = active
+    .filter((s) => isRead(s) && !keep.has(triggerKey(s)) && sameLocalDay(s.status_since, now))
+    .sort((a, b) => b.status_since - a.status_since || compareIds(sessionKey(a), sessionKey(b)));
+  return { rows, read, today };
+}
+
+function sameLocalDay(a: number, b: number): boolean {
+  const x = new Date(a);
+  const y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
 }
 
 function compareIds(a: string, b: string): number {
@@ -120,8 +130,9 @@ export function panelView(
   style: PanelStyle,
   order: RowOrder = "started",
   now: number = Date.now(),
+  keep: ReadonlySet<string> = new Set(),
 ): PanelView {
-  const plan = planPanel(snapshot, ack, order, now);
+  const plan = planPanel(snapshot, ack, order, now, keep);
   const sessions = snapshot?.sessions ?? [];
   const counted = sessions.filter((s) => !(s.status === "done" && ack.has(s)));
   const counts = COUNT_ORDER.map((status) => ({

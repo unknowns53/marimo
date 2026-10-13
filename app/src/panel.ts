@@ -40,6 +40,8 @@ const PROVIDER_BADGE: Record<Provider, string> = {
 export interface RowActions {
   select: (session: SessionState) => void;
   markRead: (session: SessionState) => void;
+  /** 今日の既読の行を押したときに、その下の一覧を開閉する。 */
+  toggleToday: () => void;
 }
 
 // 移動せずに既読にする修飾キー。macOS の Option と、それ以外の Alt は同じ altKey で届く。
@@ -62,13 +64,17 @@ export function renderPanel(
   icons: AppIcons,
   now: number,
   actions: RowActions,
+  todayOpen: boolean,
 ): void {
   const line = limitLine(rateLimits.claude, rateLimits.codex, now);
   if (line) renderLimits(limits, line, icons);
   let children: HTMLElement[];
-  if (!hasContent(view)) children = [el("div", "empty", EMPTY_LIST_TEXT)];
-  else if (view.style === "counts") children = [renderCounts(view, icons, now, actions)];
-  else children = detailChildren(view.plan, icons, now, actions);
+  if (!hasContent(view)) {
+    // 件数だけの表示は件数の行に重ねる詳細でだけ今日の既読を見せるので、件数が無ければ出さない。
+    const today = view.style === "detail" ? todayChildren(view.plan, icons, now, actions, todayOpen) : [];
+    children = [el("div", "empty", EMPTY_LIST_TEXT), ...today];
+  } else if (view.style === "counts") children = [renderCounts(view, icons, now, actions, todayOpen)];
+  else children = detailChildren(view.plan, icons, now, actions, todayOpen);
   const kept = keepScroll(rows);
   rows.replaceChildren(...children);
   // 件数の行の層は #rows の外へ伸びるので、件数だけの表示では #rows をスクロールの枠にしない。
@@ -141,8 +147,35 @@ function detailChildren(
   icons: AppIcons,
   now: number,
   actions: RowActions,
+  todayOpen: boolean,
 ): HTMLElement[] {
-  return plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, now, actions));
+  return [
+    ...plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, now, actions)),
+    ...todayChildren(plan, icons, now, actions, todayOpen),
+  ];
+}
+
+// 畳んだ既読の完了は 1 行の件数にまとめ、押すとその下に既読の行と同じ薄さで並べる。もう既読なので
+// 既読にするボタンは出さない。
+function todayChildren(
+  plan: PanelPlan,
+  icons: AppIcons,
+  now: number,
+  actions: RowActions,
+  open: boolean,
+): HTMLElement[] {
+  if (plan.today.length === 0) return [];
+  const line = el("div", "today-line");
+  line.title = "今日完了して既読にしたセッション";
+  line.setAttribute("role", "button");
+  line.setAttribute("aria-expanded", String(open));
+  line.append(el("span", "today-marker", open ? "▾" : "▸"), el("span", "", `今日の既読 ${plan.today.length} 件`));
+  line.addEventListener("click", (e) => {
+    e.stopPropagation();
+    actions.toggleToday();
+  });
+  if (!open) return [line];
+  return [line, ...plan.today.map((s) => renderRow(s, true, icons, now, actions))];
 }
 
 // 件数だけの表示は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
@@ -152,6 +185,7 @@ function renderCounts(
   icons: AppIcons,
   now: number,
   actions: RowActions,
+  todayOpen: boolean,
 ): HTMLElement {
   const line = () => {
     const node = el("div", "counts-line");
@@ -168,7 +202,7 @@ function renderCounts(
   const layer = el("div", "counts-detail hover-layer");
   // 件数の行まで一緒に流れないよう、スクロールの枠はその上の行だけにする。
   const list = el("div", "layer-rows row-scroll");
-  list.append(...detailChildren(view.plan, icons, now, actions));
+  list.append(...detailChildren(view.plan, icons, now, actions, todayOpen));
   layer.append(list, line());
   wrap.append(line(), layer);
   const target = view.target;
