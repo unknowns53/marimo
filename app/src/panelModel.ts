@@ -25,7 +25,7 @@ const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
  * 見たと示された完了は畳むが、keep に triggerKey のある行だけはその場所に薄くして残す。パネルは下端を
  * 固定しているので、続けて ✓ を押す間に行が畳まれると上の行が下へずれ、次に押そうとした行がマウスの下から
  * 動いてしまうからである。keep はマウスがパネルの上にある間に既読にした行で、呼び出し側がマウスがパネルを
- * 離れたときに空にする。
+ * 離れたときに空にする。状態順でも、残した行は未読の完了と同じ規則で並べて動かさない。
  * 畳んだ既読の完了のうち、完了したのが今日のものは today に集め、パネルの下の 1 行から開いて見せる。
  * 完了のまま放っておかれるセッションは多く、前の日の分まで並べると古い既読で埋まる。
  *
@@ -48,7 +48,6 @@ export function planPanel(
   const compare: Record<RowOrder, (a: SessionState, b: SessionState) => number> = {
     started: (a, b) => b.started_at - a.started_at,
     status: (a, b) =>
-      Number(read.has(sessionKey(a))) - Number(read.has(sessionKey(b))) ||
       COUNT_ORDER.indexOf(a.status) - COUNT_ORDER.indexOf(b.status) ||
       b.updated_at - a.updated_at,
     updated: (a, b) => b.updated_at - a.updated_at,

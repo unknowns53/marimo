@@ -65,7 +65,7 @@ describe("planPanel", () => {
     expect(ids(legacy.rows)).toEqual(["b", "a", "old1", "old2"]);
   });
 
-  it("shows every row in the chosen order, unread before seen for status, ties broken by session key", () => {
+  it("shows every row in the chosen order, kept read rows in place, ties broken by session key", () => {
     const ack = new Acknowledged();
     const seen = session("c", "done", 70, 70, 7);
     ack.add(triggerKey(seen));
@@ -81,7 +81,7 @@ describe("planPanel", () => {
     );
     const cases: [RowOrder, string[]][] = [
       ["started", ["c", "b", "f", "g", "h", "d", "e", "a"]],
-      ["status", ["a", "h", "e", "b", "f", "g", "d", "c"]],
+      ["status", ["a", "h", "e", "b", "f", "g", "c", "d"]],
       ["updated", ["a", "c", "b", "f", "g", "h", "d", "e"]],
     ];
     for (const [order, expected] of cases) {
