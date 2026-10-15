@@ -153,10 +153,13 @@ fn hook(provider: Provider) -> Result<(), String> {
         rollout,
         title,
         host: host(&parsed.hook_event_name, current.as_ref()),
-        // originator を読めない会話は、手で始めたものでありうるので隠さない。
-        hidden: originator
-            .as_deref()
-            .is_some_and(|o| !codex::started_by_hand(o)),
+        // デスクトップアプリの ambient suggestions のように rollout を残さない会話は originator を読めないので、
+        // 読めない会話には行を作らない。ただし SessionEnd は transcript_path を持たずに届くので、
+        // 手で始めたと分かって既に作った行は残す。
+        hidden: match originator.as_deref() {
+            Some(o) => !codex::started_by_hand(o),
+            None => provider == Provider::Codex && current.is_none(),
+        },
         ..store::HookExtras::default()
     };
     store::apply_hook(&home, &parsed, &extras).map_err(|e| format!("write failed: {e}"))
