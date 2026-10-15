@@ -71,7 +71,7 @@ Claude Code は 2.1.139 以降が必要です。marimo は、この版で加わ�
 
 | Claude Code の使い方 | 確認の状況 | 使える機能 |
 | --- | --- | --- |
-| macOS の端末で動かす CLI | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます。更新用のスクリプトで手元でビルドして更新する方法も確かめています。行を押してセッションへ移動する機能は Terminal.app で確かめており、iTerm2 と VS Code の統合ターミナルでの見分け方は、それぞれのアプリの文書に基づいています |
+| macOS の端末で動かす CLI | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます。更新用のスクリプトで手元でビルドして更新する方法も確かめています。行を押してセッションへ移動する機能は Terminal.app と Ghostty で確かめており、Ghostty では Claude Code の background session からも移れることを確かめています。iTerm2 と VS Code の統合ターミナルでの見分け方は、それぞれのアプリの文書に基づいています |
 | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限は CLI も使っているときだけ出ます。そのときは、CLI の statusLine が最後に届けた値を出します（[利用制限の表示](docs/usage.md#利用制限の表示)を参照） |
 | VS Code の拡張機能の画面 | 未確認 | statusLine が動くかどうかを確かめていません |
 | Windows | 一部確認済み | Windows 11 で、ビルド、NSIS（Windows 向けのインストーラを作る仕組み）のインストーラによる導入、更新用のスクリプトで手元でビルドする更新、`install`、フックの発火、自動起動、クリック透過、通知領域のアイコンから窓を隠して出し直す操作を確かめています。statusLine が無い場合の `install` による登録が Git Bash と PowerShell のどちらでも動くことと、既存の statusLine を `install` が包んでも元の表示が変わらず、CLI のセッションでコンテキスト使用率がパーセントで出ることも確かめています（[statusLine の包み方](docs/development.md#statusline-の包み方)を参照）。包めない statusLine を使っている場合は、marimo が statusLine を受け取れないので、Claude Code の利用制限は出ません。行を押してセッションへ移動する機能は、デスクトップアプリの Code タブ、Windows Terminal、conhost、VS Code の統合ターミナルのどれでも確かめています（[セッションへ移動する](docs/usage.md#セッションへ移動する)を参照） |
