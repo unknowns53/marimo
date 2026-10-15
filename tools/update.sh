@@ -4,14 +4,16 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-使い方: tools/update.sh [--no-pull] [--wait] [--build]
+使い方: tools/update.sh [--main | --no-pull] [--wait] [--build]
 
-既定では、main の最新を取り込み、CI がビルドしたものを GitHub のリリースから取ってきて入れ替えます。
+既定では、最新の正式なリリースを GitHub から取ってきて入れ替えます。リポジトリには触れません。
 
+  --main     main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
   --no-pull  ブランチが main であることの確認と取り込みを省き、今チェックアウトしているコミットを使います。
              --build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
-  --wait     CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
-  --build    取ってくる代わりに手元でビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
+  --wait     --main か --no-pull と一緒に使います。CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
+  --build    取ってくる代わりに手元でビルドします。--no-pull が無ければ、main の最新を取り込んでからビルドします。
+             ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
 EOF
 }
 
@@ -20,18 +22,29 @@ fail() {
   exit 1
 }
 
-pull=1
+main=0
+no_pull=0
 wait=0
 build=0
 for arg in "$@"; do
   case "$arg" in
-    --no-pull) pull=0 ;;
+    --main) main=1 ;;
+    --no-pull) no_pull=1 ;;
     --wait) wait=1 ;;
     --build) build=1 ;;
     -h | --help) usage; exit 0 ;;
     *) usage; fail "知らない引数です: $arg" ;;
   esac
 done
+
+if [[ $main -eq 1 && $no_pull -eq 1 ]]; then
+  usage
+  fail "--main と --no-pull は一緒に使えません。"
+fi
+if [[ $wait -eq 1 && $main -eq 0 && $no_pull -eq 0 ]]; then
+  usage
+  fail "--wait は CI がコミットごとに作るビルドを待つためのものなので、--main か --no-pull と一緒に使ってください。正式なリリースは公開された時点でできあがっています。"
+fi
 
 invoked_from="$PWD"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -54,7 +67,7 @@ app_new="/Applications/.marimo.app.new"
 app_old="/Applications/.marimo.app.old"
 running_pattern="$app_dest/Contents/MacOS/"
 
-if [[ $pull -eq 1 ]]; then
+if [[ $no_pull -eq 0 && ($main -eq 1 || $build -eq 1) ]]; then
   branch="$(git branch --show-current)"
   if [[ "$branch" != "main" ]]; then
     fail "今のブランチは「${branch:-（ブランチなし）}」です。main へ切り替えてから実行してください。ほかのブランチを試すときは --no-pull と --build を付けます。"
@@ -66,9 +79,9 @@ if [[ $pull -eq 1 ]]; then
   fi
   echo "最新の main を取り込んでいます"
   git pull --ff-only
-elif [[ $build -eq 1 ]]; then
+elif [[ $no_pull -eq 1 && $build -eq 1 ]]; then
   echo "--no-pull が指定されたので、今のチェックアウト（$(git branch --show-current || true)）をそのままビルドします"
-else
+elif [[ $no_pull -eq 1 ]]; then
   echo "--no-pull が指定されたので、今のチェックアウト（$(git branch --show-current || true)）のコミットのビルドを取ってきます"
 fi
 
@@ -97,24 +110,18 @@ fetch() {
   esac
 }
 
-download_build() {
-  local slug sha tag base archive not_ready started deadline expected actual
+prepare_download() {
   # CI がビルドするのは arm64 だけで、Intel の Mac では動かない。
   [[ "$(uname -m)" == "arm64" ]] || fail "CI のビルドは arm64 の Mac 用だけです。この Mac では --build を付けて手元でビルドしてください。"
-  slug="$(repo_slug)"
-  # CI はアプリに入らないファイルだけを変えたコミットをビルドしないので、アプリに入るファイルを変えた最後のコミットのビルドを探す。
-  # この一覧は .github/workflows/ci.yml の target ジョブと同じにしておく。
-  sha="$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore')"
-  [[ -n "$sha" ]] || fail "git でビルドを探すコミットを調べられませんでした。"
-  tag="build-${sha:0:12}"
-  base="https://github.com/$slug/releases/download/$tag"
-  archive="marimo-macos-arm64.tar.gz"
-  not_ready="コミット ${sha:0:12} のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確かめてください。アプリは差し替えていません。"
-
   work="$(mktemp -d "${TMPDIR:-/tmp}/marimo-update.XXXXXX")"
   trap 'rm -rf "$work"' EXIT
+}
 
-  echo "$tag のビルドを取ってきています"
+# $1 のリリースから SHA256SUMS とアーカイブを取ってきて確かめ、展開したものを bundle と hook に入れる。
+# 取れないときは $2 を表示して止まり、--wait が無ければ $3 を続けて表示する。
+download_from() {
+  local base="$1" not_ready="$2" wait_hint="$3" archive started deadline interval expected actual
+  archive="marimo-macos-arm64.tar.gz"
   started=$SECONDS
   # リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、--wait が無くても 1 分は確かめ直す。
   if [[ $wait -eq 1 ]]; then
@@ -130,7 +137,7 @@ download_build() {
       if [[ $wait -eq 1 ]]; then
         fail "30 分待ってもできあがりませんでした。$not_ready"
       fi
-      fail "${not_ready}--wait を付けると、できあがるまで最大 30 分待ちます。"
+      fail "${not_ready}${wait_hint}"
     fi
     if [[ $wait -eq 1 ]]; then
       echo "CI のビルドを待っています（$(((SECONDS - started) / 60)) 分経過、最大 30 分）"
@@ -158,6 +165,37 @@ download_build() {
   retry_install="tools/update.sh をもう一度実行してください"
 }
 
+download_commit_build() {
+  local slug sha tag
+  prepare_download
+  slug="$(repo_slug)"
+  # CI はアプリに入らないファイルだけを変えたコミットをビルドしないので、アプリに入るファイルを変えた最後のコミットのビルドを探す。
+  # この一覧は .github/workflows/ci.yml の target ジョブと同じにしておく。
+  sha="$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore')"
+  [[ -n "$sha" ]] || fail "git でビルドを探すコミットを調べられませんでした。"
+  tag="build-${sha:0:12}"
+  echo "$tag のビルドを取ってきています"
+  download_from "https://github.com/$slug/releases/download/$tag" \
+    "コミット ${sha:0:12} のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確かめてください。アプリは差し替えていません。" \
+    "--wait を付けると、できあがるまで最大 30 分待ちます。"
+}
+
+download_release() {
+  local slug api tag
+  prepare_download
+  slug="$(repo_slug)"
+  # この API は下書きとプレリリースを除いた最新のリリースを返すので、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
+  api="https://api.github.com/repos/$slug/releases/latest"
+  fetch "$api" "$work/release.json" ||
+    fail "https://github.com/$slug/releases に正式なリリースがまだありません。main の最新のビルドを入れるときは --main を付けてください。アプリは差し替えていません。"
+  tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$work/release.json" | head -n 1)"
+  [[ -n "$tag" ]] || fail "$api の応答からリリースのタグを読み取れませんでした。"
+  echo "正式なリリース $tag を取ってきています"
+  download_from "https://github.com/$slug/releases/download/$tag" \
+    "リリース $tag に macOS 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確かめてください。アプリは差し替えていません。" \
+    ""
+}
+
 if [[ $build -eq 1 ]]; then
   echo "marimo-hook をビルドしています"
   cargo build --release -p marimo-hook
@@ -174,8 +212,10 @@ if [[ $build -eq 1 ]]; then
   [[ -d "$bundle" ]] || fail "ビルドしたアプリが見つかりません: $bundle"
   [[ -x "$hook" ]] || fail "ビルドした marimo-hook が見つかりません: $hook"
   retry_install="$hook install を実行し直してください"
+elif [[ $main -eq 1 || $no_pull -eq 1 ]]; then
+  download_commit_build
 else
-  download_build
+  download_release
 fi
 
 if pgrep -f "$running_pattern" >/dev/null; then

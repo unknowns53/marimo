@@ -7,19 +7,23 @@
 marimo を新しい版へ更新します。
 
 .DESCRIPTION
-既定では、main の最新を取り込み、CI がビルドしたものを GitHub のリリースから取ってきて入れ直します。
+既定では、最新の正式なリリースを GitHub から取ってきて入れ直します。リポジトリには触れません。
+
+.PARAMETER Main
+main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
 
 .PARAMETER NoPull
 ブランチが main であることの確認と取り込みを省き、今チェックアウトしているコミットを使います。-Build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
 
 .PARAMETER Wait
-CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
+-Main か -NoPull と一緒に使います。CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
 
 .PARAMETER Build
-取ってくる代わりに手元でビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
+取ってくる代わりに手元でビルドします。-NoPull が無ければ、main の最新を取り込んでからビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
 #>
 [CmdletBinding()]
 param(
+    [switch]$Main,
     [switch]$NoPull,
     [switch]$Wait,
     [switch]$Build
@@ -30,6 +34,11 @@ $ErrorActionPreference = 'Stop'
 function Fail([string]$Message) {
     Write-Host "エラー: $Message" -ForegroundColor Red
     exit 1
+}
+
+if ($Main -and $NoPull) { Fail '-Main と -NoPull は一緒に使えません。' }
+if ($Wait -and -not ($Main -or $NoPull)) {
+    Fail '-Wait は CI がコミットごとに作るビルドを待つためのものなので、-Main か -NoPull と一緒に使ってください。正式なリリースは公開された時点でできあがっています。'
 }
 
 # Windows PowerShell 5.1 は、stderr がリダイレクトされていると外部コマンドの stderr の行を
@@ -101,38 +110,25 @@ function Save-Url([string]$Url, [string]$Path) {
     }
 }
 
-function Get-Build([string]$Work) {
-    # Windows PowerShell 5.1 は TLS 1.2 を既定で使わないことがあり、GitHub への接続を拒まれる。
-    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    # Windows PowerShell 5.1 の Invoke-WebRequest は進み具合の表示を描くたびに遅くなり、ダウンロードが何倍も長くかかる。
-    $ProgressPreference = 'SilentlyContinue'
-
-    $slug = Get-RepoSlug
-    # CI はアプリに入らないファイルだけを変えたコミットをビルドしないので、アプリに入るファイルを変えた最後のコミットのビルドを探す。
-    # この一覧は .github/workflows/ci.yml の target ジョブと同じにしておく。
-    $sha = git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore'
-    if ($LASTEXITCODE -ne 0 -or -not $sha) { Fail 'git でビルドを探すコミットを調べられませんでした。' }
-    $short = $sha.Substring(0, 12)
-    $tag = "build-$short"
-    $base = "https://github.com/$slug/releases/download/$tag"
+# $Base のリリースから SHA256SUMS とアーカイブを取ってきて確かめ、展開したフォルダを返す。
+# 取れないときは $NotReady を表示して止まり、-Wait が無ければ $WaitHint を続けて表示する。
+function Save-Build([string]$Work, [string]$Base, [string]$NotReady, [string]$WaitHint) {
     $archive = 'marimo-windows-x64.zip'
     $sumsPath = Join-Path $Work 'SHA256SUMS'
     $archivePath = Join-Path $Work $archive
-    $notReady = "コミット $short のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確かめてください。アプリは入れ直していません。"
 
-    Write-Host "$tag のビルドを取ってきています"
     $started = Get-Date
     # リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、-Wait が無くても 1 分は確かめ直す。
     if ($Wait) { $deadline = $started.AddMinutes(30); $interval = 30 }
     else { $deadline = $started.AddMinutes(1); $interval = 10 }
     while ($true) {
-        $code = Save-Url "$base/SHA256SUMS" $sumsPath
-        if ($code -eq 200) { $code = Save-Url "$base/$archive" $archivePath }
+        $code = Save-Url "$Base/SHA256SUMS" $sumsPath
+        if ($code -eq 200) { $code = Save-Url "$Base/$archive" $archivePath }
         if ($code -eq 200) { break }
-        if ($code -ne 404) { Fail "$base から取得できませんでした（HTTP $code）。" }
+        if ($code -ne 404) { Fail "$Base から取得できませんでした（HTTP $code）。" }
         if ((Get-Date) -ge $deadline) {
-            if ($Wait) { Fail "30 分待ってもできあがりませんでした。$notReady" }
-            Fail "${notReady}-Wait を付けると、できあがるまで最大 30 分待ちます。"
+            if ($Wait) { Fail "30 分待ってもできあがりませんでした。$NotReady" }
+            Fail "$NotReady$WaitHint"
         }
         if ($Wait) { Write-Host "CI のビルドを待っています（$([int]((Get-Date) - $started).TotalMinutes) 分経過、最大 30 分）" }
         else { Write-Host "ビルドがまだ取れないので、$interval 秒後に確かめ直します（最大 1 分）" }
@@ -155,6 +151,38 @@ function Get-Build([string]$Work) {
     $extract
 }
 
+function Get-CommitBuild([string]$Work) {
+    $slug = Get-RepoSlug
+    # CI はアプリに入らないファイルだけを変えたコミットをビルドしないので、アプリに入るファイルを変えた最後のコミットのビルドを探す。
+    # この一覧は .github/workflows/ci.yml の target ジョブと同じにしておく。
+    $sha = git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore'
+    if ($LASTEXITCODE -ne 0 -or -not $sha) { Fail 'git でビルドを探すコミットを調べられませんでした。' }
+    $short = $sha.Substring(0, 12)
+    $tag = "build-$short"
+    $notReady = "コミット $short のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確かめてください。アプリは入れ直していません。"
+
+    Write-Host "$tag のビルドを取ってきています"
+    Save-Build $Work "https://github.com/$slug/releases/download/$tag" $notReady '-Wait を付けると、できあがるまで最大 30 分待ちます。'
+}
+
+function Get-ReleaseBuild([string]$Work) {
+    $slug = Get-RepoSlug
+    # この API は下書きとプレリリースを除いた最新のリリースを返すので、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
+    $api = "https://api.github.com/repos/$slug/releases/latest"
+    $jsonPath = Join-Path $Work 'release.json'
+    $code = Save-Url $api $jsonPath
+    if ($code -eq 404) {
+        Fail "https://github.com/$slug/releases に正式なリリースがまだありません。main の最新のビルドを入れるときは -Main を付けてください。アプリは入れ直していません。"
+    }
+    if ($code -ne 200) { Fail "$api を取得できませんでした（HTTP $code）。" }
+    $tag = (Get-Content -LiteralPath $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json).tag_name
+    if (-not $tag) { Fail "$api の応答からリリースのタグを読み取れませんでした。" }
+    $notReady = "リリース $tag に Windows 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確かめてください。アプリは入れ直していません。"
+
+    Write-Host "正式なリリース $tag を取ってきています"
+    Save-Build $Work "https://github.com/$slug/releases/download/$tag" $notReady ''
+}
+
 $installDir = Join-Path $env:LOCALAPPDATA 'marimo'
 $installedExe = Join-Path $installDir 'marimo.exe'
 # 呼び出し元のセッションにある同じ名前の変数を、最後の片付けで消してしまわないよう空にしておく。
@@ -162,7 +190,7 @@ $work = $null
 
 Push-Location -LiteralPath $root
 try {
-    if (-not $NoPull) {
+    if (-not $NoPull -and ($Main -or $Build)) {
         $branch = git branch --show-current
         if ($LASTEXITCODE -ne 0) { Fail 'git でブランチを調べられませんでした。' }
         if ($branch -ne 'main') {
@@ -180,7 +208,7 @@ try {
     } elseif ($Build) {
         $branch = git branch --show-current
         Write-Host "-NoPull が指定されたので、今のチェックアウト（$branch）をそのままビルドします"
-    } else {
+    } elseif ($NoPull) {
         $branch = git branch --show-current
         Write-Host "-NoPull が指定されたので、今のチェックアウト（$branch）のコミットのビルドを取ってきます"
     }
@@ -211,9 +239,15 @@ try {
         if (-not $installer) { Fail "ビルドしたインストーラが見つかりません: $nsisDir" }
         $retryInstall = "$hook install を実行し直してください"
     } else {
+        # Windows PowerShell 5.1 は TLS 1.2 を既定で使わないことがあり、GitHub への接続を拒まれる。
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        # Windows PowerShell 5.1 の Invoke-WebRequest は進み具合の表示を描くたびに遅くなり、ダウンロードが何倍も長くかかる。
+        $ProgressPreference = 'SilentlyContinue'
+
         $work = Join-Path ([IO.Path]::GetTempPath()) ('marimo-update-' + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $work | Out-Null
-        $extract = Get-Build $work
+        if ($Main -or $NoPull) { $extract = Get-CommitBuild $work }
+        else { $extract = Get-ReleaseBuild $work }
         $hook = Join-Path $extract 'marimo-hook.exe'
         if (-not (Test-Path -LiteralPath $hook)) { Fail "取ってきたものの中に marimo-hook.exe が見つかりません。" }
         $installer = @(Get-ChildItem -LiteralPath $extract -Filter 'marimo_*_x64-setup.exe') | Select-Object -First 1
