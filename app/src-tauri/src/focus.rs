@@ -6,6 +6,7 @@ use marimo_core::{Origin, ProcessRef, Provider, SessionState, WindowRef, hermes}
 
 const TERMINAL: &str = "com.apple.Terminal";
 const ITERM: &str = "com.googlecode.iterm2";
+const GHOSTTY: &str = "com.mitchellh.ghostty";
 const VSCODE: &str = "com.microsoft.VSCode";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,6 +16,11 @@ pub enum Target {
     },
     ItermSession {
         tty: String,
+    },
+    /// Ghostty の AppleScript はターミナルの tty を返さないので、題名と作業フォルダで探す。
+    GhosttyTerminal {
+        title: Option<String>,
+        cwd: Option<String>,
     },
     EditorFolder {
         bundle_id: String,
@@ -60,7 +66,8 @@ const WINDOWS_SHELL: [&str; 7] = [
 
 // 端末の見分け方の根拠は次のとおり。Terminal.app の TERM_PROGRAM=Apple_Terminal と
 // __CFBundleIdentifier は実機で確かめた。iTerm2 の TERM_PROGRAM=iTerm.app は iTerm2 自身の
-// シェル統合スクリプトが同じ値で判定している。VS Code の TERM_PROGRAM=vscode は
+// シェル統合スクリプトが同じ値で判定している。Ghostty の TERM_PROGRAM=ghostty と
+// __CFBundleIdentifier=com.mitchellh.ghostty は実機で確かめた。VS Code の TERM_PROGRAM=vscode は
 // https://code.visualstudio.com/docs/terminal/shell-integration に記載がある。
 pub fn plan(session: &SessionState) -> Target {
     // Hermes は gateway の裏で動き、会話はチャットアプリの中にあるので、そのチャンネルを開く。
@@ -84,6 +91,12 @@ pub fn plan(session: &SessionState) -> Target {
         if term == Some("iTerm.app") || bundle == Some(ITERM) {
             return Target::ItermSession { tty };
         }
+    }
+    if term == Some("ghostty") || bundle == Some(GHOSTTY) {
+        return Target::GhosttyTerminal {
+            title: session.title.clone(),
+            cwd: session.cwd.clone(),
+        };
     }
     // VS Code の派生（Cursor など）も TERM_PROGRAM=vscode を名乗るので、
     // 開くアプリは記録した bundle id を優先する。
@@ -152,13 +165,19 @@ fn is_windows_absolute(path: &str) -> bool {
 pub fn run(target: Target) {
     std::thread::spawn(move || match target {
         Target::TerminalTab { tty } => {
-            if !osascript(TERMINAL_SCRIPT, &tty) {
+            if !osascript(TERMINAL_SCRIPT, &[&tty]) {
                 open(&["-b", TERMINAL]);
             }
         }
         Target::ItermSession { tty } => {
-            if !osascript(ITERM_SCRIPT, &tty) {
+            if !osascript(ITERM_SCRIPT, &[&tty]) {
                 open(&["-b", ITERM]);
+            }
+        }
+        Target::GhosttyTerminal { title, cwd } => {
+            let args = [title.as_deref().unwrap_or(""), cwd.as_deref().unwrap_or("")];
+            if !osascript(GHOSTTY_SCRIPT, &args) {
+                open(&["-b", GHOSTTY]);
             }
         }
         // フォルダを開いているウィンドウがあれば、open はそのウィンドウを前面に出す。
@@ -266,10 +285,52 @@ on run argv
 end run
 "#;
 
-fn osascript(script: &str, arg: &str) -> bool {
+// Ghostty の辞書（Ghostty.app の Ghostty.sdef）で、terminal は name と working directory を持ち、
+// focus はそのターミナルのウィンドウを前面に出す。Claude Code は端末の題名を、状態を表す一文字と
+// 空白に続けて会話の題名にするので、先頭の一語を除いた残りが題名と一致するものを先に探す。
+// 題名で見つからなければ、作業フォルダが一致するターミナルが一つだけのときにそれを選ぶ。
+const GHOSTTY_SCRIPT: &str = r#"
+on run argv
+  set wanted to item 1 of argv
+  set wantedDir to item 2 of argv
+  if application "Ghostty" is not running then return "absent"
+  tell application "Ghostty"
+    if wanted is not "" then
+      repeat with t in terminals
+        set n to name of t
+        set bare to n
+        if n contains " " then set bare to text ((offset of " " in n) + 1) thru -1 of n
+        if n is wanted or bare is wanted then
+          focus t
+          activate
+          return "ok"
+        end if
+      end repeat
+    end if
+    if wantedDir is not "" then
+      set match to missing value
+      set hits to 0
+      repeat with t in terminals
+        if working directory of t is wantedDir then
+          set match to contents of t
+          set hits to hits + 1
+        end if
+      end repeat
+      if hits is 1 then
+        focus match
+        activate
+        return "ok"
+      end if
+    end if
+  end tell
+  return "missing"
+end run
+"#;
+
+fn osascript(script: &str, args: &[&str]) -> bool {
     let child = Command::new("/usr/bin/osascript")
         .arg("-")
-        .arg(arg)
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -377,6 +438,15 @@ mod tests {
             plan(&session(Some("com.anthropic.claudefordesktop"), None, None)),
             Target::App {
                 bundle_id: "com.anthropic.claudefordesktop".into()
+            }
+        );
+        let mut ghostty = session(None, Some("ghostty"), tty);
+        ghostty.title = Some("seed 600 比較".into());
+        assert_eq!(
+            plan(&ghostty),
+            Target::GhosttyTerminal {
+                title: Some("seed 600 比較".into()),
+                cwd: Some("/w/proj".into())
             }
         );
         // tty が分からない Terminal.app は、アプリを前面に出すだけにする。

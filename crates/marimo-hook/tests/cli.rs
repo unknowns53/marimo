@@ -17,6 +17,7 @@ fn run_with_env(home: &Path, args: &[&str], stdin: &[u8], envs: &[(&str, &str)])
         .env("HERMES_HOME", home.join("no-hermes-home"))
         .env_remove("TERM_PROGRAM")
         .env_remove("__CFBundleIdentifier")
+        .env_remove("GHOSTTY_RESOURCES_DIR")
         .envs(envs.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -152,7 +153,9 @@ fn codex_hook_tracks_state_context_title_and_rate_limits() {
             "rate_limits": {"primary": {"used_percent": 12.5, "window_minutes": 10080, "resets_at": 1_800_000_000},
                             "secondary": null, "plan_type": "plus"}}
     });
-    std::fs::write(&rollout, format!("{token_count}\n")).unwrap();
+    let meta = json!({"timestamp": "2026-09-27T00:00:00.000Z", "type": "session_meta",
+        "payload": {"id": "t1", "originator": "codex-tui"}});
+    std::fs::write(&rollout, format!("{meta}\n{token_count}\n")).unwrap();
     let envs = [("CODEX_HOME", codex_home.to_str().unwrap())];
     let send = |v: Value| {
         let out = run_with_env(&home, &["codex-hook"], v.to_string().as_bytes(), &envs);
@@ -169,6 +172,15 @@ fn codex_hook_tracks_state_context_title_and_rate_limits() {
         v
     };
     let codex_session = || session(&home, "codex-t1").unwrap();
+
+    // rollout を残さない会話は、どのイベントでも行を作らない。
+    for name in ["SessionStart", "UserPromptSubmit", "Stop"] {
+        send(
+            json!({"session_id": "t2", "cwd": "/", "transcript_path": null,
+            "hook_event_name": name, "turn_id": "u1", "prompt": "x"}),
+        );
+    }
+    assert!(session(&home, "codex-t2").is_none());
 
     send(event(
         "SessionStart",
@@ -214,11 +226,18 @@ fn codex_hook_tracks_state_context_title_and_rate_limits() {
     assert_eq!(codex_session()["status"], "waiting");
     send(event("Interrupt", json!({"turn_id": "u1"})));
     assert_eq!(codex_session()["status"], "idle");
+    send(event(
+        "UserPromptSubmit",
+        json!({"turn_id": "u2", "prompt": "again"}),
+    ));
+    send(event("Stop", json!({"turn_id": "u2"})));
+    assert_eq!(codex_session()["status"], "done");
+    // 未読の完了は、rollout を指さない SessionEnd が届いても残す。
     send(
         json!({"session_id": "t1", "hook_event_name": "SessionEnd", "cwd": "/w/p",
         "transcript_path": null, "reason": "exit"}),
     );
-    assert!(session(&home, "codex-t1").is_none());
+    assert_eq!(codex_session()["status"], "done");
 }
 
 #[test]
