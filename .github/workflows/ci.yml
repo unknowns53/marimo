@@ -2,9 +2,11 @@ name: CI
 
 # 文書だけを変えたコミットでは、検査の結果もビルドも変わらないので走らせない。
 # 検査はするがビルドはしないファイルの一覧は、下の target ジョブが持つ。
+# v で始まるタグの push では正式なリリースを作る。GitHub はタグの push に paths-ignore を当てないので、タグの push は必ず走る。
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -20,10 +22,10 @@ permissions:
   contents: read
 
 # 同じブランチに続けて push したときは、古い方の実行を止めてランナーを空ける。
-# main への push と main での手動の実行では、公開の途中で実行ごと止めると作りかけのリリースが残るので、実行ごとに別のグループにする。
+# main と v で始まるタグでの実行では、公開の途中で実行ごと止めると作りかけのリリースが残るので、実行ごとに別のグループにする。
 # main で古いビルドを止めるかどうかは、下のジョブごとの concurrency で決める。
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.run_id || 'latest' }}
+  group: ci-${{ github.ref }}-${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.run_id || 'latest' }}
   cancel-in-progress: true
 
 jobs:
@@ -93,13 +95,15 @@ jobs:
   # この一覧を変えるときは、tools/update.sh と tools/update.ps1 の同じ一覧も直す。
   # 中身の変わらないコミットへ force push すると push では CI が起動せず、そのコミットのビルドができない。
   # それを作り直せるよう、main での手動の実行でもビルドと公開を行う。
+  # v で始まるタグでの実行では、タグの付いたコミットを毎回ビルドし、タグと同じ名前のリリースとして公開する。
   target:
     name: find the build to publish
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     outputs:
-      sha: ${{ steps.find.outputs.sha }}
-      needed: ${{ steps.find.outputs.needed }}
+      sha: ${{ steps.find.outputs.sha || steps.release.outputs.sha }}
+      needed: ${{ steps.find.outputs.needed || steps.release.outputs.needed }}
+      formal: ${{ github.ref_type == 'tag' }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -113,6 +117,7 @@ jobs:
 
       - name: Find the commit the update scripts look for
         id: find
+        if: github.ref_type == 'branch'
         run: |
           sha="$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore')"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
@@ -122,6 +127,50 @@ jobs:
           else
             echo "needed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # アプリが名乗る版とリリースの名前が食い違わないよう、タグの版が四つのファイルの版とそろっていなければビルドしない。
+      # main を通っていないコミットは main の検査を経ていないので、正式なリリースにしない。
+      - name: Check the version tag
+        id: release
+        if: github.ref_type == 'tag'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          sha="$(git rev-parse 'HEAD^{commit}')"
+          python3 - "$TAG" <<'EOF'
+          import json
+          import sys
+          import tomllib
+
+          tag = sys.argv[1]
+          want = tag.removeprefix('v')
+
+          def load_json(path):
+              with open(path, encoding='utf-8') as f:
+                  return json.load(f)
+
+          with open('Cargo.toml', 'rb') as f:
+              cargo = tomllib.load(f)
+          lock = load_json('app/package-lock.json')
+          found = {
+              'Cargo.toml の [workspace.package] version': cargo['workspace']['package']['version'],
+              'app/src-tauri/tauri.conf.json の version': load_json('app/src-tauri/tauri.conf.json')['version'],
+              'app/package.json の version': load_json('app/package.json')['version'],
+              'app/package-lock.json の version': lock['version'],
+              'app/package-lock.json の packages[""].version': lock['packages']['']['version'],
+          }
+          wrong = [f'{where} は {version}' for where, version in found.items() if version != want]
+          if wrong:
+              print(f'::error::タグ {tag} の版 {want} がファイルの版と合いません（' + '、'.join(wrong) + '）。版を直して main へコミットし、そのコミットにタグを付け直してください。')
+              sys.exit(1)
+          print(f'タグ {tag} の版 {want} は四つのファイルの版とそろっています')
+          EOF
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::error::タグ $TAG の付いたコミット ${sha::12} は main に入っていません。main へ入れたコミットにタグを付け直してください。"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "needed=true" >> "$GITHUB_OUTPUT"
 
   # 利用者の Mac は arm64 なので、arm64 のランナーである macos-latest でビルドする。
   build-macos:
@@ -257,6 +306,7 @@ jobs:
       # 更新用のスクリプトは build-<コミットの先頭 12 文字> のタグからビルドを探す。
       # 失敗した実行をやり直したときにも通るよう、リリースがあれば中身だけを差し替える。
       - name: Publish the prerelease
+        if: needs.target.outputs.formal != 'true'
         working-directory: dist
         env:
           SHA: ${{ needs.target.outputs.sha }}
@@ -273,7 +323,32 @@ jobs:
               --notes "main のコミット ${SHA} を自動でビルドしたものです。tools/update.sh と tools/update.ps1 がこのビルドを取りに来ます。"
           fi
 
-      # build- で始まらないリリースとタグには触れない。
+      # 更新用のスクリプトは、既定では GitHub が Latest と示す正式なリリースを取りに来る。
+      # SemVer では - の後ろが先行版を表すので、v0.2.0-rc.1 のようなタグはプレリリースにして、Latest にしない。
+      # --verify-tag は、push されたタグが消されていたときに、gh が既定のブランチの先端へ新しくタグを作るのを止める。
+      - name: Publish the release
+        if: needs.target.outputs.formal == 'true'
+        working-directory: dist
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          files=(marimo-macos-arm64.tar.gz marimo-windows-x64.zip SHA256SUMS)
+          if [[ "$TAG" == *-* ]]; then
+            kind=(--prerelease --latest=false)
+          else
+            kind=(--latest)
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" "${files[@]}" \
+              --verify-tag \
+              "${kind[@]}" \
+              --title "marimo $TAG" \
+              --generate-notes
+          fi
+
+      # build- で始まるプレリリースだけを消し、v で始まるリリースとプレリリースを含むほかのリリースとタグには触れない。
       - name: Delete old builds
         run: |
           gh release list --limit 200 --json tagName,isPrerelease,createdAt \
