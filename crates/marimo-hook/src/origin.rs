@@ -13,6 +13,9 @@ pub fn detect(event: &str, codex_originator: Option<&str>) -> Origin {
         tty: ancestor_tty(),
         ..Origin::default()
     };
+    if origin.bundle_id.is_none() && origin.term_program.is_none() {
+        origin.term_program = ghostty_clue();
+    }
     if origin.bundle_id.is_none() && may_have_moved(event) {
         origin.bundle_id = app_bundle_clue(codex_originator);
     }
@@ -25,6 +28,12 @@ pub fn detect(event: &str, codex_originator: Option<&str>) -> Origin {
 // 保存済みの値を Origin::merge に残させる。
 fn may_have_moved(event: &str) -> bool {
     matches!(event, "SessionStart" | "UserPromptSubmit")
+}
+
+// Claude Code の background session は daemon の pty で動き、claude の環境から TERM_PROGRAM と
+// __CFBundleIdentifier が消えるが、Ghostty がシェルに入れる GHOSTTY_RESOURCES_DIR は残る（実機で確かめた）。
+fn ghostty_clue() -> Option<String> {
+    var("GHOSTTY_RESOURCES_DIR").map(|_| "ghostty".to_owned())
 }
 
 fn var(name: &str) -> Option<String> {
