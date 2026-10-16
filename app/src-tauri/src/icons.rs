@@ -12,14 +12,16 @@ pub struct AppIcons {
     pub claude: Option<String>,
     pub codex: Option<String>,
     pub hermes: Option<String>,
+    pub opencode: Option<String>,
 }
 
 pub fn load() -> AppIcons {
-    let [claude, codex] = platform_pngs();
+    let [claude, codex, opencode] = platform_pngs();
     AppIcons {
         claude: claude.map(data_url),
         codex: codex.map(data_url),
         hermes: None,
+        opencode: opencode.map(data_url),
     }
 }
 
@@ -31,24 +33,31 @@ fn data_url(png: Vec<u8>) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn platform_pngs() -> [Option<Vec<u8>>; 2] {
+fn platform_pngs() -> [Option<Vec<u8>>; 3] {
     // Codex のデスクトップアプリは ChatGPT.app として入り、bundle id は com.openai.codex である。
-    ["com.anthropic.claudefordesktop", "com.openai.codex"].map(mac::app_icon_png)
+    // OpenCode のデスクトップアプリ（OpenCode.app）の bundle id は ai.opencode.desktop である。
+    [
+        "com.anthropic.claudefordesktop",
+        "com.openai.codex",
+        "ai.opencode.desktop",
+    ]
+    .map(mac::app_icon_png)
 }
 
+// OpenCode のデスクトップアプリを MSIX のパッケージとして読む手がかりが無いので、文字の印で出す。
 #[cfg(windows)]
-fn platform_pngs() -> [Option<Vec<u8>>; 2] {
+fn platform_pngs() -> [Option<Vec<u8>>; 3] {
     let mut logos = marimo_core::appicon::package_logos(
         &["Claude_pzs8sxrjxfjjc", "OpenAI.Codex_2p2nqsd0c76g0"],
         ICON_PX as f32,
     )
     .into_iter();
-    [logos.next().flatten(), logos.next().flatten()]
+    [logos.next().flatten(), logos.next().flatten(), None]
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
-fn platform_pngs() -> [Option<Vec<u8>>; 2] {
-    [None, None]
+fn platform_pngs() -> [Option<Vec<u8>>; 3] {
+    [None, None, None]
 }
 
 #[cfg(target_os = "macos")]

@@ -103,7 +103,7 @@ let dialogue: Dialogue = {};
 let defaultDialogue: Dialogue = {};
 let speechTimer: number | undefined;
 let panelDisplay: PanelDisplay = DEFAULT_PANEL_DISPLAY;
-let appIcons: AppIcons = { claude: null, codex: null, hermes: null };
+let appIcons: AppIcons = { claude: null, codex: null, hermes: null, opencode: null };
 let scale: ScaleControl | undefined;
 // ログイン項目の状態はアプリの外（システム設定など）でも変わるので、設定の窓が開くたびに読み直す。
 // 読めなかったときは undefined にする。

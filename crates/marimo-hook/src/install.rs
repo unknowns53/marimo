@@ -10,6 +10,7 @@ use marimo_core::time::now_ms;
 use marimo_core::{MarimoHome, store};
 use serde_json::Value;
 
+use crate::opencode_plugin;
 use crate::settings_edit::{self, Marimo, StatusLineChange};
 
 pub enum Mode {
@@ -31,11 +32,13 @@ pub fn run(mode: Mode, args: &[OsString]) -> Result<(), String> {
     match mode {
         Mode::Install => {
             install(&opts, &exe, &marimo)?;
-            codex(&mode, &opts, &exe)
+            codex(&mode, &opts, &exe)?;
+            opencode(&mode, &opts, &exe)
         }
         Mode::Uninstall => {
             uninstall(&opts, &marimo)?;
             codex(&mode, &opts, &exe)?;
+            opencode(&mode, &opts, &exe)?;
             print(&format!(
                 "実行ファイルとデータは残しています。不要なら次を消してください。\n  {}\n  {}\n",
                 exe.display(),
@@ -102,6 +105,77 @@ fn codex(mode: &Mode, opts: &Options, exe: &Path) -> Result<(), String> {
                 }
             }
         },
+    }
+    print(&out);
+    Ok(())
+}
+
+const OPENCODE_RELOAD_NOTE: &str = "OpenCode は起動したときにプラグインを読み込みます。動いている OpenCode は、バックグラウンドのサービスも含めて起動し直してください（サービスは opencode service restart で起動し直せます）。\n";
+
+// OpenCode の設定のフォルダが無ければ OpenCode は入っていないものとして、何も表示しない。
+// 設定ファイル（opencode.jsonc）は書き換えず、OpenCode が自動で読み込む plugins/ にプラグインを一つ置く。
+// 同じ名前のファイルが marimo の書いたものでなければ、書き換えも削除もしない。
+fn opencode(mode: &Mode, opts: &Options, exe: &Path) -> Result<(), String> {
+    let Some(dir) = opencode_plugin::config_dir().filter(|d| d.is_dir()) else {
+        return Ok(());
+    };
+    let path = dir.join("plugins").join(opencode_plugin::FILE_NAME);
+    let mut out = String::from("\nOpenCode\n");
+    if opts.dry_run {
+        out += "dry-run のため、ファイルは書き換えていません。\n";
+    }
+    out += &format!("プラグイン: {}\n", path.display());
+    // dotfiles の管理でリンクになっていれば、settings.json と同じくリンク先を読み書きする。
+    let target = resolve_symlink(&path);
+    let existing = match fs::read(&target) {
+        Ok(b) => Some(b),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("{} を読めません: {e}", target.display())),
+    };
+    let foreign = existing
+        .as_deref()
+        .is_some_and(|b| !std::str::from_utf8(b).is_ok_and(opencode_plugin::is_ours));
+    if foreign {
+        out += "marimo が書いたものではない同じ名前のファイルがあるので、触れていません。\n";
+        print(&out);
+        return Ok(());
+    }
+    match mode {
+        Mode::Install => {
+            let text = opencode_plugin::render(&exe.to_string_lossy());
+            if existing.as_deref() == Some(text.as_bytes()) {
+                out += "変更はありません（すでにインストール済みです）。\n";
+            } else if opts.dry_run {
+                out += "プラグインを書き込みます。\n";
+            } else {
+                let plugins = target.parent().unwrap_or(Path::new("."));
+                fs::create_dir_all(plugins)
+                    .map_err(|e| format!("{} を作れません: {e}", plugins.display()))?;
+                write_replacing(&target, text.as_bytes())?;
+                let reread = fs::read(&target)
+                    .map_err(|e| format!("書き込んだプラグインを読み直せません: {e}"))?;
+                if reread != text.as_bytes() {
+                    return Err(format!(
+                        "{} の中身が書き込んだものと違います",
+                        target.display()
+                    ));
+                }
+                out += "プラグインを書き込みました。\n";
+                out += OPENCODE_RELOAD_NOTE;
+            }
+        }
+        Mode::Uninstall => {
+            if existing.is_none() {
+                out += "プラグインがないので、取り除くものはありません。\n";
+            } else if opts.dry_run {
+                out += "プラグインを取り除きます。\n";
+            } else {
+                fs::remove_file(&path)
+                    .map_err(|e| format!("{} を消せません: {e}", path.display()))?;
+                out += "プラグインを取り除きました。\n";
+                out += OPENCODE_RELOAD_NOTE;
+            }
+        }
     }
     print(&out);
     Ok(())

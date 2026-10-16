@@ -12,9 +12,10 @@ fn run_with_env(home: &Path, args: &[&str], stdin: &[u8], envs: &[(&str, &str)])
     let mut child = Command::new(env!("CARGO_BIN_EXE_marimo-hook"))
         .args(args)
         .env("MARIMO_HOME", home)
-        // 利用者の本物の Codex と Hermes のフォルダを読まないよう、存在しない場所を指しておく。
+        // 利用者の本物の Codex、Hermes、OpenCode のフォルダを読まないよう、存在しない場所を指しておく。
         .env("CODEX_HOME", home.join("no-codex-home"))
         .env("HERMES_HOME", home.join("no-hermes-home"))
+        .env("XDG_CONFIG_HOME", home.join("no-config-home"))
         .env_remove("TERM_PROGRAM")
         .env_remove("__CFBundleIdentifier")
         .env_remove("GHOSTTY_RESOURCES_DIR")
@@ -334,6 +335,81 @@ fn hermes_hook_tracks_a_discord_turn() {
 }
 
 #[test]
+fn opencode_hook_tracks_a_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("marimo");
+    let sid = "ses_0123456789abcdefghijklmn";
+    let send = |event: Value| {
+        let mut payload = json!({
+            "id": "evt_1", "created": 1, "location": { "directory": "/w/proj" },
+        });
+        payload
+            .as_object_mut()
+            .unwrap()
+            .extend(event.as_object().unwrap().clone());
+        payload["data"]["sessionID"] = json!(sid);
+        let out = run(&home, &["opencode-hook"], payload.to_string().as_bytes());
+        assert_eq!(out.status.code(), Some(0));
+        assert!(out.stdout.is_empty());
+        assert!(
+            out.stderr.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    let state = || session(&home, &format!("opencode-{sid}"));
+
+    send(json!({
+        "type": "session.created",
+        "data": { "title": "テストの会話", "location": { "directory": "/w/proj" } }
+    }));
+    send(json!({ "type": "session.execution.started", "data": {} }));
+    let s = state().unwrap();
+    assert_eq!(
+        (&s["provider"], &s["status"]),
+        (&json!("opencode"), &json!("working"))
+    );
+    assert_eq!(s["title"], "テストの会話");
+    assert_eq!(s["cwd"], "/w/proj");
+    assert!(s.get("origin").is_none_or(Value::is_null), "{s}");
+    assert_eq!(s["host"]["pid"], std::process::id(), "{s}");
+
+    send(json!({
+        "type": "permission.asked",
+        "data": { "id": "per_1", "action": "shell", "resources": ["ls"] }
+    }));
+    assert_eq!(state().unwrap()["status"], "waiting");
+    send(json!({
+        "type": "permission.replied",
+        "data": { "requestID": "per_1", "reply": "once" }
+    }));
+    assert_eq!(state().unwrap()["status"], "working");
+
+    send(json!({
+        "type": "session.step.ended",
+        "context_window": 200000,
+        "data": { "tokens": { "input": 20000, "output": 0, "reasoning": 0, "cache": { "read": 0, "write": 0 } } }
+    }));
+    assert_eq!(state().unwrap()["context"]["used_percentage"], 10.0);
+    send(json!({ "type": "session.renamed", "data": { "title": "付け直した題" } }));
+    assert_eq!(state().unwrap()["title"], "付け直した題");
+
+    send(json!({
+        "type": "session.execution.succeeded",
+        "last_text": "hi",
+        "data": {}
+    }));
+    let s = state().unwrap();
+    assert_eq!(s["status"], "done");
+    assert_eq!(s["activity"]["summary"], "hi");
+
+    send(json!({ "type": "session.deleted", "data": {} }));
+    assert!(state().is_none());
+    // OpenCode のファイルは接頭辞で Claude Code のファイルと分けるので、接頭辞の無い名前では作らない。
+    assert!(session(&home, sid).is_none());
+}
+
+#[test]
 fn broken_input_exits_zero_with_empty_stdout() {
     let dir = tempfile::tempdir().unwrap();
     let inputs: [&[u8]; 5] = [
@@ -348,6 +424,7 @@ fn broken_input_exits_zero_with_empty_stdout() {
             &["hook"][..],
             &["codex-hook"][..],
             &["hermes-hook"][..],
+            &["opencode-hook"][..],
             &["statusline"][..],
             &["record", "x"][..],
             &["nope"][..],

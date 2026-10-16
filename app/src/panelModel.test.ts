@@ -151,14 +151,14 @@ describe("acknowledged sessions", () => {
     expect([...planPanel(snap(claudeDone, codexDone), ack, "started", 1001, keep).read]).toEqual(["same", "codex:same"]);
   });
 
-  it("keeps a Hermes session apart from the others with the same id", () => {
+  it.each(["hermes", "opencode"] as const)("keeps a %s session apart from the others with the same id", (provider) => {
     const claudeDone = session("same", "done", 10, 10, 1);
-    const hermesDone = { ...session("same", "done", 10, 10, 2), provider: "hermes" as const };
-    expect(triggerKey(hermesDone)).toBe("hermes:same:done:10");
+    const otherDone = { ...session("same", "done", 10, 10, 2), provider };
+    expect(triggerKey(otherDone)).toBe(`${provider}:same:done:10`);
     const ack = new Acknowledged();
-    ack.add(triggerKey(hermesDone));
-    const keep = new Set([triggerKey(claudeDone), triggerKey(hermesDone)]);
-    expect([...planPanel(snap(claudeDone, hermesDone), ack, "started", 1001, keep).read]).toEqual(["hermes:same"]);
+    ack.add(triggerKey(otherDone));
+    const keep = new Set([triggerKey(claudeDone), triggerKey(otherDone)]);
+    expect([...planPanel(snap(claudeDone, otherDone), ack, "started", 1001, keep).read]).toEqual([`${provider}:same`]);
   });
 
   it("keeps waiting and error rows even when seen", () => {

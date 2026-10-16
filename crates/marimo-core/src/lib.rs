@@ -3,6 +3,7 @@ pub mod appicon;
 pub mod cloud;
 pub mod codex;
 pub mod hermes;
+pub mod opencode;
 pub mod paths;
 pub mod process;
 pub mod repo;

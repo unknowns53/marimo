@@ -32,13 +32,14 @@ impl MarimoHome {
 
     /// session_id はフックの入力をそのまま使うので、`sessions/` の外を指しうる値や
     /// ファイル名にできない値には `None` を返す。ツールごとに session_id は別々に振られるので、
-    /// Codex と Hermes のファイルには接頭辞を付けて同じ値でもぶつからないようにする。
+    /// Claude Code 以外のファイルには接頭辞を付けて同じ値でもぶつからないようにする。
     /// Claude Code のファイル名は以前の版と同じままにする。
     pub fn session_file(&self, provider: Provider, session_id: &str) -> Option<PathBuf> {
         let prefix = match provider {
             Provider::Claude => "",
             Provider::Codex => "codex-",
             Provider::Hermes => "hermes-",
+            Provider::Opencode => "opencode-",
         };
         is_safe_id(session_id).then(|| {
             self.sessions_dir()
@@ -120,7 +121,12 @@ mod tests {
     #[test]
     fn session_file_rejects_path_tricks() {
         let home = MarimoHome::at("/tmp/m");
-        for provider in [Provider::Claude, Provider::Codex, Provider::Hermes] {
+        for provider in [
+            Provider::Claude,
+            Provider::Codex,
+            Provider::Hermes,
+            Provider::Opencode,
+        ] {
             assert!(home.session_file(provider, "abc-123_x").is_some());
             for bad in ["", "../evil", "a/b", "a\\b", ".hidden"] {
                 assert!(home.session_file(provider, bad).is_none(), "{bad}");
@@ -135,6 +141,10 @@ mod tests {
         assert_eq!(
             name(Provider::Hermes),
             home.sessions_dir().join("hermes-s1.json")
+        );
+        assert_eq!(
+            name(Provider::Opencode),
+            home.sessions_dir().join("opencode-s1.json")
         );
     }
 }
