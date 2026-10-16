@@ -17,8 +17,8 @@ export function triggerKey(s: SessionState): string {
 
 /**
  * 利用者が「見た」と示したきっかけの集まり。吹き出しを押して閉じたときと、行を押してセッションへ
- * 移動したときに加える。吹き出しはこれに含まれるきっかけを再び出さず、パネルは完了の行を畳む。
- * 再起動のたびに同じ完了をまた知らせないよう、変わるたびに onChange で保存してもらう。
+ * 移動したときに加える。吹き出しはこれに含まれるきっかけを再び出さず、パネルは完了とエラーの行を畳む。
+ * 再起動のたびに同じ完了やエラーをまた知らせないよう、変わるたびに onChange で保存してもらう。
  */
 export class Acknowledged {
   private keys = new Set<string>();
@@ -54,20 +54,28 @@ export class Acknowledged {
   }
 }
 
-// まだ既読にしていない完了のセッション。
-export function unreadDone(snapshot: Snapshot | null, ack: Acknowledged): SessionState[] {
-  return (snapshot?.sessions ?? []).filter((s) => s.status === "done" && !ack.has(s));
+/**
+ * 見たと示せば既読として畳む状態。完了とエラーはターンが終わった後の状態で、次のプロンプトを送るまで
+ * 続く。承認待ちは利用者が応じるまでエージェントが止まっているので、見ただけでは畳まない。
+ */
+export const MARKABLE: ReadonlySet<Status> = new Set(["done", "error"]);
+
+export function isRead(s: SessionState, ack: Acknowledged): boolean {
+  return MARKABLE.has(s.status) && ack.has(s);
+}
+
+// まだ既読にしていない完了とエラーのセッション。
+export function unreadMarkable(snapshot: Snapshot | null, ack: Acknowledged): SessionState[] {
+  return (snapshot?.sessions ?? []).filter((s) => MARKABLE.has(s.status) && !ack.has(s));
 }
 
 /**
- * 見たと示された完了を待機とみなして集約し直したスナップショットを返す。フックは利用者が
- * 結果を読んだかどうかを知らないので、Rust 側の集約のままだと、読み終えた後も表情が完了の
+ * 見たと示された完了とエラーを待機とみなして集約し直したスナップショットを返す。フックは利用者が
+ * 結果を読んだかどうかを知らないので、Rust 側の集約のままだと、読み終えた後も表情が完了やエラーの
  * まま残り、他のセッションが作業中でもその顔に戻らない。
  */
 export function withAcknowledged(snapshot: Snapshot, ack: Acknowledged): Snapshot {
-  const effective = snapshot.sessions.map((s) =>
-    s.status === "done" && ack.has(s) ? "idle" : s.status,
-  );
+  const effective = snapshot.sessions.map((s) => (isRead(s, ack) ? "idle" : s.status));
   const aggregate = STATUS_PRIORITY.find((p) => effective.includes(p)) ?? "idle";
   return aggregate === snapshot.aggregate ? snapshot : { ...snapshot, aggregate };
 }

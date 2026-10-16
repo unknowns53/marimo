@@ -17,7 +17,7 @@ use crate::scale::{self, PanelDisplay, PanelStyle};
 /// 続けて選んだ反転が同じ保存値から作られて一回分になるからである。
 const PANEL_DISPLAY_EVENT: &str = "tray-panel-display";
 
-/// 既読の集合はフロントエンドが持つので、トレイの「完了をすべて既読にする」は押されたことだけを送る。
+/// 既読の集合はフロントエンドが持つので、トレイの「すべて既読にする」は押されたことだけを送る。
 const MARK_ALL_READ_EVENT: &str = "tray-mark-all-read";
 
 /// どのセッションを開くかを決めるのに要る既読の集合はフロントエンドが持つので、選ばれた鍵だけを送る。
@@ -63,8 +63,9 @@ enum Attention {
 }
 
 // 集約は承認待ちをエラーより上に置くので、集約だけを見れば「一つでも承認待ちがあれば承認待ち、
-// 無くてエラーがあればエラー」になる。完了はフロントエンドが既読で畳むが、承認待ちとエラーは
-// 解消するまで行に残すので、既読を考えずにスナップショットの集約から決めてよい。
+// 無くてエラーがあればエラー」になる。既読の集合はフロントエンドが持ち、窓を隠している間は webview が
+// 止まりうるので、既読を考えずにスナップショットの集約から決める。既読にしたエラーも、そのエラーが
+// 続く間はアイコンに出る。
 fn attention(aggregate: Status) -> Attention {
     match aggregate {
         Status::Waiting => Attention::Waiting,
@@ -87,7 +88,7 @@ impl Tray {
         }
     }
 
-    pub fn set_unread_done(&self, any: bool) {
+    pub fn set_any_unread(&self, any: bool) {
         if let Err(e) = self.mark_all_read.set_enabled(any) {
             eprintln!("marimo: cannot update the tray menu: {e}");
         }
@@ -213,13 +214,8 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         display.panel_style == PanelStyle::Counts,
         None::<&str>,
     )?;
-    let mark_all_read = MenuItem::with_id(
-        app,
-        MARK_ALL_READ,
-        "完了をすべて既読にする",
-        false,
-        None::<&str>,
-    )?;
+    let mark_all_read =
+        MenuItem::with_id(app, MARK_ALL_READ, "すべて既読にする", false, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
