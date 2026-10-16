@@ -34,5 +34,71 @@ endorsement by or affiliation with Anthropic. The script
 tools/character/clawd.py itself is code and is licensed under
 LICENSE-APACHE or LICENSE-MIT like the other code.
 
-All other files in this repository, apart from assets/character/clawd/, are
-licensed under either of LICENSE-APACHE or LICENSE-MIT, at your option.
+Third-party tool icons (app/src/assets/providers/)
+
+The two icons in app/src/assets/providers/ mark the rows of the tools they
+belong to and are excluded from the CC BY 4.0 grant above and from the code
+licenses below. They are copies of images distributed under the MIT License
+by the projects named below, scaled down to 64 x 64 pixels. The names and
+logos remain the trademarks of their owners, and their use here does not
+imply endorsement by or affiliation with those projects.
+
+  hermes.png    from apps/desktop/assets/appx/
+                Square44x44Logo.targetsize-256_altform-unplated.png in
+                https://github.com/NousResearch/hermes-agent
+  opencode.png  from packages/console/app/src/asset/brand/
+                opencode-logo-light-square.png in
+                https://github.com/anomalyco/opencode, cropped to the
+                central 420 x 420 pixels before scaling
+
+Hermes Agent license:
+
+MIT License
+
+Copyright (c) 2025 Nous Research
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+OpenCode license:
+
+MIT License
+
+Copyright (c) 2025 opencode
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+All other files in this repository, apart from assets/character/clawd/ and
+app/src/assets/providers/, are licensed under either of LICENSE-APACHE or
+LICENSE-MIT, at your option.

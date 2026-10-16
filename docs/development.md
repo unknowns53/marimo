@@ -221,7 +221,7 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 - **OpenCode のプラグインが渡すもの** OpenCode のセッションでは、プラグインが選んだイベントの中身（セッションの ID、作業フォルダ、ツールの名前と引数、実行許可を求める操作の種類と対象、質問のフォームの欄、エラーの種類と文、各ステップのトークン数）を受け取ります。プラグインはこれに、ターンで最後に書かれた応答の文章と、OpenCode に尋ねた値を足して渡します。プラグインが OpenCode に尋ねるのは、作成を見ていないセッションの親、題名、作業フォルダと、モデルの一覧にあるコンテキストの上限だけです。OpenCode のファイルは読みません。
 - **ターンを動かしているプロセス** セッションの開始時とプロンプトを送ったとき（Hermes と OpenCode ではターンの始まり）と、まだ記録の無い行へのフックで、フックの祖先のうちシェルでない最も近いプロセスの ID と起動した時刻を状態ファイルに記録します。シェルを見分けるために祖先の実行ファイルの名前を読みますが、名前は記録しません。アプリは、記録したプロセスがまだ動いているかを OS に尋ねるだけで、引数は読みません。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）、API の応答を待った時間の累計（`cost.total_api_duration_ms`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。
-- **アプリのアイコン** パネルの印に使うため、起動したときに一度だけ、Claude、Codex、OpenCode のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop`、`com.openai.codex`、`ai.opencode.desktop` のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。Windows では OpenCode のアイコンを問い合わせず、いつも `OC` の文字の印を出します。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。
+- **アプリのアイコン** パネルの印に使うため、起動したときに一度だけ、Claude、Codex、OpenCode のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop`、`com.openai.codex`、`ai.opencode.desktop` のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。Windows では OpenCode のアイコンを問い合わせません。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。Hermes Agent のアイコンと、OpenCode のデスクトップアプリのアイコンを受け取れなかったときの OpenCode のアイコンは、`app/src/assets/providers/` に同梱した画像を使います（出どころと許諾は `LICENSE-ASSETS` に書いています）。
 
 ### marimo が書くもの
 

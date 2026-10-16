@@ -30,13 +30,19 @@ const PROVIDER_NAME: Record<Provider, string> = {
   opencode: "OpenCode",
 };
 
-// アプリのアイコンは同梱せず利用者のアプリから読むので、読めないときはこの文字で示す。
-// Hermes はデスクトップアプリを持たないので、いつもこの文字になる。
+// Claude と Codex のアイコンは同梱できないので利用者のデスクトップアプリから読み、読めないときはこの文字で示す。
 const PROVIDER_BADGE: Record<Provider, string> = {
   claude: "CC",
   codex: "CX",
   hermes: "HM",
   opencode: "OC",
+};
+
+// Hermes Agent と OpenCode は MIT ライセンスで配られているアイコンを同梱し、デスクトップアプリが無くても出す。
+// 出どころと許諾は LICENSE-ASSETS に書いている。
+const BUNDLED_ICON: Partial<Record<Provider, string>> = {
+  hermes: new URL("./assets/providers/hermes.png", import.meta.url).href,
+  opencode: new URL("./assets/providers/opencode.png", import.meta.url).href,
 };
 
 /** 行を押したときの操作。markRead は移動せずに、そのきっかけを見たものとして扱う。 */
@@ -285,7 +291,7 @@ function renderAge(updatedAt: number, now: number): HTMLElement {
 }
 
 function providerMarker(provider: Provider, icons: AppIcons): HTMLElement {
-  const src = icons[provider];
+  const src = icons[provider] ?? BUNDLED_ICON[provider];
   if (!src) {
     const badge = el("span", "provider provider-badge", PROVIDER_BADGE[provider]);
     badge.setAttribute("aria-label", PROVIDER_NAME[provider]);
