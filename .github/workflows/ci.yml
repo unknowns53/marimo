@@ -82,7 +82,9 @@ jobs:
       # Windows では、利用者が使う Windows PowerShell 5.1 と PowerShell 7 の両方で読む。
       - name: Parse the update script (macOS)
         if: runner.os == 'macOS'
-        run: bash -n tools/update.sh
+        run: |
+          bash -n tools/update.sh
+          bash -n tools/release.sh
 
       - name: Parse the update script (Windows)
         if: runner.os == 'Windows'
