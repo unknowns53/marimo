@@ -4,11 +4,12 @@
 //! 動いているアプリは自分自身を差し替えられないので、取ってきて照合し展開するところまでをアプリで行い、
 //! 差し替えと起動し直しは書き出した補助のスクリプトに任せてアプリは終了する。
 
+use std::cmp::Ordering;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{self, AtomicBool};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
@@ -70,7 +71,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     if in_source_tree() {
         return Err("開発中の実行ファイルからは更新できません。".into());
     }
-    if INSTALLING.swap(true, Ordering::SeqCst) {
+    if INSTALLING.swap(true, atomic::Ordering::SeqCst) {
         return Err("更新はすでに進めています。".into());
     }
     let handle = app.clone();
@@ -80,7 +81,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
             Ok(())
         }
         Err(e) => {
-            INSTALLING.store(false, Ordering::SeqCst);
+            INSTALLING.store(false, atomic::Ordering::SeqCst);
             Err(e)
         }
     }
@@ -246,14 +247,14 @@ fn path_str(path: &Path) -> Result<&str, String> {
         .ok_or_else(|| format!("{} の場所を扱えませんでした。", path.display()))
 }
 
+/// 先行版を入れているアプリだけが、先行版も更新先にする。先行版で試している間は次の先行版へ進み、
+/// 正式な版が出ればそちらへ移る。正式な版を入れているアプリには先行版を届けない。
 fn latest_release() -> Result<Release, String> {
-    let api = latest_release_api(REPO);
-    let (code, body) = fetch_text(&api)?;
+    let include_prerelease = is_prerelease(env!("CARGO_PKG_VERSION"));
+    let (code, body) = fetch_text(&releases_api(REPO))?;
     match code {
-        200 => parse_release(&body, REPO).ok_or_else(|| {
-            "GitHub の応答から最新のリリースのバージョンを読み取れませんでした。".into()
-        }),
-        404 => Err("GitHub に正式なリリースがまだありません。".into()),
+        200 => newest_release(&body, REPO, include_prerelease)
+            .ok_or_else(|| "GitHub に更新先のリリースがまだありません。".into()),
         _ => Err(format!(
             "GitHub で最新のリリースを調べられませんでした（HTTP {code}）。"
         )),
@@ -543,18 +544,34 @@ fn split_status(stdout: &[u8]) -> Option<(u16, Vec<u8>)> {
     Some((code, stdout[..at].to_vec()))
 }
 
-fn latest_release_api(repo: &str) -> String {
-    // この API は下書きとプレリリースを除いた最新のリリースを返すので、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
-    format!("https://api.github.com/repos/{repo}/releases/latest")
+// 新しく作られた順に返る。CI が main のコミットごとに作る build- のプレリリースは 3 件しか残さないので、
+// 1 ページで最近の v のリリースまで届く。
+fn releases_api(repo: &str) -> String {
+    format!("https://api.github.com/repos/{repo}/releases?per_page=50")
 }
 
 fn download_base(repo: &str, tag: &str) -> String {
     format!("https://github.com/{repo}/releases/download/{tag}")
 }
 
-/// タグは URL とスクリプトに埋め込むので、版の名前に使う文字だけでできたものに限る。
-fn parse_release(body: &[u8], repo: &str) -> Option<Release> {
+/// リリースの一覧から、v で始まる版のうち最も新しいものを選ぶ。build- のタグと下書きは選ばない。
+fn newest_release(body: &[u8], repo: &str, include_prerelease: bool) -> Option<Release> {
     let json: Value = serde_json::from_slice(body).ok()?;
+    json.as_array()?
+        .iter()
+        .filter(|r| r.get("draft").and_then(Value::as_bool) == Some(false))
+        .filter(|r| {
+            include_prerelease || r.get("prerelease").and_then(Value::as_bool) == Some(false)
+        })
+        .filter_map(|r| parse_release(r, repo))
+        .filter(|r| r.tag.starts_with('v'))
+        .filter_map(|r| parse_version(&r.tag).map(|v| (v, r)))
+        .max_by(|(a, _), (b, _)| compare_versions(a, b))
+        .map(|(_, r)| r)
+}
+
+/// タグは URL とスクリプトに埋め込むので、版の名前に使う文字だけでできたものに限る。
+fn parse_release(json: &Value, repo: &str) -> Option<Release> {
     let tag = json.get("tag_name")?.as_str()?;
     let safe = !tag.is_empty()
         && tag
@@ -583,33 +600,72 @@ fn expected_sum(sums: &str, file: &str) -> Option<String> {
     })
 }
 
-/// 版を数字の並びとして比べ、latest が current より新しいかを返す。数字が同じなら、
-/// ハイフンの付いたプレリリースより付いていない正式な版を新しいとみなす。読めない版は新しくないとする。
+/// latest が current より新しいかを返す。読めない版は新しくないとする。
 fn is_newer(latest: &str, current: &str) -> bool {
-    let (Some((latest, latest_pre)), Some((current, current_pre))) =
-        (parse_version(latest), parse_version(current))
-    else {
-        return false;
-    };
-    let len = latest.len().max(current.len());
-    let at = |v: &[u64], i: usize| v.get(i).copied().unwrap_or(0);
-    let latest: Vec<u64> = (0..len).map(|i| at(&latest, i)).collect();
-    let current: Vec<u64> = (0..len).map(|i| at(&current, i)).collect();
-    latest > current || (latest == current && current_pre && !latest_pre)
+    match (parse_version(latest), parse_version(current)) {
+        (Some(latest), Some(current)) => compare_versions(&latest, &current) == Ordering::Greater,
+        _ => false,
+    }
 }
 
-fn parse_version(version: &str) -> Option<(Vec<u64>, bool)> {
+fn is_prerelease(version: &str) -> bool {
+    parse_version(version).is_some_and(|v| !v.pre.is_empty())
+}
+
+struct Version {
+    core: Vec<u64>,
+    pre: Vec<PreIdent>,
+}
+
+// SemVer の先行版の識別子の順序。数字だけのものは数として比べ、英字を含むものより前に置く。
+// 列挙の順に並ぶので、Num を先に書く。
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum PreIdent {
+    Num(u64),
+    Alpha(String),
+}
+
+/// 数字の並びを 0 で埋めて比べ、同じなら SemVer の規則で先行版を比べる。+ 以降のビルド情報は比べない。
+fn compare_versions(a: &Version, b: &Version) -> Ordering {
+    let len = a.core.len().max(b.core.len());
+    let at = |v: &[u64], i: usize| v.get(i).copied().unwrap_or(0);
+    (0..len)
+        .map(|i| at(&a.core, i).cmp(&at(&b.core, i)))
+        .find(|o| o.is_ne())
+        .unwrap_or_else(|| match (a.pre.is_empty(), b.pre.is_empty()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => a.pre.cmp(&b.pre),
+        })
+}
+
+fn parse_version(version: &str) -> Option<Version> {
     let version = version.trim();
     let version = version.strip_prefix('v').unwrap_or(version);
-    let (core, pre) = match version.find(['-', '+']) {
-        Some(at) => (&version[..at], version[at..].starts_with('-')),
-        None => (version, false),
-    };
-    let numbers = core
+    let version = version.split_once('+').map_or(version, |(v, _)| v);
+    let (core, pre) = version.split_once('-').unwrap_or((version, ""));
+    let core = core
         .split('.')
         .map(|part| part.parse().ok())
         .collect::<Option<Vec<u64>>>()?;
-    Some((numbers, pre))
+    let pre = if pre.is_empty() {
+        Vec::new()
+    } else {
+        pre.split('.')
+            .map(|id| match id.parse() {
+                Ok(n) => Some(PreIdent::Num(n)),
+                _ if !id.is_empty()
+                    && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                    && !id.bytes().all(|b| b.is_ascii_digit()) =>
+                {
+                    Some(PreIdent::Alpha(id.to_string()))
+                }
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?
+    };
+    Some(Version { core, pre })
 }
 
 fn sh_quote(s: &str) -> String {
@@ -878,6 +934,14 @@ mod tests {
             ("+1.0.0", "0.1.0", false),
             ("99999999999999999999999.0.0", "0.1.0", false),
             ("0.2.0", "garbage", false),
+            ("0.1.2-beta.1", "0.1.1", true),
+            ("0.1.2-beta.2", "0.1.2-beta.1", true),
+            ("0.1.2-beta.10", "0.1.2-beta.2", true),
+            ("0.1.2-rc.1", "0.1.2-beta.9", true),
+            ("0.1.2-beta.1", "0.1.2-beta", true),
+            ("0.1.2-beta.1", "0.1.2-beta.1", false),
+            ("0.1.2-beta..1", "0.1.1", false),
+            ("0.1.2-be_ta", "0.1.1", false),
         ] {
             assert_eq!(
                 is_newer(latest, current),
@@ -888,38 +952,48 @@ mod tests {
     }
 
     #[test]
-    fn reads_release_from_api_response() {
+    fn picks_newest_v_release_for_the_channel() {
         let repo = "owner/repo";
-        for (body, want) in [
-            (
-                r#"{"tag_name": "v0.2.0", "html_url": "https://github.com/owner/repo/releases/tag/v0.2.0"}"#,
-                Some((
-                    "v0.2.0",
-                    "https://github.com/owner/repo/releases/tag/v0.2.0",
-                )),
-            ),
-            (
-                r#"{"tag_name": "v0.3.0"}"#,
-                Some((
-                    "v0.3.0",
-                    "https://github.com/owner/repo/releases/tag/v0.3.0",
-                )),
-            ),
-            (r#"{"tag_name": ""}"#, None),
-            (r#"{"tag_name": "v1'; rm -rf ~"}"#, None),
-            (r#"{"tag_name": 3}"#, None),
-            (r#"{"message": "Not Found"}"#, None),
-            ("not json", None),
+        let release = |tag: &str, prerelease: bool, draft: bool| {
+            format!(
+                r#"{{"tag_name": "{tag}", "prerelease": {prerelease}, "draft": {draft}, "html_url": "https://example.com/{tag}"}}"#
+            )
+        };
+        let body = format!(
+            "[{}]",
+            [
+                release("build-1c96f341edd2", true, false),
+                release("v0.1.3-beta.1", true, false),
+                release("v0.2.0", false, true),
+                release("v0.1.2-beta.10", true, false),
+                release("v0.1.2-beta.2", true, false),
+                release("v0.1.1", false, false),
+                release("v1'; rm -rf ~", false, false),
+                release("v0.1.0", false, false),
+            ]
+            .join(",")
+        );
+        for (body, include_prerelease, want) in [
+            (body.as_str(), false, Some("v0.1.1")),
+            (body.as_str(), true, Some("v0.1.3-beta.1")),
+            ("[]", true, None),
+            (r#"{"message": "Not Found"}"#, false, None),
+            ("not json", false, None),
         ] {
-            let want = want.map(|(tag, url)| Release {
-                tag: tag.into(),
-                url: url.into(),
-            });
-            assert_eq!(parse_release(body.as_bytes(), repo), want, "body {body:?}");
+            let got = newest_release(body.as_bytes(), repo, include_prerelease);
+            assert_eq!(got.as_ref().map(|r| r.tag.as_str()), want, "{body:?}");
         }
+        // html_url が無ければリポジトリとタグから組み立てる。
         assert_eq!(
-            latest_release_api(repo),
-            "https://api.github.com/repos/owner/repo/releases/latest"
+            newest_release(
+                br#"[{"tag_name": "v0.3.0", "prerelease": false, "draft": false}]"#,
+                repo,
+                false
+            ),
+            Some(Release {
+                tag: "v0.3.0".into(),
+                url: "https://github.com/owner/repo/releases/tag/v0.3.0".into(),
+            })
         );
         assert_eq!(
             download_base(repo, "v0.2.0"),
