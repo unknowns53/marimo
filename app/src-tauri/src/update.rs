@@ -250,8 +250,9 @@ fn latest_release() -> Result<Release, String> {
     let api = latest_release_api(REPO);
     let (code, body) = fetch_text(&api)?;
     match code {
-        200 => parse_release(&body, REPO)
-            .ok_or_else(|| "GitHub の応答から最新のリリースのバージョンを読み取れませんでした。".into()),
+        200 => parse_release(&body, REPO).ok_or_else(|| {
+            "GitHub の応答から最新のリリースのバージョンを読み取れませんでした。".into()
+        }),
         404 => Err("GitHub に正式なリリースがまだありません。".into()),
         _ => Err(format!(
             "GitHub で最新のリリースを調べられませんでした（HTTP {code}）。"
