@@ -4,9 +4,11 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-使い方: tools/update.sh [--main | --no-pull] [--wait] [--build]
+使い方: tools/update.sh [--pre | --main | --no-pull] [--wait] [--build]
 
 既定では、最新の正式なリリースを GitHub から取ってきて入れ替えます。リポジトリには触れません。
+
+  --pre      先行版（プレリリース）も含めて、最も新しく公開された v で始まるリリースを取ってきます。
 
   --main     main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
   --no-pull  ブランチが main であることの確認と取り込みを省き、今チェックアウトしているコミットを使います。
@@ -22,12 +24,14 @@ fail() {
   exit 1
 }
 
+pre=0
 main=0
 no_pull=0
 wait=0
 build=0
 for arg in "$@"; do
   case "$arg" in
+    --pre) pre=1 ;;
     --main) main=1 ;;
     --no-pull) no_pull=1 ;;
     --wait) wait=1 ;;
@@ -40,6 +44,10 @@ done
 if [[ $main -eq 1 && $no_pull -eq 1 ]]; then
   usage
   fail "--main と --no-pull は一緒に使えません。"
+fi
+if [[ $pre -eq 1 && ($main -eq 1 || $no_pull -eq 1 || $build -eq 1) ]]; then
+  usage
+  fail "--pre はリリースを選ぶためのものなので、--main、--no-pull、--build とは一緒に使えません。"
 fi
 if [[ $wait -eq 1 && $main -eq 0 && $no_pull -eq 0 ]]; then
   usage
@@ -180,17 +188,35 @@ download_commit_build() {
     "--wait を付けると、できあがるまで最大 30 分待ちます。"
 }
 
+# 一覧は新しく作られた順に返るので、v で始まる下書きでない最初のものを選ぶ。CI が main のコミットごとに
+# 作る build- のプレリリースは選ばない。リリースの項目は 4 文字の字下げで、中の assets の項目と区別できる。
+newest_v_release() {
+  awk '
+    /^    "tag_name": "/ { tag = $0; sub(/^    "tag_name": "/, "", tag); sub(/".*/, "", tag) }
+    /^    "draft": false/ && tag ~ /^v/ { print tag; exit }
+  ' "$1"
+}
+
 download_release() {
-  local slug api tag
+  local slug api tag kind
   prepare_download
   slug="$(repo_slug)"
-  # この API は下書きとプレリリースを除いた最新のリリースを返すので、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
-  api="https://api.github.com/repos/$slug/releases/latest"
-  fetch "$api" "$work/release.json" ||
-    fail "https://github.com/$slug/releases に正式なリリースがまだありません。main の最新のビルドを入れるときは --main を付けてください。アプリは差し替えていません。"
-  tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$work/release.json" | head -n 1)"
+  if [[ $pre -eq 1 ]]; then
+    api="https://api.github.com/repos/$slug/releases?per_page=50"
+    fetch "$api" "$work/release.json" || fail "$api を取得できませんでした（HTTP 404）。"
+    tag="$(newest_v_release "$work/release.json")"
+    [[ -n "$tag" ]] || fail "https://github.com/$slug/releases に v で始まるリリースがまだありません。アプリは差し替えていません。"
+    kind="先行版を含む最新のリリース"
+  else
+    # この API は下書きとプレリリースを除いた最新のリリースを返すので、先行版と、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
+    api="https://api.github.com/repos/$slug/releases/latest"
+    fetch "$api" "$work/release.json" ||
+      fail "https://github.com/$slug/releases に正式なリリースがまだありません。main の最新のビルドを入れるときは --main を付けてください。アプリは差し替えていません。"
+    tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$work/release.json" | head -n 1)"
+    kind="正式なリリース"
+  fi
   [[ -n "$tag" ]] || fail "$api の応答からリリースのタグを読み取れませんでした。"
-  echo "正式なリリース $tag を取ってきています"
+  echo "${kind} $tag を取ってきています"
   download_from "https://github.com/$slug/releases/download/$tag" \
     "リリース $tag に macOS 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確かめてください。アプリは差し替えていません。" \
     ""
