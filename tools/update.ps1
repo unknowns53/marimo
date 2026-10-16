@@ -9,6 +9,9 @@ marimo を新しい版へ更新します。
 .DESCRIPTION
 既定では、最新の正式なリリースを GitHub から取ってきて入れ直します。リポジトリには触れません。
 
+.PARAMETER Pre
+先行版（プレリリース）も含めて、最も新しく公開された v で始まるリリースを取ってきます。
+
 .PARAMETER Main
 main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
 
@@ -23,6 +26,7 @@ main の最新を取り込み、そのコミットを CI がビルドしたも�
 #>
 [CmdletBinding()]
 param(
+    [switch]$Pre,
     [switch]$Main,
     [switch]$NoPull,
     [switch]$Wait,
@@ -37,6 +41,9 @@ function Fail([string]$Message) {
 }
 
 if ($Main -and $NoPull) { Fail '-Main と -NoPull は一緒に使えません。' }
+if ($Pre -and ($Main -or $NoPull -or $Build)) {
+    Fail '-Pre はリリースを選ぶためのものなので、-Main、-NoPull、-Build とは一緒に使えません。'
+}
 if ($Wait -and -not ($Main -or $NoPull)) {
     Fail '-Wait は CI がコミットごとに作るビルドを待つためのものなので、-Main か -NoPull と一緒に使ってください。正式なリリースは公開された時点でできあがっています。'
 }
@@ -167,19 +174,37 @@ function Get-CommitBuild([string]$Work) {
 
 function Get-ReleaseBuild([string]$Work) {
     $slug = Get-RepoSlug
-    # この API は下書きとプレリリースを除いた最新のリリースを返すので、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
-    $api = "https://api.github.com/repos/$slug/releases/latest"
     $jsonPath = Join-Path $Work 'release.json'
-    $code = Save-Url $api $jsonPath
-    if ($code -eq 404) {
-        Fail "https://github.com/$slug/releases に正式なリリースがまだありません。main の最新のビルドを入れるときは -Main を付けてください。アプリは入れ直していません。"
+    if ($Pre) {
+        $api = "https://api.github.com/repos/$slug/releases?per_page=50"
+        $code = Save-Url $api $jsonPath
+        if ($code -ne 200) { Fail "$api を取得できませんでした（HTTP $code）。" }
+        # 一覧は新しく作られた順に返るので、v で始まる下書きでない最初のものを選ぶ。CI が main のコミットごとに
+        # 作る build- のプレリリースは選ばない。
+        $release = @(Get-Content -LiteralPath $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json) |
+            ForEach-Object { $_ } |
+            Where-Object { -not $_.draft -and $_.tag_name -like 'v*' } |
+            Select-Object -First 1
+        if (-not $release) {
+            Fail "https://github.com/$slug/releases に v で始まるリリースがまだありません。アプリは入れ直していません。"
+        }
+        $tag = $release.tag_name
+        $kind = '先行版を含む最新のリリース'
+    } else {
+        # この API は下書きとプレリリースを除いた最新のリリースを返すので、先行版と、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
+        $api = "https://api.github.com/repos/$slug/releases/latest"
+        $code = Save-Url $api $jsonPath
+        if ($code -eq 404) {
+            Fail "https://github.com/$slug/releases に正式なリリースがまだありません。main の最新のビルドを入れるときは -Main を付けてください。アプリは入れ直していません。"
+        }
+        if ($code -ne 200) { Fail "$api を取得できませんでした（HTTP $code）。" }
+        $tag = (Get-Content -LiteralPath $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json).tag_name
+        $kind = '正式なリリース'
     }
-    if ($code -ne 200) { Fail "$api を取得できませんでした（HTTP $code）。" }
-    $tag = (Get-Content -LiteralPath $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json).tag_name
     if (-not $tag) { Fail "$api の応答からリリースのタグを読み取れませんでした。" }
     $notReady = "リリース $tag に Windows 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確かめてください。アプリは入れ直していません。"
 
-    Write-Host "正式なリリース $tag を取ってきています"
+    Write-Host "$kind $tag を取ってきています"
     Save-Build $Work "https://github.com/$slug/releases/download/$tag" $notReady ''
 }
 

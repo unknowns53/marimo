@@ -247,13 +247,12 @@ fn path_str(path: &Path) -> Result<&str, String> {
         .ok_or_else(|| format!("{} の場所を扱えませんでした。", path.display()))
 }
 
-/// 先行版を入れているアプリだけが、先行版も更新先にする。先行版で試している間は次の先行版へ進み、
-/// 正式な版が出ればそちらへ移る。正式な版を入れているアプリには先行版を届けない。
+/// 先行版を入れるのは tools/update.sh の --pre だけにし、アプリからの更新はどの版からでも正式な版だけを
+/// 更新先にする。先行版を入れたアプリも、それより新しい正式な版が出ればそちらへ移る。
 fn latest_release() -> Result<Release, String> {
-    let include_prerelease = is_prerelease(env!("CARGO_PKG_VERSION"));
     let (code, body) = fetch_text(&releases_api(REPO))?;
     match code {
-        200 => newest_release(&body, REPO, include_prerelease)
+        200 => newest_release(&body, REPO)
             .ok_or_else(|| "GitHub に更新先のリリースがまだありません。".into()),
         _ => Err(format!(
             "GitHub で最新のリリースを調べられませんでした（HTTP {code}）。"
@@ -554,15 +553,13 @@ fn download_base(repo: &str, tag: &str) -> String {
     format!("https://github.com/{repo}/releases/download/{tag}")
 }
 
-/// リリースの一覧から、v で始まる版のうち最も新しいものを選ぶ。build- のタグと下書きは選ばない。
-fn newest_release(body: &[u8], repo: &str, include_prerelease: bool) -> Option<Release> {
+/// リリースの一覧から、v で始まる正式な版のうち最も新しいものを選ぶ。先行版、build- のタグ、下書きは選ばない。
+fn newest_release(body: &[u8], repo: &str) -> Option<Release> {
     let json: Value = serde_json::from_slice(body).ok()?;
     json.as_array()?
         .iter()
         .filter(|r| r.get("draft").and_then(Value::as_bool) == Some(false))
-        .filter(|r| {
-            include_prerelease || r.get("prerelease").and_then(Value::as_bool) == Some(false)
-        })
+        .filter(|r| r.get("prerelease").and_then(Value::as_bool) == Some(false))
         .filter_map(|r| parse_release(r, repo))
         .filter(|r| r.tag.starts_with('v'))
         .filter_map(|r| parse_version(&r.tag).map(|v| (v, r)))
@@ -606,10 +603,6 @@ fn is_newer(latest: &str, current: &str) -> bool {
         (Some(latest), Some(current)) => compare_versions(&latest, &current) == Ordering::Greater,
         _ => false,
     }
-}
-
-fn is_prerelease(version: &str) -> bool {
-    parse_version(version).is_some_and(|v| !v.pre.is_empty())
 }
 
 struct Version {
@@ -952,7 +945,7 @@ mod tests {
     }
 
     #[test]
-    fn picks_newest_v_release_for_the_channel() {
+    fn picks_newest_formal_v_release() {
         let repo = "owner/repo";
         let release = |tag: &str, prerelease: bool, draft: bool| {
             format!(
@@ -973,22 +966,20 @@ mod tests {
             ]
             .join(",")
         );
-        for (body, include_prerelease, want) in [
-            (body.as_str(), false, Some("v0.1.1")),
-            (body.as_str(), true, Some("v0.1.3-beta.1")),
-            ("[]", true, None),
-            (r#"{"message": "Not Found"}"#, false, None),
-            ("not json", false, None),
+        for (body, want) in [
+            (body.as_str(), Some("v0.1.1")),
+            ("[]", None),
+            (r#"{"message": "Not Found"}"#, None),
+            ("not json", None),
         ] {
-            let got = newest_release(body.as_bytes(), repo, include_prerelease);
+            let got = newest_release(body.as_bytes(), repo);
             assert_eq!(got.as_ref().map(|r| r.tag.as_str()), want, "{body:?}");
         }
         // html_url が無ければリポジトリとタグから組み立てる。
         assert_eq!(
             newest_release(
                 br#"[{"tag_name": "v0.3.0", "prerelease": false, "draft": false}]"#,
-                repo,
-                false
+                repo
             ),
             Some(Release {
                 tag: "v0.3.0".into(),
