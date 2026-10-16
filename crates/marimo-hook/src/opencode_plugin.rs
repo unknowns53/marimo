@@ -7,7 +7,7 @@ const TEMPLATE: &str = include_str!("opencode_plugin.js");
 
 /// marimo が書いたプラグインだと見分ける印。雛形の一行目にある。利用者が同じ名前で置いた別のファイルは、
 /// この印を持たないので書き換えも削除もしない。
-const MARKER: &str = "// marimo-opencode-plugin\n";
+const MARKER: &str = "// marimo-opencode-plugin";
 
 const HOOK_PLACEHOLDER: &str = "__MARIMO_HOOK__";
 
@@ -30,8 +30,9 @@ pub fn render(exe_path: &str) -> String {
     TEMPLATE.replacen(HOOK_PLACEHOLDER, &literal, 1)
 }
 
+// Windows の git は雛形を CRLF で取り出すことがあるので、行末の種類によらず一行目だけを比べる。
 pub fn is_ours(text: &str) -> bool {
-    text.starts_with(MARKER)
+    text.lines().next() == Some(MARKER)
 }
 
 #[cfg(test)]
@@ -44,6 +45,9 @@ mod tests {
         assert!(is_ours(&text));
         assert!(!text.contains(HOOK_PLACEHOLDER));
         assert!(text.contains(r#"const HOOK = "/Users/a b/\"q\"\\marimo-hook""#));
+        assert!(is_ours(&text.replace("\r\n", "\n")));
+        assert!(is_ours(&text.replace("\r\n", "\n").replace('\n', "\r\n")));
         assert!(!is_ours("export default {}\n"));
+        assert!(!is_ours("// marimo-opencode-plugin-copy\n"));
     }
 }

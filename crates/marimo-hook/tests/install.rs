@@ -888,7 +888,7 @@ fn opencode_plugin_round_trip_and_reinstall_changes_nothing() {
     );
     assert!(stdout(&out).contains("起動し直して"));
     let text = fs::read_to_string(env.opencode_plugin()).unwrap();
-    assert!(text.starts_with("// marimo-opencode-plugin\n"));
+    assert_eq!(text.lines().next(), Some("// marimo-opencode-plugin"));
     let exe = serde_json::to_string(&env.installed_exe().display().to_string()).unwrap();
     assert!(text.contains(&format!("const HOOK = {exe}")), "{text}");
     assert!(text.contains("\"opencode-hook\""));
