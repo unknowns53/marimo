@@ -248,6 +248,7 @@ marimo は、状態ファイルも会話の内容も、手元のコンピュー�
 | `tools/character` | 小春の素材を作るスクリプト `build.py` とその設定 `koharu.json`、Clawd の素材を描くスクリプト `clawd.py`、Python の依存 `requirements.txt` |
 | `tools/tray_icon.py` | メニューバーと通知領域のアイコンを描くスクリプト |
 | `tools/app_icon.py` | アプリのアイコンを描くスクリプト |
+| `tools/release.sh` | 版の書き換え、main への push、CI の完了の待ち、タグの push をまとめて行い、リリースを作る macOS 用のスクリプト（[リリースを作る](#リリースを作る)を参照） |
 | `tools/update.sh`、`tools/update.ps1` | 正式なリリースか、CI（継続的インテグレーション。push のたびに自動でテストやビルドを行う仕組み）が main のコミットについて作ったビルドの取得（`--build` や `-Build` を付けたときは手元でのビルド）、アプリの差し替え、`install`、起動し直しをまとめて行う更新用のスクリプト。`update.sh` は macOS 用、`update.ps1` は Windows 用です |
 
 ## テストと検査
@@ -288,9 +289,19 @@ main への push では、両方の OS で検査が通ったあとに、更新�
 
 正式なリリースは、`vX.Y.Z` という名前のタグを main のコミットに付けて作ります。最初の正式なリリースは `v0.1.0` です。更新用のスクリプトは、既定でこの正式なリリースのうち最新のものを入れます（[更新する](usage.md#更新する)を参照）。
 
+macOS では、`tools/release.sh` に版を一つ渡すと、ここから下の手順をまとめて行います。
+
+```bash
+tools/release.sh 0.1.3-beta.2
+```
+
+スクリプトは、main にいてコミットしていない変更が無いことと、同じ名前のタグがまだ無いことを確かめ、main の最新を取り込んでから、四つのファイルの版と `Cargo.lock` のワークスペースのクレートの版を書き換えます。それを `Bump the version to <版>` というコミットにして main へ push し、main の CI がテストとビルドを終えるまで待ちます。CI が通ったときだけ `v<版>` のタグを push し、タグの CI がリリースを公開し終えるまで待って、リリースのアドレスを表示します。main の CI が落ちたときはタグを付けずに止まるので、直して main へ push してから、同じ版でもう一度実行します。版のファイルがすでにその版なら、コミットを作らずに今の main の先端にタグを付けます。スクリプトには GitHub CLI（`gh`）のログインが要ります。
+
+手で行うときは、次のとおりです。
+
 1. 版を次の四つのファイルで同じ値に変えます。`Cargo.toml` の `[workspace.package]` の `version`、`app/src-tauri/tauri.conf.json` の `version`、`app/package.json` の `version`、`app/package-lock.json` の先頭の `version` と `packages[""]` の `version` です。`app/` で `npm version X.Y.Z --no-git-tag-version` を実行すると、`package.json` と `package-lock.json` の両方が変わります。`Cargo.toml` を変えたあとに `cargo build` を一度実行すると `Cargo.lock` の版も変わるので、一緒にコミットします。
 2. 変更を main へコミットして push します。
-3. そのコミットに `vX.Y.Z` のタグを付けて push します。
+3. main の CI が終わったら、そのコミットに `vX.Y.Z` のタグを付けて push します。CI が終わる前に付けても公開はされますが、タグの CI が検査とビルドをやり直します。
 
 ```bash
 git tag v0.1.0
