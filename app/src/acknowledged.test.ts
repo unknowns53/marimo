@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Acknowledged, triggerKey, unreadDone, withAcknowledged } from "./acknowledged";
+import { Acknowledged, triggerKey, unreadMarkable, withAcknowledged } from "./acknowledged";
 import { session, snap } from "./testFixtures";
 
 describe("withAcknowledged", () => {
@@ -19,14 +19,14 @@ describe("withAcknowledged", () => {
     expect(withAcknowledged(snap(done, session("c", "done", 20)), ack).aggregate).toBe("done");
   });
 
-  it("does not lower waiting or error even if they were acknowledged", () => {
+  it("lowers acknowledged errors like done but never waiting", () => {
     const w = session("a", "waiting", 10);
     const e = session("b", "error", 20);
     const ack = new Acknowledged();
     ack.add(triggerKey(w));
     ack.add(triggerKey(e));
     expect(withAcknowledged(snap(w, e), ack).aggregate).toBe("waiting");
-    expect(withAcknowledged(snap(e), ack).aggregate).toBe("error");
+    expect(withAcknowledged(snap(e, session("c", "working", 30)), ack).aggregate).toBe("working");
   });
 });
 
@@ -47,13 +47,15 @@ describe("Acknowledged persistence", () => {
   });
 });
 
-describe("unreadDone", () => {
-  it("lists only done sessions that are not acknowledged", () => {
+describe("unreadMarkable", () => {
+  it("lists only done and error sessions that are not acknowledged", () => {
     const read = session("a", "done", 10);
-    const s = snap(read, session("b", "done", 20), session("c", "waiting", 30), session("d", "error", 40));
+    const readError = session("e", "error", 50);
+    const s = snap(read, session("b", "done", 20), session("c", "waiting", 30), session("d", "error", 40), readError);
     const ack = new Acknowledged();
     ack.add(triggerKey(read));
-    expect(unreadDone(s, ack).map((x) => x.session_id)).toEqual(["b"]);
-    expect(unreadDone(null, ack)).toEqual([]);
+    ack.add(triggerKey(readError));
+    expect(unreadMarkable(s, ack).map((x) => x.session_id)).toEqual(["d", "b"]);
+    expect(unreadMarkable(null, ack)).toEqual([]);
   });
 });

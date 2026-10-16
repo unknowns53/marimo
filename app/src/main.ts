@@ -5,7 +5,15 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
-import { Acknowledged, sessionKey, triggerKey, unreadDone, withAcknowledged } from "./acknowledged";
+import {
+  Acknowledged,
+  isRead,
+  MARKABLE,
+  sessionKey,
+  triggerKey,
+  unreadMarkable,
+  withAcknowledged,
+} from "./acknowledged";
 import { BubbleModel, type BubbleView } from "./bubbleModel";
 import { bubbleEnabled, DEFAULT_BUBBLE_SETTINGS, type BubbleSettings } from "./bubbleSettings";
 import { categoryFor, fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
@@ -96,7 +104,7 @@ let characterId: string | undefined;
 let requestedCharacter: string | undefined;
 let characterRequest = 0;
 let snapshot: Snapshot | null = null;
-// snapshot を、見たと示された完了を除いて集約し直したもの。表情、吹き出し、パネルはこちらを使う。
+// snapshot を、見たと示された完了とエラーを除いて集約し直したもの。表情、吹き出し、パネルはこちらを使う。
 let shown: Snapshot | null = null;
 let dialogue: Dialogue = {};
 // 組み込みの既定のセリフ。利用者の dialogue.json は上書きしたい分類だけを持ち、分類ごとに重ねる。
@@ -110,7 +118,7 @@ let scale: ScaleControl | undefined;
 let autostart: boolean | undefined;
 // Rust から届く、窓の中のカーソル位置。窓の外では null になる。
 let cursor: Point | null = null;
-// マウスがパネルの上にある間に既読にした完了の triggerKey。マウスがパネルを離れるまで、その行をその場所に残す。
+// マウスがパネルの上にある間に既読にした完了とエラーの triggerKey。マウスがパネルを離れるまで、その行をその場所に残す。
 const keptRead = new Set<string>();
 // 今日の既読の一覧を開いているか。保存せず、起動のたびに閉じた状態から始める。
 let todayOpen = false;
@@ -125,7 +133,7 @@ async function applySnapshot(next: Snapshot): Promise<void> {
   snapshot = next;
   acknowledged.prune(next);
   shown = withAcknowledged(next, acknowledged);
-  syncUnreadDone();
+  syncAnyUnread();
   syncTraySessions();
   renderer?.update(rendererInput(shown));
   // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
@@ -139,7 +147,7 @@ async function applySnapshot(next: Snapshot): Promise<void> {
 function refreshAcknowledged(): void {
   if (snapshot) {
     shown = withAcknowledged(snapshot, acknowledged);
-    syncUnreadDone();
+    syncAnyUnread();
     syncTraySessions();
     renderer?.update(rendererInput(shown));
     bubbleModel.update(shown, dialogue);
@@ -149,8 +157,9 @@ function refreshAcknowledged(): void {
 }
 
 // 表情は、集約で選ばれたセッションの使っているツールと、吹き出しのセリフと同じ分類から決める。
+// 既読のセッションは集約に効いていないので、同じ状態でも選ばない。
 function rendererInput(s: Snapshot): RendererInput {
-  const focus = s.sessions.find((x) => x.status === s.aggregate);
+  const focus = s.sessions.find((x) => x.status === s.aggregate && !isRead(x, acknowledged));
   return { status: s.aggregate, tool: focus?.activity?.tool ?? null, category: focus ? categoryFor(focus) : null };
 }
 
@@ -270,11 +279,11 @@ function pointerOverPanel(): boolean {
   return !!hit && panelElements.panel.contains(hit);
 }
 
-// 既読にした完了の行は畳むが、マウスがパネルの上にあればその場所に薄く残し、離れたときに畳む。
+// 既読にした完了とエラーの行は畳むが、マウスがパネルの上にあればその場所に薄く残し、離れたときに畳む。
 // 既に既読のもの（今日の既読の一覧の行）を押したときは、一覧から上へ戻さない。
 function acknowledge(session: SessionState): void {
   const key = triggerKey(session);
-  if (session.status === "done" && !acknowledged.has(session) && pointerOverPanel()) keptRead.add(key);
+  if (MARKABLE.has(session.status) && !acknowledged.has(session) && pointerOverPanel()) keptRead.add(key);
   acknowledged.add(key);
 }
 
@@ -284,21 +293,21 @@ function releaseKeptRead(): void {
   redrawPanel();
 }
 
-// 行のきっかけを見たものとして扱い、同じきっかけの吹き出しも閉じる。承認待ちとエラーの行は、解決するまで残す。
+// 行のきっかけを見たものとして扱い、同じきっかけの吹き出しも閉じる。承認待ちの行は、解決するまで残す。
 function markRead(session: SessionState): void {
   acknowledge(session);
   if (bubbleModel.view?.key === triggerKey(session)) bubbleModel.dismiss();
   refreshAcknowledged();
 }
 
-// 未読の完了の有無は、トレイのメニューの項目を使えるかどうかに要る。変わったときだけ Rust に知らせる。
-let unreadDoneKnown: boolean | undefined;
+// 未読の完了とエラーの有無は、トレイのメニューの項目を使えるかどうかに要る。変わったときだけ Rust に知らせる。
+let anyUnreadKnown: boolean | undefined;
 
-function syncUnreadDone(): void {
-  const any = unreadDone(snapshot, acknowledged).length > 0;
-  if (any === unreadDoneKnown) return;
-  unreadDoneKnown = any;
-  void invoke("set_unread_done", { any }).catch((e) => console.error("unread done", e));
+function syncAnyUnread(): void {
+  const any = unreadMarkable(snapshot, acknowledged).length > 0;
+  if (any === anyUnreadKnown) return;
+  anyUnreadKnown = any;
+  void invoke("set_any_unread", { any }).catch((e) => console.error("any unread", e));
 }
 
 // トレイのメニューは Rust が持つので、並べるセッションの一覧が変わったときだけ送る。
@@ -321,9 +330,9 @@ function selectTraySession(key: string): void {
   if (session) selectSession(session);
 }
 
-// 承認待ちとエラーは、解決するまで残す行なので対象にしない。
-function markAllDoneRead(): void {
-  const unread = unreadDone(snapshot, acknowledged);
+// 承認待ちは、解決するまで残す行なので対象にしない。
+function markAllRead(): void {
+  const unread = unreadMarkable(snapshot, acknowledged);
   for (const s of unread) acknowledge(s);
   if (bubbleModel.view && unread.some((s) => triggerKey(s) === bubbleModel.view?.key)) bubbleModel.dismiss();
   refreshAcknowledged();
@@ -542,9 +551,9 @@ async function openMenu(): Promise<void> {
       )),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
-        text: "完了をすべて既読にする",
-        enabled: unreadDone(snapshot, acknowledged).length > 0,
-        action: markAllDoneRead,
+        text: "すべて既読にする",
+        enabled: unreadMarkable(snapshot, acknowledged).length > 0,
+        action: markAllRead,
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
@@ -612,7 +621,7 @@ async function start(): Promise<void> {
     trayChose = true;
     applyPanelDisplay(e.payload);
   });
-  await listen("tray-mark-all-read", markAllDoneRead);
+  await listen("tray-mark-all-read", markAllRead);
   await listen<string>("tray-session", (e) => selectTraySession(e.payload));
   await listen<SettingsRequest>(SETTINGS_REQUEST_EVENT, (e) => void handleSettingsRequest(e.payload));
   const savedDisplay = await loadPanelDisplay();
@@ -649,7 +658,7 @@ async function start(): Promise<void> {
     rowHover.setCursor(e.payload);
     releaseKeptRead();
   });
-  // 最初のスナップショットより先に戻さないと、既読の完了の吹き出しが一度出てしまう。
+  // 最初のスナップショットより先に戻さないと、既読の完了やエラーの吹き出しが一度出てしまう。
   acknowledged.restore(
     await invoke<string[]>("get_acknowledged").catch((e) => {
       console.error("acknowledged", e);

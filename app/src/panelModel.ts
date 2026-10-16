@@ -1,4 +1,4 @@
-import { sessionKey, STATUS_PRIORITY, triggerKey, type Acknowledged } from "./acknowledged";
+import { isRead, sessionKey, STATUS_PRIORITY, triggerKey, type Acknowledged } from "./acknowledged";
 import { chatTitle, folderName, STATUS_LABEL } from "./format";
 import type { SessionState, Snapshot, Status } from "./types";
 
@@ -9,9 +9,9 @@ export const ROW_ORDERS: readonly RowOrder[] = ["started", "status", "updated"];
 
 export interface PanelPlan {
   rows: SessionState[];
-  /** その場所に残している既読の完了の行の sessionKey。薄く描く。 */
+  /** その場所に残している既読の完了とエラーの行の sessionKey。薄く描く。 */
   read: ReadonlySet<string>;
-  /** 今日完了して既読にしたセッションのうち、その場所に残していないもの。完了した時刻の新しい順。 */
+  /** 今日完了かエラーになって既読にしたセッションのうち、その場所に残していないもの。その状態になった時刻の新しい順。 */
   today: SessionState[];
 }
 
@@ -20,12 +20,12 @@ export interface PanelPlan {
  * 待機以外のセッションは作業中も畳まずに 1 行ずつ並べ、パネルに収まらない分はスクロールで見せるので、
  * 行の数に上限を設けない。期限の切れた Cloud の観測は待機として届くが、取り込んだ会話がまだあることは
  * 分かっているので、状態不明の行として残す。
- * 見たと示された完了は畳むが、keep に triggerKey のある行だけはその場所に薄くして残す。パネルは下端を
+ * 見たと示された完了とエラーは畳むが、keep に triggerKey のある行だけはその場所に薄くして残す。パネルは下端を
  * 固定しているので、続けて ✓ を押す間に行が畳まれると上の行が下へずれ、次に押そうとした行がマウスの下から
  * 動いてしまうからである。keep はマウスがパネルの上にある間に既読にした行で、呼び出し側がマウスがパネルを
- * 離れたときに空にする。状態順でも、残した行は未読の完了と同じ規則で並べて動かさない。
- * 畳んだ既読の完了のうち、完了したのが今日のものは today に集め、パネルの下の 1 行から開いて見せる。
- * 完了のまま放っておかれるセッションは多く、前の日の分まで並べると古い既読で埋まる。
+ * 離れたときに空にする。状態順でも、残した行は未読の同じ状態の行と同じ規則で並べて動かさない。
+ * 畳んだ既読の行のうち、その状態になったのが今日のものは today に集め、パネルの下の 1 行から開いて見せる。
+ * 完了やエラーのまま放っておかれるセッションは多く、前の日の分まで並べると古い既読で埋まる。
  *
  * started は started_at の新しい順に並べる。パネルは下端を固定して上へ伸びるので、新しいセッションが
  * 一番上に加わっても既にある行は画面上の位置が変わらず、状態が変わっても行は動かない。started_at を
@@ -40,8 +40,7 @@ export function planPanel(
   keep: ReadonlySet<string> = new Set(),
 ): PanelPlan {
   const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle" || isStale(s));
-  const isRead = (s: SessionState) => s.status === "done" && ack.has(s);
-  const kept = active.filter((s) => isRead(s) && keep.has(triggerKey(s)));
+  const kept = active.filter((s) => isRead(s, ack) && keep.has(triggerKey(s)));
   const read = new Set(kept.map(sessionKey));
   const compare: Record<RowOrder, (a: SessionState, b: SessionState) => number> = {
     started: (a, b) => b.started_at - a.started_at,
@@ -50,11 +49,11 @@ export function planPanel(
       b.updated_at - a.updated_at,
     updated: (a, b) => b.updated_at - a.updated_at,
   };
-  const rows = [...active.filter((s) => !isRead(s)), ...kept].sort(
+  const rows = [...active.filter((s) => !isRead(s, ack)), ...kept].sort(
     (a, b) => compare[order](a, b) || compareIds(sessionKey(a), sessionKey(b)),
   );
   const today = active
-    .filter((s) => isRead(s) && !keep.has(triggerKey(s)) && sameLocalDay(s.status_since, now))
+    .filter((s) => isRead(s, ack) && !keep.has(triggerKey(s)) && sameLocalDay(s.status_since, now))
     .sort((a, b) => b.status_since - a.status_since || compareIds(sessionKey(a), sessionKey(b)));
   return { rows, read, today };
 }
@@ -127,7 +126,7 @@ const ATTENTION: ReadonlySet<Status> = new Set(["waiting", "error", "done"]);
 const COUNT_ORDER = STATUS_PRIORITY.filter((s) => s !== "idle");
 
 /**
- * 件数だけの表示でも数え方は詳細と同じにし、見たと示された完了は数えない。吹き出しや表情を決める
+ * 件数だけの表示でも数え方は詳細と同じにし、見たと示された完了とエラーは数えない。吹き出しや表情を決める
  * 仕組みは表示によらず同じで、立ち絵を隠している間はそれを見せないだけにする。
  */
 export function panelView(
@@ -140,7 +139,7 @@ export function panelView(
 ): PanelView {
   const plan = planPanel(snapshot, ack, order, now, keep);
   const sessions = snapshot?.sessions ?? [];
-  const counted = sessions.filter((s) => !(s.status === "done" && ack.has(s)));
+  const counted = sessions.filter((s) => !isRead(s, ack));
   const counts = COUNT_ORDER.map((status) => ({
     status,
     count: counted.filter((s) => s.status === status).length,
@@ -179,12 +178,12 @@ const TRAY_TITLE_MIN_CHARS = 10;
 const TRAY_ORDER: Status[] = ["waiting", "error", "done"];
 
 /**
- * 承認待ち、エラー、まだ既読にしていない完了を、この状態の順に、同じ状態の中では更新の新しい順に並べる。
+ * 承認待ち、まだ既読にしていないエラーと完了を、この状態の順に、同じ状態の中では更新の新しい順に並べる。
  * 並べ方の選択には従わない。メニューは開いたときに一番上から読むので、急ぐものを上に置く。
  */
 export function trayList(snapshot: Snapshot | null, ack: Acknowledged): TrayList {
   const sessions = (snapshot?.sessions ?? [])
-    .filter((s) => TRAY_ORDER.includes(s.status) && !(s.status === "done" && ack.has(s)))
+    .filter((s) => TRAY_ORDER.includes(s.status) && !isRead(s, ack))
     .sort(
       (a, b) =>
         TRAY_ORDER.indexOf(a.status) - TRAY_ORDER.indexOf(b.status) ||

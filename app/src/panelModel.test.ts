@@ -101,13 +101,16 @@ describe("acknowledged sessions", () => {
     const tie = session("tie", "done", at(13, 13), at(13, 13), at(13, 6));
     const midnight = session("midnight", "done", at(13, 0), at(13, 0), at(13, 5));
     const yesterday = session("yesterday", "done", at(12, 23, 59), at(12, 23, 59), at(12, 4));
+    const failed = session("failed", "error", at(13, 11), at(13, 11), at(13, 3));
     const ack = new Acknowledged();
-    for (const s of [kept, late, tie, midnight, yesterday]) ack.add(triggerKey(s));
-    const sessions = snap(working, unread, kept, late, tie, midnight, yesterday);
+    for (const s of [kept, late, tie, midnight, yesterday, failed]) ack.add(triggerKey(s));
+    const sessions = snap(working, unread, kept, late, tie, midnight, yesterday, failed);
+    const allToday = ["kept", "late", "tie", "failed", "midnight"];
     const cases: [string, number, string[], string[], string[], string[]][] = [
-      ["nothing kept", at(13, 15), [], ["unread", "w"], [], ["kept", "late", "tie", "midnight"]],
-      ["kept row", at(13, 15), [triggerKey(kept)], ["unread", "w", "kept"], ["kept"], ["late", "tie", "midnight"]],
-      ["key of an unread row", at(13, 15), [triggerKey(unread)], ["unread", "w"], [], ["kept", "late", "tie", "midnight"]],
+      ["nothing kept", at(13, 15), [], ["unread", "w"], [], allToday],
+      ["kept row", at(13, 15), [triggerKey(kept)], ["unread", "w", "kept"], ["kept"], ["late", "tie", "failed", "midnight"]],
+      ["kept error row", at(13, 15), [triggerKey(failed)], ["unread", "w", "failed"], ["failed"], ["kept", "late", "tie", "midnight"]],
+      ["key of an unread row", at(13, 15), [triggerKey(unread)], ["unread", "w"], [], allToday],
       ["next day", at(14, 0, 30), [], ["unread", "w"], [], []],
     ];
     for (const [label, now, keep, rows, read, today] of cases) {
@@ -161,13 +164,11 @@ describe("acknowledged sessions", () => {
     expect([...planPanel(snap(claudeDone, otherDone), ack, "started", 1001, keep).read]).toEqual([`${provider}:same`]);
   });
 
-  it("keeps waiting and error rows even when seen", () => {
+  it("keeps waiting rows even when seen", () => {
     const ack = new Acknowledged();
     const waiting = session("w", "waiting", 1);
-    const error = session("e", "error", 2);
     ack.add(triggerKey(waiting));
-    ack.add(triggerKey(error));
-    expect(ids(planPanel(snap(waiting, error), ack).rows)).toEqual(["e", "w"]);
+    expect(ids(planPanel(snap(waiting), ack).rows)).toEqual(["w"]);
   });
 });
 
@@ -199,12 +200,12 @@ describe("panelView", () => {
     expect(hasContent(v)).toBe(true);
   });
 
-  it("does not count seen done sessions", () => {
+  it("does not count seen done and error sessions", () => {
     const ack = new Acknowledged();
-    const s = sessions();
-    for (const x of s.sessions.filter((x) => x.status === "done")) ack.add(triggerKey(x));
+    const s = snap(...sessions().sessions, session("e", "error", 8));
+    for (const x of s.sessions.filter((x) => x.status === "done" || x.status === "error")) ack.add(triggerKey(x));
     const v = panelView(s, ack, "counts");
-    expect(v.counts.find((c) => c.status === "done")).toBeUndefined();
+    expect(v.counts.map((c) => c.status)).toEqual(["waiting", "working"]);
   });
 
   it("decides per style whether there are rows to show instead of the empty line", () => {
@@ -252,10 +253,12 @@ describe("panelView", () => {
 });
 
 describe("trayList", () => {
-  it("lists waiting, error and unread done sessions, newest first within a status, with clipped titles and an overflow count", () => {
+  it("lists waiting and unread error and done sessions, newest first within a status, with clipped titles and an overflow count", () => {
     const seen = session("seen", "done", 50);
+    const seenError = session("seen-error", "error", 55);
     const ack = new Acknowledged();
     ack.add(triggerKey(seen));
+    ack.add(triggerKey(seenError));
     const longName = "n".repeat(36);
     const cases: [string, SessionState[], TrayList][] = [
       [
@@ -266,6 +269,7 @@ describe("trayList", () => {
           session("e1", "error", 30),
           session("d1", "done", 40),
           seen,
+          seenError,
           session("busy", "working", 60),
           session("idle", "idle", 70),
         ],

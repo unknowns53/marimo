@@ -1,4 +1,4 @@
-import { sessionKey } from "./acknowledged";
+import { MARKABLE, sessionKey } from "./acknowledged";
 import { chatTitle, folderName, formatAge, formatClock, formatTokens, STATUS_LABEL } from "./format";
 import { limitLine, type LimitLine } from "./limits";
 import { hasContent, type PanelPlan, type PanelView } from "./panelModel";
@@ -164,7 +164,7 @@ function detailChildren(
   ];
 }
 
-// 畳んだ既読の完了は 1 行の件数にまとめ、押すとその下に既読の行と同じ薄さで並べる。もう既読なので
+// 畳んだ既読の完了とエラーは 1 行の件数にまとめ、押すとその下に既読の行と同じ薄さで並べる。もう既読なので
 // 既読にするボタンは出さない。
 function todayChildren(
   plan: PanelPlan,
@@ -175,7 +175,7 @@ function todayChildren(
 ): HTMLElement[] {
   if (plan.today.length === 0) return [];
   const line = el("div", "today-line");
-  line.title = "今日完了して既読にしたセッション";
+  line.title = "今日完了かエラーになって既読にしたセッション";
   line.setAttribute("role", "button");
   line.setAttribute("aria-expanded", String(open));
   line.append(el("span", "today-marker", open ? "▾" : "▸"), el("span", "", `今日の既読 ${plan.today.length} 件`));
@@ -235,7 +235,7 @@ function renderCounts(
 // 1 回で移動できないことがある。要約の全文とコマンドは title のツールチップで読める。
 // どのツールのセッションかの印は、2 段目の左の空いている場所に状態の点と縦に並べ、行の高さを変えない。
 // 最後にフックが届いてからの時間は、2 段目の右のコンテキスト使用率の下に置く。
-// まだ見ていない完了の行は、マウスを載せている間だけ時間の場所に既読にするボタンを出し、アプリを開かずに畳めるようにする。
+// まだ見ていない完了とエラーの行は、マウスを載せている間だけ時間の場所に既読にするボタンを出し、アプリを開かずに畳めるようにする。
 function renderRow(
   s: SessionState,
   read: boolean,
@@ -265,7 +265,7 @@ function renderRow(
     el("div", "row-summary", summary),
     renderAge(s.updated_at, now),
   );
-  if (s.status === "done" && !read) {
+  if (MARKABLE.has(s.status) && !read) {
     row.classList.add("markable");
     row.append(markReadButton(s, actions));
   }
