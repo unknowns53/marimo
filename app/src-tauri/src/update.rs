@@ -677,14 +677,30 @@ fn windows_script(h: &WindowsHelper) -> String {
     )
 }
 
-// 標準出力と標準エラーはアプリが update.log へつないで起動する。
+// 標準出力と標準エラーはアプリが update.log へつないで起動する。Finder や launchd から起動したアプリの
+// 子は C ロケールで動き、bash 3.2 は変数名の直後の非 ASCII のバイトを名前の一部として読むので、
+// 日本語の直前の変数は ${name} の形で書く。
 const MAC_BODY: &str = r#"
 bundle="$work/extract/marimo.app"
 hook="$work/extract/marimo-hook"
 app_new="$(dirname "$app_dest")/.$(basename "$app_dest").new"
 app_old="$(dirname "$app_dest")/.$(basename "$app_dest").old"
 running_pattern="$app_dest/Contents/MacOS/"
-trap 'rm -rf "$work"' EXIT
+relaunched=0
+
+launch() {
+  open "$app_dest"
+  relaunched=1
+}
+
+# 途中で想定外に止まっても、アプリが終了したままにならないよう、まだ起動し直していなければ起動する。
+cleanup() {
+  if [[ $relaunched -eq 0 ]] && ! pgrep -f "$running_pattern" >/dev/null; then
+    open "$app_dest"
+  fi
+  rm -rf "$work"
+}
+trap cleanup EXIT
 
 say() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -695,7 +711,7 @@ fail() {
   exit 1
 }
 
-say "正式なリリース $tag へ更新します（$app_dest）"
+say "正式なリリース ${tag} へ更新します（${app_dest}）"
 
 # アプリはこのスクリプトを起動した直後に終了するので、まずそれを待つ。
 for _ in $(seq 1 60); do
@@ -720,17 +736,17 @@ say "$app_dest を差し替えています"
 rm -rf "$app_new" "$app_old"
 if ! ditto "$bundle" "$app_new"; then
   rm -rf "$app_new"
-  open "$app_dest"
+  launch
   fail "新しいアプリを $app_new へコピーできませんでした。アプリは差し替えずに起動し直しています。"
 fi
 if [[ -e "$app_dest" ]] && ! mv "$app_dest" "$app_old"; then
   rm -rf "$app_new"
-  open "$app_dest"
+  launch
   fail "$app_dest を退けられませんでした。アプリは差し替えずに起動し直しています。"
 fi
 if ! mv "$app_new" "$app_dest"; then
   [[ -e "$app_old" ]] && mv "$app_old" "$app_dest"
-  open "$app_dest"
+  launch
   fail "新しいアプリを $app_dest へ置けませんでした。元のアプリに戻して起動し直しています。"
 fi
 rm -rf "$app_old"
@@ -740,7 +756,7 @@ install_ok=1
 "$hook" install || install_ok=0
 
 say "marimo を起動しています"
-open "$app_dest"
+launch
 
 if [[ $install_ok -eq 0 ]]; then
   # 一時フォルダは終わると消えるので、install をやり直すときは更新ごとやり直してもらう。
@@ -1039,5 +1055,21 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
+    }
+
+    #[test]
+    fn mac_script_braces_variables_before_non_ascii() {
+        let bytes = MAC_BODY.as_bytes();
+        for (i, _) in MAC_BODY.match_indices('$') {
+            let name_end = bytes[i + 1..]
+                .iter()
+                .position(|b| !(b.is_ascii_alphanumeric() || *b == b'_'))
+                .map_or(bytes.len(), |n| i + 1 + n);
+            assert!(
+                name_end == i + 1 || bytes.get(name_end).is_none_or(u8::is_ascii),
+                "{}",
+                MAC_BODY[i..].lines().next().unwrap_or_default()
+            );
+        }
     }
 }

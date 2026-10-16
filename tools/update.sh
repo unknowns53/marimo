@@ -106,7 +106,7 @@ fetch() {
   case "$code" in
     200) return 0 ;;
     404) return 1 ;;
-    *) fail "$url を取得できませんでした（HTTP $code）。" ;;
+    *) fail "${url} を取得できませんでした（HTTP ${code}）。" ;;
   esac
 }
 
@@ -250,6 +250,6 @@ echo "marimo を起動しています"
 open "$app_dest"
 
 if [[ $install_ok -eq 0 ]]; then
-  fail "marimo-hook install が失敗しました。アプリはすでに新しいものに差し替えて起動しています。上のメッセージを確かめてから、$retry_install。"
+  fail "marimo-hook install が失敗しました。アプリはすでに新しいものに差し替えて起動しています。上のメッセージを確かめてから、${retry_install}。"
 fi
 echo "更新が終わりました"
