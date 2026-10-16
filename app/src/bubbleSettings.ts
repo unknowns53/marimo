@@ -1,6 +1,6 @@
 import type { Status } from "./types";
 
-// 範囲と既定は Rust 側の scale.rs と揃える。保存するときは Rust が範囲に収め直す。
+// 範囲と既定は Rust 側の scale.rs と揃える（sharedConstants.test.ts が照合する）。保存するときは Rust が範囲に収め直す。
 export const MAX_BUBBLE_SECONDS = 3600;
 
 /** Rust の scale::BubbleSettings と同じ形で、display.json に保存する。 */

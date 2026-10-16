@@ -78,11 +78,12 @@ describe("planPanel", () => {
       session("g", "working", 50, 50, 5),
       session("f", "working", 50, 50, 5),
       session("h", "waiting", 40, 40, 4),
+      { ...session("x", "idle", 80, 80, 8), cloud: { thread_id: "x", observed_at: 80, expires_at: 81, expired: true } },
     );
     const cases: [RowOrder, string[]][] = [
-      ["started", ["c", "b", "f", "g", "h", "d", "e", "a"]],
-      ["status", ["a", "h", "e", "b", "f", "g", "c", "d"]],
-      ["updated", ["a", "c", "b", "f", "g", "h", "d", "e"]],
+      ["started", ["x", "c", "b", "f", "g", "h", "d", "e", "a"]],
+      ["status", ["a", "h", "e", "b", "f", "g", "c", "d", "x"]],
+      ["updated", ["a", "x", "c", "b", "f", "g", "h", "d", "e"]],
     ];
     for (const [order, expected] of cases) {
       expect(ids(planPanel(sessions, ack, order, 2000, new Set([triggerKey(seen)])).rows), order).toEqual(expected);
@@ -181,14 +182,19 @@ describe("panelView", () => {
       session("w3", "working", 6),
       session("i", "idle", 7),
     );
+  const stale = {
+    ...session("cloud-c1", "idle", 8),
+    cloud: { thread_id: "c1", observed_at: 8, expires_at: 9, expired: true },
+  };
 
-  it("counts sessions per status in priority order and skips zero counts", () => {
-    const v = panelView(sessions(), new Acknowledged(), "counts");
+  it("counts sessions per status in priority order, skips zero counts, and counts expired cloud observations apart", () => {
+    const v = panelView(snap(...sessions().sessions, stale), new Acknowledged(), "counts");
     expect(v.counts).toEqual([
       { status: "waiting", count: 1 },
       { status: "working", count: 3 },
       { status: "done", count: 2 },
     ]);
+    expect(v.stale).toBe(1);
     expect(v.target?.session_id).toBe("ask");
     expect(hasContent(v)).toBe(true);
   });
@@ -216,6 +222,7 @@ describe("panelView", () => {
       ["detail without a snapshot", null, new Acknowledged(), "detail", false],
       ["detail with a kept seen completion", snap(seen), ack, "detail", true],
       ["counts with a kept seen completion", snap(seen), ack, "counts", false],
+      ["counts with only an expired cloud observation", snap(stale), new Acknowledged(), "counts", true],
     ];
     for (const [label, snapshot, acks, style, expected] of cases) {
       expect(hasContent(panelView(snapshot, acks, style, "started", Date.now(), keep)), label).toBe(expected);

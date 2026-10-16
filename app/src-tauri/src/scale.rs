@@ -8,9 +8,9 @@ pub const MIN: f64 = 0.6;
 pub const MAX: f64 = 2.5;
 pub const DEFAULT: f64 = 1.0;
 
-// style.css の配置と揃えておく必要がある。立ち絵（倍率 1.0 で幅 180、高さは幅に素材の縦横比を
-// 掛けたもの）を窓の右下に固定し、パネル（幅 312）をその左に下端を揃えて置く。倍率 1.0 で
-// 既定のキャラクターのときの窓の大きさは tauri.conf.json にも書く。
+// style.css の配置と揃えておく必要があり、window_follows_stage_aspect が照合する。立ち絵（倍率 1.0 で
+// 幅 180、高さは幅に素材の縦横比を掛けたもの）を窓の右下に固定し、パネル（幅 312）をその左に下端を
+// 揃えて置く。倍率 1.0 で既定のキャラクターのときの窓の大きさは tauri.conf.json にも書く。
 const STAGE_W: f64 = 180.0;
 /// 立ち絵の縦横比（高さ ÷ 幅）。既定のキャラクターの素材 800×1200 の比で、比がまだ保存されていないときに窓を開くのに使う。
 pub const DEFAULT_ASPECT: f64 = 1.5;
@@ -206,7 +206,7 @@ pub fn load(home: &MarimoHome) -> f64 {
 pub fn save(home: &MarimoHome, scale: f64) -> io::Result<()> {
     let mut d = read_display(home);
     d.scale = Some(scale);
-    store::write_json_atomic(&home.display_file(), &d)
+    store::write_json_durable(&home.display_file(), &d)
 }
 
 /// 新しい鍵も以前の panel_mode も保存されていなければ None を返し、フロントエンドに既定を決めさせる。
@@ -261,7 +261,7 @@ pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Resul
     d.row_order = Some(display.row_order.as_str().to_owned());
     d.panel_opacity = Some(clamp_opacity(display.panel_opacity).into());
     d.panel_mode = None;
-    store::write_json_atomic(&home.display_file(), &d)
+    store::write_json_durable(&home.display_file(), &d)
 }
 
 /// 保存されていない項目や解釈できない値は、既定（種類は出す、秒数は押すまで）にする。
@@ -290,7 +290,7 @@ pub fn save_bubble_settings(home: &MarimoHome, settings: BubbleSettings) -> io::
     d.bubble_done = Some(settings.bubble_done.into());
     d.bubble_error = Some(settings.bubble_error.into());
     d.bubble_seconds = Some(settings.bubble_seconds.min(MAX_BUBBLE_SECONDS).into());
-    store::write_json_atomic(&home.display_file(), &d)
+    store::write_json_durable(&home.display_file(), &d)
 }
 
 fn characters() -> Vec<String> {
@@ -321,7 +321,7 @@ pub fn save_character(home: &MarimoHome, id: &str) -> io::Result<()> {
     }
     let mut d = read_display(home);
     d.character = Some(id.to_owned());
-    store::write_json_atomic(&home.display_file(), &d)
+    store::write_json_durable(&home.display_file(), &d)
 }
 
 // 縦横比は選んだキャラクターの manifest にあり、読めるのはフロントエンドだけである。起動のたびに
@@ -336,7 +336,7 @@ pub fn load_aspect(home: &MarimoHome) -> f64 {
 pub fn save_aspect(home: &MarimoHome, aspect: f64) -> io::Result<()> {
     let mut d = read_display(home);
     d.stage_aspect = Some(clamp_aspect(aspect));
-    store::write_json_atomic(&home.display_file(), &d)
+    store::write_json_durable(&home.display_file(), &d)
 }
 
 pub fn clamp_aspect(aspect: f64) -> f64 {
@@ -707,6 +707,25 @@ mod tests {
     #[test]
     fn window_follows_stage_aspect() {
         // 倍率 1.0 の既定のキャラクターの大きさは tauri.conf.json の窓の大きさと同じになる。
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let declared = &conf["app"]["windows"][0];
+        assert_eq!(
+            window_size(DEFAULT, DEFAULT_ASPECT),
+            (
+                declared["width"].as_f64().unwrap(),
+                declared["height"].as_f64().unwrap()
+            )
+        );
+        // 窓の中の配置は style.css が決めるので、同じ寸法を使っていることも確かめる。
+        let css = include_str!("../../src/style.css");
+        for (var, value) in [
+            ("--stage-w", STAGE_W),
+            ("--panel-w", PANEL_W),
+            ("--margin", MARGIN),
+        ] {
+            assert!(css.contains(&format!("{var}: {value}px;")), "{var}");
+        }
         for (scale, aspect, size) in [
             (1.0, DEFAULT_ASPECT, (516.0, 398.0)),
             (2.5, DEFAULT_ASPECT, (786.0, 803.0)),

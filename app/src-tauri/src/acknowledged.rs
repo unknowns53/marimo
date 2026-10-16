@@ -19,7 +19,7 @@ pub fn load(home: &MarimoHome) -> Vec<String> {
 
 pub fn save(home: &MarimoHome, keys: &[String]) -> io::Result<()> {
     let kept = &keys[..keys.len().min(MAX_KEYS)];
-    store::write_json_atomic(&home.acknowledged_file(), &kept)
+    store::write_json_durable(&home.acknowledged_file(), &kept)
 }
 
 #[cfg(test)]
