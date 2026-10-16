@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use marimo_core::Status;
+use marimo_core::{Snapshot, Status};
 use serde::Deserialize;
 use tauri::image::Image;
 use tauri::menu::{
@@ -9,8 +9,8 @@ use tauri::menu::{
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
-use crate::AppState;
 use crate::scale::{self, PanelDisplay, PanelStyle};
+use crate::{AppState, acknowledged};
 
 /// トレイで選んだ表示を保存したあと、その表示の全体をフロントエンドへ送るイベント。フロントエンドは
 /// 反映だけをして保存し直さない。保存をフロントエンドの折り返しに任せると、聞き始める前の選択が消え、
@@ -63,9 +63,7 @@ enum Attention {
 }
 
 // 集約は承認待ちをエラーより上に置くので、集約だけを見れば「一つでも承認待ちがあれば承認待ち、
-// 無くてエラーがあればエラー」になる。既読の集合はフロントエンドが持ち、窓を隠している間は webview が
-// 止まりうるので、既読を考えずにスナップショットの集約から決める。既読にしたエラーも、そのエラーが
-// 続く間はアイコンに出る。
+// 無くてエラーがあればエラー」になる。
 fn attention(aggregate: Status) -> Attention {
     match aggregate {
         Status::Waiting => Attention::Waiting,
@@ -151,11 +149,17 @@ impl Tray {
 }
 
 /// 窓が隠れている間は webview が止まりうるので、フロントエンドを通さずスナップショットを作った側から呼ぶ。
-pub fn show_status(app: &AppHandle, aggregate: Status) {
+/// 窓を隠している間は webview が止まりうるので、アイコンはフロントエンドに頼らず Rust が決める。
+/// 既読の集合はフロントエンドが送ってきたものを AppState が覚えていて、画面で畳んだ完了とエラーを
+/// アイコンにも出さない。
+pub fn show_status(app: &AppHandle, snapshot: &Snapshot) {
     if let Some(state) = app.try_state::<AppState>()
         && let Some(tray) = state.tray.get()
     {
-        tray.show_attention(attention(aggregate));
+        let read = state.acknowledged.lock().unwrap_or_else(|e| e.into_inner());
+        tray.show_attention(attention(acknowledged::effective_aggregate(
+            snapshot, &read,
+        )));
     }
 }
 

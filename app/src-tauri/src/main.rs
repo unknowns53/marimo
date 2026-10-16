@@ -13,6 +13,7 @@ mod update;
 mod watch;
 mod window_pos;
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -28,6 +29,8 @@ struct AppState {
     // 知らされるまでは前回保存した比を使う。
     aspect: Mutex<f64>,
     tray: OnceLock<tray::Tray>,
+    // フロントエンドが既読にしたきっかけ。メニューバーのアイコンを決めるのに使う。
+    acknowledged: Mutex<HashSet<String>>,
 }
 
 impl AppState {
@@ -132,7 +135,13 @@ fn get_acknowledged(state: State<'_, AppState>) -> Vec<String> {
 }
 
 #[tauri::command]
-fn set_acknowledged(state: State<'_, AppState>, keys: Vec<String>) -> Result<(), String> {
+fn set_acknowledged(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    keys: Vec<String>,
+) -> Result<(), String> {
+    *state.acknowledged.lock().unwrap_or_else(|e| e.into_inner()) = keys.iter().cloned().collect();
+    tray::show_status(&app, &scale::snapshot(&state.home));
     acknowledged::save(&state.home, &keys).map_err(|e| e.to_string())
 }
 
@@ -230,6 +239,7 @@ fn main() {
             icons: OnceLock::new(),
             aspect: Mutex::new(aspect),
             tray: OnceLock::new(),
+            acknowledged: Mutex::new(acknowledged::load(&home).into_iter().collect()),
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -271,7 +281,7 @@ fn main() {
             let display = scale::load_panel_display(&home).unwrap_or_default();
             let tray = tray::build(app.handle(), display)?;
             let _ = app.state::<AppState>().tray.set(tray);
-            tray::show_status(app.handle(), scale::snapshot(&home).aggregate);
+            tray::show_status(app.handle(), &scale::snapshot(&home));
             watch::spawn(app.handle().clone(), home.clone());
             watch::spawn_pruner(home.clone());
             hit::spawn(app.handle().clone(), window, hits.clone());

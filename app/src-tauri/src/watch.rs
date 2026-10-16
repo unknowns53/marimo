@@ -75,7 +75,7 @@ pub fn spawn(app: AppHandle, home: MarimoHome) {
                 continue;
             }
             previous = Some(snapshot.clone());
-            tray::show_status(&app, snapshot.aggregate);
+            tray::show_status(&app, &snapshot);
             let _ = app.emit(SNAPSHOT_EVENT, snapshot);
         }
     });

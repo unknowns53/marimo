@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Acknowledged, triggerKey, unreadMarkable, withAcknowledged } from "./acknowledged";
 import { session, snap } from "./testFixtures";
+import type { SessionState } from "./types";
 
 describe("withAcknowledged", () => {
   it("keeps working above an unread done session", () => {
@@ -27,6 +28,18 @@ describe("withAcknowledged", () => {
     ack.add(triggerKey(e));
     expect(withAcknowledged(snap(w, e), ack).aggregate).toBe("waiting");
     expect(withAcknowledged(snap(e, session("c", "working", 30)), ack).aggregate).toBe("working");
+  });
+});
+
+// Rust のメニューバーのアイコンも同じ鍵で既読を見るので、app/src-tauri/src/acknowledged.rs の
+// trigger_keys_match_the_frontend と同じ文字列であることを確かめる。
+describe("triggerKey", () => {
+  it("matches the keys the Rust side builds", () => {
+    const cases: [SessionState, string][] = [
+      [session("abc", "done", 5), "abc:done:5"],
+      [{ ...session("ses_x", "error", 1792165830895), provider: "opencode" }, "opencode:ses_x:error:1792165830895"],
+    ];
+    for (const [s, key] of cases) expect(triggerKey(s)).toBe(key);
   });
 });
 
