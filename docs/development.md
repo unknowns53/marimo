@@ -26,7 +26,7 @@ Node.js のバージョンは、依存しているビルドツールの Vite と
 
 ### ビルドの成果物
 
-`cargo build --release -p marimo-hook` でできる実行ファイルは `target/release/marimo-hook`（Windows では `marimo-hook.exe`）に置かれます。`npm run tauri -- build` は、`app/src-tauri/tauri.conf.json` の `beforeBuildCommand` に従って先に `npm run build` を実行します。macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<版>_x64-setup.exe` と `target/release/bundle/msi/marimo_<版>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
+`cargo build --release -p marimo-hook` でできる実行ファイルは `target/release/marimo-hook`（Windows では `marimo-hook.exe`）に置かれます。`npm run tauri -- build` は、`app/src-tauri/tauri.conf.json` の `beforeBuildCommand` に従って先に `npm run build` を実行します。macOS では `target/release/bundle/macos/marimo.app` ができます。Windows では、実行ファイル `target/release/marimo.exe` と、二つのインストーラ `target/release/bundle/nsis/marimo_<バージョン>_x64-setup.exe` と `target/release/bundle/msi/marimo_<バージョン>_x64_en-US.msi` ができます。`target/` はリポジトリの直下にあり、`app/` の中ではありません。
 
 `target\release\marimo.exe` を直接起動しても動きますが、ふだん使いには向きません。起動している間は実行ファイルが使用中になり、ビルドし直すと上書きに失敗するためです。MSI（Windows に標準で備わるインストーラの形式）のインストーラは、すべての利用者向けに Program Files へ入れるもので、管理者の権限が要ります。
 
@@ -57,7 +57,7 @@ Node.js のバージョンは、依存しているビルドツールの Vite と
    }
    ```
 
-   `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを通さずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを通さないので、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form に対応した Claude Code の版は、README の[動作環境](../README.md#動作環境)に書いています。
+   `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを通さずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを通さないので、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form に対応した Claude Code のバージョンは、README の[動作環境](../README.md#動作環境)に書いています。
 
    `~/.marimo/bin/marimo-hook hook` という文字列をシェルに渡す形のフックが登録されている状態で `install` を実行すると、同じグループの同じ位置のまま exec form へ書き換えます。
 
@@ -184,12 +184,12 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `window.json` | 窓の位置です |
 | `acknowledged.json` | 既読にした完了などのきっかけの記録です |
 | `dialogue.json` | 利用者が書くセリフの上書きです。marimo はこのファイルを作りません |
-| `dialogue.json.unused-default` | marimo の古い版が書き出した既定のセリフと中身が同じだった `dialogue.json` を、起動時に退避したものです |
+| `dialogue.json.unused-default` | marimo の古いバージョンが書き出した既定のセリフと中身が同じだった `dialogue.json` を、起動時に退避したものです |
 | `bin/marimo-hook` | `install` がコピーしたフックのコマンドです。Windows では `marimo-hook.exe` です。settings.json はこのパスを指しています |
 | `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。日付の無い名前の `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
 
-セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes`、`opencode` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。どのツールのセッションでも、ファイルはターンを動かしているプロセスの ID と起動した時刻の `host` を持ちます（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前の版のアプリは、Hermes のセッションのファイルを読み飛ばします。OpenCode のセッションでは `source` が `opencode-step` になります。`opencode` を知らない以前の版のアプリも、OpenCode のセッションのファイルを同じように読み飛ばします。
+セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes`、`opencode` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。どのツールのセッションでも、ファイルはターンを動かしているプロセスの ID と起動した時刻の `host` を持ちます（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前のバージョンのアプリは、Hermes のセッションのファイルを読み飛ばします。OpenCode のセッションでは `source` が `opencode-step` になります。`opencode` を知らない以前のバージョンのアプリも、OpenCode のセッションのファイルを同じように読み飛ばします。
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
 
@@ -248,7 +248,7 @@ marimo は、状態ファイルも会話の内容も、手元のコンピュー�
 | `tools/character` | 小春の素材を作るスクリプト `build.py` とその設定 `koharu.json`、Clawd の素材を描くスクリプト `clawd.py`、Python の依存 `requirements.txt` |
 | `tools/tray_icon.py` | メニューバーと通知領域のアイコンを描くスクリプト |
 | `tools/app_icon.py` | アプリのアイコンを描くスクリプト |
-| `tools/release.sh` | 版の書き換え、main への push、CI の完了の待ち、タグの push をまとめて行い、リリースを作る macOS 用のスクリプト（[リリースを作る](#リリースを作る)を参照） |
+| `tools/release.sh` | バージョンの書き換え、main への push、CI の完了の待ち、タグの push をまとめて行い、リリースを作る macOS 用のスクリプト（[リリースを作る](#リリースを作る)を参照） |
 | `tools/update.sh`、`tools/update.ps1` | 正式なリリースか、CI（継続的インテグレーション。push のたびに自動でテストやビルドを行う仕組み）が main のコミットについて作ったビルドの取得（`--build` や `-Build` を付けたときは手元でのビルド）、アプリの差し替え、`install`、起動し直しをまとめて行う更新用のスクリプト。`update.sh` は macOS 用、`update.ps1` は Windows 用です |
 
 ## テストと検査
@@ -289,17 +289,17 @@ main への push では、両方の OS で検査が通ったあとに、更新�
 
 正式なリリースは、`vX.Y.Z` という名前のタグを main のコミットに付けて作ります。最初の正式なリリースは `v0.1.0` です。更新用のスクリプトは、既定でこの正式なリリースのうち最新のものを入れます（[更新する](usage.md#更新する)を参照）。
 
-macOS では、`tools/release.sh` に版を一つ渡すと、ここから下の手順をまとめて行います。
+macOS では、`tools/release.sh` にバージョンを一つ渡すと、ここから下の手順をまとめて行います。
 
 ```bash
 tools/release.sh 0.1.3-beta.2
 ```
 
-スクリプトは、main にいてコミットしていない変更が無いことと、同じ名前のタグがまだ無いことを確かめ、main の最新を取り込んでから、四つのファイルの版と `Cargo.lock` のワークスペースのクレートの版を書き換えます。それを `Bump the version to <版>` というコミットにして main へ push し、main の CI がテストとビルドを終えるまで待ちます。CI が通ったときだけ `v<版>` のタグを push し、タグの CI がリリースを公開し終えるまで待って、リリースのアドレスを表示します。main の CI が落ちたときはタグを付けずに止まるので、直して main へ push してから、同じ版でもう一度実行します。版のファイルがすでにその版なら、コミットを作らずに今の main の先端にタグを付けます。スクリプトには GitHub CLI（`gh`）のログインが要ります。
+スクリプトは、main にいてコミットしていない変更が無いことと、同じ名前のタグがまだ無いことを確かめ、main の最新を取り込んでから、四つのファイルのバージョンと `Cargo.lock` のワークスペースのクレートのバージョンを書き換えます。それを `Bump the version to <バージョン>` というコミットにして main へ push し、main の CI がテストとビルドを終えるまで待ちます。CI が通ったときだけ `v<バージョン>` のタグを push し、タグの CI がリリースを公開し終えるまで待って、リリースのアドレスを表示します。main の CI が落ちたときはタグを付けずに止まるので、直して main へ push してから、同じバージョンでもう一度実行します。バージョンのファイルがすでにそのバージョンなら、コミットを作らずに今の main の先端にタグを付けます。スクリプトには GitHub CLI（`gh`）のログインが要ります。
 
 手で行うときは、次のとおりです。
 
-1. 版を次の四つのファイルで同じ値に変えます。`Cargo.toml` の `[workspace.package]` の `version`、`app/src-tauri/tauri.conf.json` の `version`、`app/package.json` の `version`、`app/package-lock.json` の先頭の `version` と `packages[""]` の `version` です。`app/` で `npm version X.Y.Z --no-git-tag-version` を実行すると、`package.json` と `package-lock.json` の両方が変わります。`Cargo.toml` を変えたあとに `cargo build` を一度実行すると `Cargo.lock` の版も変わるので、一緒にコミットします。
+1. バージョンを次の四つのファイルで同じ値に変えます。`Cargo.toml` の `[workspace.package]` の `version`、`app/src-tauri/tauri.conf.json` の `version`、`app/package.json` の `version`、`app/package-lock.json` の先頭の `version` と `packages[""]` の `version` です。`app/` で `npm version X.Y.Z --no-git-tag-version` を実行すると、`package.json` と `package-lock.json` の両方が変わります。`Cargo.toml` を変えたあとに `cargo build` を一度実行すると `Cargo.lock` のバージョンも変わるので、一緒にコミットします。
 2. 変更を main へコミットして push します。
 3. main の CI が終わったら、そのコミットに `vX.Y.Z` のタグを付けて push します。CI が終わる前に付けても公開はされますが、タグの CI が検査とビルドをやり直します。
 
@@ -308,9 +308,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-タグの push で CI が走り、タグから先頭の `v` を除いた版が四つのファイルの版と一致することと、タグの付いたコミットが main に入っていることを確かめます。どちらかを満たさなければ、ビルドせずに理由を表示して失敗します。そのときは、手元のタグを `git tag -d vX.Y.Z` で、GitHub のタグを `git push origin :refs/tags/vX.Y.Z` で消し、直したコミットに付け直します。確かめ終えると、そのコミットについて main への push で作った `build-` のプレリリースを探します。三つのファイルがそろっていれば、検査とビルドをやり直さず、`SHA256SUMS` と照らし合わせたうえでそのファイルを写して、`marimo vX.Y.Z` という題のリリースとして公開します。タグの付いたコミットは main の実行で検査とビルドを済ませているので、同じものを作り直さないためです。main の実行がまだ終わっていないときや、古いビルドが片付けられていたときは、検査が通ったあとに main のビルドと同じ名前のファイルを macOS と Windows でビルドして公開します。版を上げたコミットを main へ push したら、その CI が終わってからタグを push すると、タグの実行はファイルを写すだけで終わります。版に `-` を含まないタグでは、正式なリリース（プレリリースではないリリース）として公開して、最新のリリース（Latest）にします。リリースノートは GitHub が前のリリースからの変更をもとに作ります。失敗した実行をやり直したときは、同じリリースのファイルを差し替えます。
+タグの push で CI が走り、タグから先頭の `v` を除いたバージョンが四つのファイルのバージョンと一致することと、タグの付いたコミットが main に入っていることを確かめます。どちらかを満たさなければ、ビルドせずに理由を表示して失敗します。そのときは、手元のタグを `git tag -d vX.Y.Z` で、GitHub のタグを `git push origin :refs/tags/vX.Y.Z` で消し、直したコミットに付け直します。確かめ終えると、そのコミットについて main への push で作った `build-` のプレリリースを探します。三つのファイルがそろっていれば、検査とビルドをやり直さず、`SHA256SUMS` と照らし合わせたうえでそのファイルを写して、`marimo vX.Y.Z` という題のリリースとして公開します。タグの付いたコミットは main の実行で検査とビルドを済ませているので、同じものを作り直さないためです。main の実行がまだ終わっていないときや、古いビルドが片付けられていたときは、検査が通ったあとに main のビルドと同じ名前のファイルを macOS と Windows でビルドして公開します。バージョンを上げたコミットを main へ push したら、その CI が終わってからタグを push すると、タグの実行はファイルを写すだけで終わります。バージョンに `-` を含まないタグでは、正式なリリース（プレリリースではないリリース）として公開して、最新のリリース（Latest）にします。リリースノートは GitHub が前のリリースからの変更をもとに作ります。失敗した実行をやり直したときは、同じリリースのファイルを差し替えます。
 
-`v0.2.0-beta.1` や `v0.2.0-rc.1` のように版に `-` を含むタグは、SemVer の先行版として扱います。版を確かめるときは `-beta.1` のような後ろの部分も含めて四つのファイルと比べるので、ファイルの版も `0.2.0-beta.1` のように書きます。CI はこのタグを GitHub のプレリリースとして公開し、最新のリリース（Latest）にはしません。更新用のスクリプトは既定ではプレリリースを選ばず、設定の窓からの更新はどの版のアプリからでも先行版を選ばないので、先行版を公開しても利用者の更新先は変わりません。先行版を入れるのは、`tools/update.sh --pre`（Windows では `tools\update.ps1 -Pre`）だけです。先行版を入れたアプリも、設定の窓からは正式な版だけを更新先にします。古い `build-` のプレリリースを消す処理も、`v` で始まるプレリリースには触れません。
+`v0.2.0-beta.1` や `v0.2.0-rc.1` のようにバージョンに `-` を含むタグは、SemVer のプレリリースとして扱います。バージョンを確かめるときは `-beta.1` のような後ろの部分も含めて四つのファイルと比べるので、ファイルのバージョンも `0.2.0-beta.1` のように書きます。CI はこのタグを GitHub のプレリリースとして公開し、最新のリリース（Latest）にはしません。更新用のスクリプトは既定ではプレリリースを選ばず、設定の窓からの更新はどのバージョンのアプリからでもプレリリースを選ばないので、プレリリースを公開しても利用者の更新先は変わりません。プレリリースを入れるのは、`tools/update.sh --pre`（Windows では `tools\update.ps1 -Pre`）だけです。プレリリースを入れたアプリも、設定の窓からは正式なバージョンだけを更新先にします。古い `build-` のプレリリースを消す処理も、`v` で始まるプレリリースには触れません。
 
 ## アイコンを描き直す
 

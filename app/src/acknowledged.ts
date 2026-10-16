@@ -4,7 +4,7 @@ import type { SessionState, Snapshot, Status } from "./types";
 export const STATUS_PRIORITY: readonly Status[] = ["waiting", "error", "working", "done", "idle"];
 
 // ツールごとに session_id を別々に振るので、同じ id が複数のツールにありうる。Claude Code の
-// セッションは以前の版と同じ鍵のままにして、保存してある既読の記録をそのまま使えるようにする。
+// セッションは以前のバージョンと同じ鍵のままにして、保存してある既読の記録をそのまま使えるようにする。
 export function sessionKey(s: Pick<SessionState, "session_id" | "provider">): string {
   return s.provider && s.provider !== "claude" ? `${s.provider}:${s.session_id}` : s.session_id;
 }

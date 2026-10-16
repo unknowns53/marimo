@@ -32,7 +32,7 @@ pub const STALE_SESSION_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 /// 調査用の記録はプロンプトやツールの引数を含みうるので、UTC の今日よりこの日数を超えて前の日のファイルは消す。
 pub const RECORD_RETENTION_DAYS: u64 = 7;
 
-// 以前の版が書いた記録のファイルは名前に日付を持たないので、mtime で判定して消す。
+// 以前のバージョンが書いた記録のファイルは名前に日付を持たないので、mtime で判定して消す。
 const LEGACY_RECORD_FILE: &str = "record.jsonl";
 
 // セッションのファイルは実行中のコマンドの文字列を含むので、marimo が作るフォルダと

@@ -51,7 +51,7 @@
 
 既定のセリフはキャラクターごとにあり、小春のものは `assets/character/koharu/dialogue.json`、Clawd のものは `assets/character/clawd/dialogue.json` で全体を見られます。自分のファイルを書くときの手本になります。`~/.marimo/dialogue.json` はキャラクターごとには分かれておらず、どのキャラクターを選んでいても同じ上書きが効きます。
 
-起動時に `~/.marimo/dialogue.json` が、marimo の古い版が丸ごと書き出した既定のセリフと中身がまったく同じだった場合は、編集されていないものとみなして `dialogue.json.unused-default` へ名前を変えて退避します。そのファイルが残っていると、既定のセリフを直しても手元に届かないためです。
+起動時に `~/.marimo/dialogue.json` が、marimo の古いバージョンが丸ごと書き出した既定のセリフと中身がまったく同じだった場合は、編集されていないものとみなして `dialogue.json.unused-default` へ名前を変えて退避します。そのファイルが残っていると、既定のセリフを直しても手元に届かないためです。
 
 ## 自分のキャラクターを作る
 

@@ -247,8 +247,8 @@ fn path_str(path: &Path) -> Result<&str, String> {
         .ok_or_else(|| format!("{} の場所を扱えませんでした。", path.display()))
 }
 
-/// 先行版を入れるのは tools/update.sh の --pre だけにし、アプリからの更新はどの版からでも正式な版だけを
-/// 更新先にする。先行版を入れたアプリも、それより新しい正式な版が出ればそちらへ移る。
+/// プレリリースを入れるのは tools/update.sh の --pre だけにし、アプリからの更新はどのバージョンからでも正式なバージョンだけを
+/// 更新先にする。プレリリースを入れたアプリも、それより新しい正式なバージョンが出ればそちらへ移る。
 fn latest_release() -> Result<Release, String> {
     let (code, body) = fetch_text(&releases_api(REPO))?;
     match code {
@@ -553,7 +553,7 @@ fn download_base(repo: &str, tag: &str) -> String {
     format!("https://github.com/{repo}/releases/download/{tag}")
 }
 
-/// リリースの一覧から、v で始まる正式な版のうち最も新しいものを選ぶ。先行版、build- のタグ、下書きは選ばない。
+/// リリースの一覧から、v で始まる正式なバージョンのうち最も新しいものを選ぶ。プレリリース、build- のタグ、下書きは選ばない。
 fn newest_release(body: &[u8], repo: &str) -> Option<Release> {
     let json: Value = serde_json::from_slice(body).ok()?;
     json.as_array()?
@@ -567,7 +567,7 @@ fn newest_release(body: &[u8], repo: &str) -> Option<Release> {
         .map(|(_, r)| r)
 }
 
-/// タグは URL とスクリプトに埋め込むので、版の名前に使う文字だけでできたものに限る。
+/// タグは URL とスクリプトに埋め込むので、バージョンの名前に使う文字だけでできたものに限る。
 fn parse_release(json: &Value, repo: &str) -> Option<Release> {
     let tag = json.get("tag_name")?.as_str()?;
     let safe = !tag.is_empty()
@@ -597,7 +597,7 @@ fn expected_sum(sums: &str, file: &str) -> Option<String> {
     })
 }
 
-/// latest が current より新しいかを返す。読めない版は新しくないとする。
+/// latest が current より新しいかを返す。読めないバージョンは新しくないとする。
 fn is_newer(latest: &str, current: &str) -> bool {
     match (parse_version(latest), parse_version(current)) {
         (Some(latest), Some(current)) => compare_versions(&latest, &current) == Ordering::Greater,
@@ -610,7 +610,7 @@ struct Version {
     pre: Vec<PreIdent>,
 }
 
-// SemVer の先行版の識別子の順序。数字だけのものは数として比べ、英字を含むものより前に置く。
+// SemVer のプレリリースの識別子の順序。数字だけのものは数として比べ、英字を含むものより前に置く。
 // 列挙の順に並ぶので、Num を先に書く。
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum PreIdent {
@@ -618,7 +618,7 @@ enum PreIdent {
     Alpha(String),
 }
 
-/// 数字の並びを 0 で埋めて比べ、同じなら SemVer の規則で先行版を比べる。+ 以降のビルド情報は比べない。
+/// 数字の並びを 0 で埋めて比べ、同じなら SemVer の規則でプレリリースを比べる。+ 以降のビルド情報は比べない。
 fn compare_versions(a: &Version, b: &Version) -> Ordering {
     let len = a.core.len().max(b.core.len());
     let at = |v: &[u64], i: usize| v.get(i).copied().unwrap_or(0);

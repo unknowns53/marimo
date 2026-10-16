@@ -80,11 +80,17 @@ jobs:
 
       # 更新用のスクリプトは利用者の端末でしか動かないので、ここでは構文だけを確かめる。
       # Windows では、利用者が使う Windows PowerShell 5.1 と PowerShell 7 の両方で読む。
+      # macOS の bash 3.2 は、変数名の直後の非 ASCII のバイトを名前の一部として読み、set -u のもとで止まる。
+      # 日本語の直前の変数は ${name} の形で書かれていることも、ここで確かめる。
       - name: Parse the update script (macOS)
         if: runner.os == 'macOS'
         run: |
           bash -n tools/update.sh
           bash -n tools/release.sh
+          if perl -ne 'if (/\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]/) { print "$ARGV:$.: $_"; $bad = 1 } close ARGV if eof; END { exit $bad }' tools/*.sh; then :; else
+            echo "::error::日本語の直前の変数を \${name} の形にしてください"
+            exit 1
+          fi
 
       - name: Parse the update script (Windows)
         if: runner.os == 'Windows'
@@ -137,7 +143,7 @@ jobs:
             echo "needed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # アプリが名乗る版とリリースの名前が食い違わないよう、タグの版が四つのファイルの版とそろっていなければビルドしない。
+      # アプリが名乗るバージョンとリリースの名前が食い違わないよう、タグのバージョンが四つのファイルのバージョンとそろっていなければビルドしない。
       # main を通っていないコミットは main の検査を経ていないので、正式なリリースにしない。
       - name: Check the version tag
         id: release
@@ -170,9 +176,9 @@ jobs:
           }
           wrong = [f'{where} は {version}' for where, version in found.items() if version != want]
           if wrong:
-              print(f'::error::タグ {tag} の版 {want} がファイルの版と合いません（' + '、'.join(wrong) + '）。版を直して main へコミットし、そのコミットにタグを付け直してください。')
+              print(f'::error::タグ {tag} のバージョン {want} がファイルのバージョンと合いません（' + '、'.join(wrong) + '）。バージョンを直して main へコミットし、そのコミットにタグを付け直してください。')
               sys.exit(1)
-          print(f'タグ {tag} の版 {want} は四つのファイルの版とそろっています')
+          print(f'タグ {tag} のバージョン {want} は四つのファイルのバージョンとそろっています')
           EOF
           if ! git merge-base --is-ancestor "$sha" origin/main; then
             echo "::error::タグ $TAG の付いたコミット ${sha::12} は main に入っていません。main へ入れたコミットにタグを付け直してください。"
@@ -182,7 +188,7 @@ jobs:
           echo "needed=true" >> "$GITHUB_OUTPUT"
 
       # main の実行は、アプリに入るファイルを変えた最後のコミットの名前で build- を作るので、同じ規則で探す。
-      # 版のファイルはアプリに入るので、見つかったビルドもタグと同じ版を名乗っている。
+      # バージョンのファイルはアプリに入るので、見つかったビルドもタグと同じバージョンを名乗っている。
       - name: Find the main build of the tagged commit
         id: reuse
         if: github.ref_type == 'tag'
@@ -366,7 +372,7 @@ jobs:
           fi
 
       # 更新用のスクリプトは、既定では GitHub が Latest と示す正式なリリースを取りに来る。
-      # SemVer では - の後ろが先行版を表すので、v0.2.0-rc.1 のようなタグはプレリリースにして、Latest にしない。
+      # SemVer では - の後ろがプレリリースを表すので、v0.2.0-rc.1 のようなタグはプレリリースにして、Latest にしない。
       # --verify-tag は、push されたタグが消されていたときに、gh が既定のブランチの先端へ新しくタグを作るのを止める。
       - name: Publish the release
         if: needs.target.outputs.formal == 'true'

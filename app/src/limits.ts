@@ -14,7 +14,7 @@ export interface LimitGroup {
 
 export interface LimitLine {
   groups: LimitGroup[];
-  /** Codex の値があるときだけ、どちらのツールの値かをアイコンで示す。無ければ以前の版と同じ見た目にする。 */
+  /** Codex の値があるときだけ、どちらのツールの値かをアイコンで示す。無ければ以前のバージョンと同じ見た目にする。 */
   marked: boolean;
   /** 出す組のうち最も新しい更新の時刻。古い組は組ごとに薄く示すので、行の時刻は最後に値が届いた時刻にする。 */
   updatedAt: number;

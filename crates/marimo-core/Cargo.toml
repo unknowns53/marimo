@@ -22,7 +22,7 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }
-# MSIX のパッケージからアプリのロゴを読むのに WinRT を使う。版は Tauri が引き込むものに揃える。
+# MSIX のパッケージからアプリのロゴを読むのに WinRT を使う。バージョンは Tauri が引き込むものに揃える。
 windows = { version = "0.62.2", features = [
     "ApplicationModel_Core",
     "Foundation",

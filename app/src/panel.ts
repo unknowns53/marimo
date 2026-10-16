@@ -326,7 +326,7 @@ export function renderContext(s: SessionState): HTMLElement {
   return el("span", "ctx-none");
 }
 
-// 古さは組ごとに示す。全部の組が古いときは、以前の版と同じく行全体を薄くする。
+// 古さは組ごとに示す。全部の組が古いときは、以前のバージョンと同じく行全体を薄くする。
 function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons): void {
   const allStale = line.groups.every((g) => g.stale);
   let values: HTMLElement;

@@ -176,7 +176,7 @@ impl Marimo {
         }
     }
 
-    // wrapped_statusline が包む前の元のコマンドを返す。Windows でも、以前の版は sh -c の形で
+    // wrapped_statusline が包む前の元のコマンドを返す。Windows でも、以前のバージョンは sh -c の形で
     // 包んでいたので、その形も読む。
     fn unwrapped_statusline(&self, rest: &str) -> Option<String> {
         let tail = rest.strip_prefix(" -- ")?;
@@ -980,7 +980,7 @@ mod tests {
             assert_eq!(settings, original, "{command:?}");
         }
 
-        // 以前の版が Windows でも sh -c の形で包んでいたものは、その形のまま元に戻す。
+        // 以前のバージョンが Windows でも sh -c の形で包んでいたものは、その形のまま元に戻す。
         let legacy = "C:/Users/user/.marimo/bin/marimo-hook.exe statusline -- sh -c 'bash ~/.claude/statusline.sh'";
         let mut settings = json!({"statusLine": {"type": "command", "command": legacy}});
         let report = install(&mut settings, &m).unwrap();

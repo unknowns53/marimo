@@ -130,7 +130,7 @@ impl Default for PanelDisplay {
     }
 }
 
-// 以前の版は、立ち絵の有無と行の出し方を混ぜた四つの段階を panel_mode に一つだけ持っていた。
+// 以前のバージョンは、立ち絵の有無と行の出し方を混ぜた四つの段階を panel_mode に一つだけ持っていた。
 // 行を出さない「絵だけ」は選べなくなったので、立ち絵を残して最も場所を取らない件数だけへ読み替える。
 fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
     let (show_character, panel_style) = match mode {

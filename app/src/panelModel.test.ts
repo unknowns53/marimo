@@ -140,7 +140,7 @@ describe("acknowledged sessions", () => {
     const ack = new Acknowledged();
     const claudeDone = session("same", "done", 10, 10, 1);
     const codexDone = { ...session("same", "done", 10, 10, 2), provider: "codex" as const };
-    // Claude Code の鍵は以前の版と同じなので、保存してある既読の記録がそのまま効く。
+    // Claude Code の鍵は以前のバージョンと同じなので、保存してある既読の記録がそのまま効く。
     expect([triggerKey(claudeDone), triggerKey(codexDone)]).toEqual(["same:done:10", "codex:same:done:10"]);
     expect(planPanel(snap(claudeDone, codexDone), ack).rows).toHaveLength(2);
     const keep = new Set([triggerKey(claudeDone), triggerKey(codexDone)]);

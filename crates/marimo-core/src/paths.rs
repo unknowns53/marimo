@@ -33,7 +33,7 @@ impl MarimoHome {
     /// session_id はフックの入力をそのまま使うので、`sessions/` の外を指しうる値や
     /// ファイル名にできない値には `None` を返す。ツールごとに session_id は別々に振られるので、
     /// Claude Code 以外のファイルには接頭辞を付けて同じ値でもぶつからないようにする。
-    /// Claude Code のファイル名は以前の版と同じままにする。
+    /// Claude Code のファイル名は以前のバージョンと同じままにする。
     pub fn session_file(&self, provider: Provider, session_id: &str) -> Option<PathBuf> {
         let prefix = match provider {
             Provider::Claude => "",

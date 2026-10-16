@@ -223,7 +223,7 @@ pub fn run(target: Target) {
     });
 }
 
-// Discord のリンクを開く Windows の実行ファイル。安定版のほかに、公開試験版と開発版がある。
+// Discord のリンクを開く Windows の実行ファイル。Stable のほかに、PTB と Canary がある。
 #[cfg(windows)]
 const DISCORD_EXES: [&str; 3] = ["Discord.exe", "DiscordPTB.exe", "DiscordCanary.exe"];
 

@@ -8,7 +8,7 @@ usage() {
 
 既定では、最新の正式なリリースを GitHub から取ってきて入れ替えます。リポジトリには触れません。
 
-  --pre      先行版（プレリリース）も含めて、最も新しく公開された v で始まるリリースを取ってきます。
+  --pre      プレリリースも含めて、最も新しく公開された v で始まるリリースを取ってきます。
 
   --main     main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
   --no-pull  ブランチが main であることの確認と取り込みを省き、今チェックアウトしているコミットを使います。
@@ -206,9 +206,9 @@ download_release() {
     fetch "$api" "$work/release.json" || fail "$api を取得できませんでした（HTTP 404）。"
     tag="$(newest_v_release "$work/release.json")"
     [[ -n "$tag" ]] || fail "https://github.com/$slug/releases に v で始まるリリースがまだありません。アプリは差し替えていません。"
-    kind="先行版を含む最新のリリース"
+    kind="プレリリースを含む最新のリリース"
   else
-    # この API は下書きとプレリリースを除いた最新のリリースを返すので、先行版と、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
+    # この API は下書きとプレリリースを除いた最新のリリースを返すので、プレリリースと、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
     api="https://api.github.com/repos/$slug/releases/latest"
     fetch "$api" "$work/release.json" ||
       fail "https://github.com/$slug/releases に正式なリリースがまだありません。main の最新のビルドを入れるときは --main を付けてください。アプリは差し替えていません。"
@@ -227,7 +227,7 @@ if [[ $build -eq 1 ]]; then
   cargo build --release -p marimo-hook
 
   echo "アプリの依存をインストールしています"
-  # npm install は npm の版や OS によって package-lock.json を書き直し、次の実行を変更ありで止めてしまう。
+  # npm install は npm のバージョンや OS によって package-lock.json を書き直し、次の実行を変更ありで止めてしまう。
   (cd app && npm ci --no-audit --no-fund)
 
   echo "アプリをビルドしています"

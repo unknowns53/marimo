@@ -30,7 +30,7 @@ impl Status {
     }
 }
 
-/// フックを送ってきたツール。この項目を持たない以前の版のファイルは Claude Code のものとして読む。
+/// フックを送ってきたツール。この項目を持たない以前のバージョンのファイルは Claude Code のものとして読む。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
@@ -213,7 +213,7 @@ pub fn context_from_codex(usage: &CodexTokenUsage, now_ms: u64) -> ContextUsage 
 }
 
 /// 会話ログから数えたトークン数で、保存済みのコンテキスト使用量を更新する。上限は statusLine から
-/// 得た値だけを使い、無ければ % を出さない。モデル名から上限を推し量ると、1M の版かどうかが
+/// 得た値だけを使い、無ければ % を出さない。モデル名から上限を推し量ると、1M のバージョンかどうかが
 /// 分からず誤った % を出すからである。
 pub fn context_from_transcript(
     existing: Option<&ContextUsage>,

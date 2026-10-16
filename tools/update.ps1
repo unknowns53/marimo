@@ -4,13 +4,13 @@
 
 <#
 .SYNOPSIS
-marimo を新しい版へ更新します。
+marimo を新しいバージョンへ更新します。
 
 .DESCRIPTION
 既定では、最新の正式なリリースを GitHub から取ってきて入れ直します。リポジトリには触れません。
 
 .PARAMETER Pre
-先行版（プレリリース）も含めて、最も新しく公開された v で始まるリリースを取ってきます。
+プレリリースも含めて、最も新しく公開された v で始まるリリースを取ってきます。
 
 .PARAMETER Main
 main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
@@ -189,9 +189,9 @@ function Get-ReleaseBuild([string]$Work) {
             Fail "https://github.com/$slug/releases に v で始まるリリースがまだありません。アプリは入れ直していません。"
         }
         $tag = $release.tag_name
-        $kind = '先行版を含む最新のリリース'
+        $kind = 'プレリリースを含む最新のリリース'
     } else {
-        # この API は下書きとプレリリースを除いた最新のリリースを返すので、先行版と、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
+        # この API は下書きとプレリリースを除いた最新のリリースを返すので、プレリリースと、CI が main のコミットごとに作る build- のプレリリースは選ばれない。
         $api = "https://api.github.com/repos/$slug/releases/latest"
         $code = Save-Url $api $jsonPath
         if ($code -eq 404) {
@@ -243,7 +243,7 @@ try {
         Invoke-Native 'cargo' @('build', '--release', '-p', 'marimo-hook')
 
         # npm.ps1 を経由すると PowerShell が引数の -- を取り除くことがあるので、npm.cmd を直接呼ぶ。
-        # npm install は npm の版や OS によって package-lock.json を書き直し、次の実行を変更ありで止めてしまう。
+        # npm install は npm のバージョンや OS によって package-lock.json を書き直し、次の実行を変更ありで止めてしまう。
         Push-Location -LiteralPath (Join-Path $root 'app')
         try {
             Write-Host 'アプリの依存をインストールしています'
