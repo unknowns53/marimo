@@ -1,0 +1,162 @@
+/* 色はパネルの style.css に揃える。暗い配色はパネルの地と文字の色、明るい配色はその反転にする。 */
+:root {
+  color-scheme: light dark;
+  --bg: #f4f4f5;
+  --fg: #1c1c22;
+  --muted: rgba(28, 28, 34, 0.6);
+  --rule: rgba(28, 28, 34, 0.12);
+  --accent: #6366f1;
+  --error: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c22;
+    --fg: #f4f4f5;
+    --muted: rgba(244, 244, 245, 0.6);
+    --rule: rgba(255, 255, 255, 0.12);
+    --accent: #a5b4fc;
+    --error: #f87171;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  accent-color: var(--accent);
+  cursor: default;
+}
+
+#settings {
+  padding: 4px 20px 20px;
+}
+
+section {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+section:last-child {
+  border-bottom: none;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+label,
+input,
+select,
+button {
+  font: inherit;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+
+.check input,
+.choices input {
+  margin: 0;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.field .name {
+  flex: none;
+  width: 8.5em;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.range {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.range input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* 桁が変わってもスライダーの幅が揺れないようにする。 */
+.range output {
+  flex: none;
+  min-width: 3.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+select {
+  min-width: 10em;
+}
+
+.check:has(:disabled),
+.field:has(:disabled) {
+  opacity: 0.5;
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+#update-status {
+  min-height: 1.5em;
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+#update-status.error {
+  color: var(--error);
+}
+
+dialog {
+  max-width: 320px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+dialog p {
+  margin: 0 0 12px;
+}
+
+dialog .buttons {
+  justify-content: flex-end;
+}

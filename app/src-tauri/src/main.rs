@@ -7,7 +7,9 @@ mod focus;
 mod hit;
 mod icons;
 mod scale;
+mod settings;
 mod tray;
+mod update;
 mod watch;
 mod window_pos;
 
@@ -16,7 +18,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use marimo_core::{MarimoHome, Provider, Snapshot, store};
 use serde_json::Value;
-use tauri::{AppHandle, LogicalSize, Manager, State, WebviewWindow};
+use tauri::{AppHandle, LogicalSize, Manager, State};
 
 struct AppState {
     home: MarimoHome,
@@ -34,9 +36,13 @@ impl AppState {
     }
 }
 
-fn resize(window: &WebviewWindow, scale: f64, aspect: f64) {
+// 大きさを変えるのはいつも立ち絵の窓なので、呼び出し元の窓ではなくラベルで取る。
+fn resize(app: &AppHandle, scale: f64, aspect: f64) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
     let (w, h) = scale::window_size(scale, aspect);
-    if let Err(e) = window_pos::resize_keeping_bottom_right(window, LogicalSize::new(w, h)) {
+    if let Err(e) = window_pos::resize_keeping_bottom_right(&window, LogicalSize::new(w, h)) {
         eprintln!("marimo: cannot resize window: {e}");
     }
 }
@@ -59,9 +65,9 @@ fn get_scale(state: State<'_, AppState>) -> f64 {
 // 同期コマンドは Tauri のメインスレッドで順に実行されるので、ホイールで続けて
 // 呼ばれても窓の大きさの変更が入れ違うことはない。
 #[tauri::command]
-fn set_scale(window: WebviewWindow, state: State<'_, AppState>, scale: f64) -> f64 {
+fn set_scale(app: AppHandle, state: State<'_, AppState>, scale: f64) -> f64 {
     let scale = scale::clamp(scale);
-    resize(&window, scale, state.aspect());
+    resize(&app, scale, state.aspect());
     if let Err(e) = scale::save(&state.home, scale) {
         eprintln!("marimo: cannot save scale: {e}");
     }
@@ -79,7 +85,7 @@ fn set_panel_display(
     display: scale::PanelDisplay,
 ) -> Result<(), String> {
     scale::save_panel_display(&state.home, display).map_err(|e| e.to_string())?;
-    // 右クリックメニューやパネルの切り替えで変えた表示を、トレイのメニューの印にも揃える。
+    // 右クリックメニューやパネルの切り替えや設定の窓で変えた表示を、トレイのメニューの印にも揃える。
     // トレイで選んだ表示はトレイ自身が保存して印を付けるので、ここは通らない。
     if let Some(tray) = state.tray.get() {
         tray.reflect(display);
@@ -111,10 +117,10 @@ fn set_character(state: State<'_, AppState>, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_stage_aspect(window: WebviewWindow, state: State<'_, AppState>, aspect: f64) {
+fn set_stage_aspect(app: AppHandle, state: State<'_, AppState>, aspect: f64) {
     let aspect = scale::clamp_aspect(aspect);
     *state.aspect.lock().unwrap_or_else(|e| e.into_inner()) = aspect;
-    resize(&window, scale::load(&state.home), aspect);
+    resize(&app, scale::load(&state.home), aspect);
     if let Err(e) = scale::save_aspect(&state.home, aspect) {
         eprintln!("marimo: cannot save stage aspect: {e}");
     }
@@ -242,8 +248,11 @@ fn main() {
             set_unread_done,
             set_tray_sessions,
             focus_session,
+            settings::open_settings,
             app_icons,
             set_hit_regions,
+            update::check_update,
+            update::install_update,
             quit
         ])
         .setup(move |app| {

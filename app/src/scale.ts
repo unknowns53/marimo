@@ -7,26 +7,16 @@ const WHEEL_STEP = 0.1;
 // トラックパッドは一度のスワイプで wheel を数十回送るので、刻みの間隔に下限を置く。
 const WHEEL_INTERVAL_MS = 60;
 
-export const SCALE_PRESETS: ReadonlyArray<{ label: string; scale: number }> = [
-  { label: "小（0.6）", scale: 0.6 },
-  { label: "中（1.0）", scale: 1.0 },
-  { label: "大（1.5）", scale: 1.5 },
-  { label: "特大（2.0）", scale: 2.0 },
-  { label: "最大（2.5）", scale: 2.5 },
-];
-
-export function nearestPreset(scale: number): number {
-  return SCALE_PRESETS.reduce((best, p) =>
-    Math.abs(p.scale - scale) < Math.abs(best.scale - scale) ? p : best,
-  ).scale;
-}
-
 export class ScaleControl {
   private requested: number;
   private applied: number;
   private lastWheel = 0;
 
-  constructor(initial: number) {
+  /** onApplied は、Rust が範囲に収めて窓の大きさを変えたあとの倍率で呼ぶ。 */
+  constructor(
+    initial: number,
+    private readonly onApplied: (scale: number) => void = () => {},
+  ) {
     this.requested = initial;
     this.applied = initial;
     applyCss(initial);
@@ -43,6 +33,7 @@ export class ScaleControl {
       (applied) => {
         this.applied = applied;
         applyCss(applied);
+        this.onApplied(applied);
       },
       (e) => console.error("set_scale", e),
     );
