@@ -36,11 +36,11 @@ Node.js のバージョンは、依存しているビルドツールの Vite と
 
 ## フックと statusLine の登録
 
-`marimo-hook install` と `uninstall` が、Claude Code と Codex の設定をどう書き換えるかを説明します。登録の手順は、README の [2. フックと statusLine を登録する](../README.md#2-フックと-statusline-を登録する)にあります。
+`marimo-hook install` と `uninstall` が、Claude Code と Codex の設定と OpenCode のプラグインのフォルダをどう書き換えるかと、Hermes Agent のフックを手で登録する手順を説明します。登録の手順の全体は、README の [2. 各ツールに登録する](../README.md#2-各ツールに登録する)にあります。
 
 ### install が行うこと
 
-`install` は次のことを行います。
+`install` は次のことを行います。2. と 3. は Claude Code の設定ファイルへの登録です。
 
 1. 自分自身を `~/.marimo/bin/marimo-hook` へコピーします。settings.json にはこのパスが書かれるので、リポジトリの `target/` を消したりビルドし直したりしても、フックは動き続けます。
 2. 設定ファイルの `hooks` に、次の 16 のイベントそれぞれについて、`~/.marimo/bin/marimo-hook` に `hook` という引数を渡して呼ぶフックを追加します。タイムアウトは 5 秒です。
@@ -62,6 +62,8 @@ Node.js のバージョンは、依存しているビルドツールの Vite と
    `~/.marimo/bin/marimo-hook hook` という文字列をシェルに渡す形のフックが登録されている状態で `install` を実行すると、同じグループの同じ位置のまま exec form へ書き換えます。
 
 3. statusLine を登録します（[statusLine の包み方](#statusline-の包み方)を参照）。
+4. Codex のフォルダがあれば、Codex の `hooks.json` にフックを登録します（[Codex のフック](#codex-のフック)を参照）。
+5. OpenCode の設定のフォルダがあれば、その中の `plugins/marimo.js` にプラグインを置きます（[OpenCode のプラグイン](#opencode-のプラグイン)を参照）。
 
 ### statusLine の包み方
 
@@ -84,7 +86,7 @@ Windows の Claude Code は、Git Bash が入っていれば Git Bash で、な�
 
 ### サブコマンドと設定ファイルの場所
 
-`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`hermes-hook`、`statusline`、`record`、`install`、`uninstall` の七つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code、Codex、Hermes から呼ばれるか、調査のためのものです。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
+`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`statusline`、`record`、`cloud-snapshot`、`install`、`uninstall` の九つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code、Codex、Hermes、OpenCode のプラグインから呼ばれるか、調査や試験的な機能のためのものです（`cloud-snapshot` は [Cloud の手動観測](#cloud-の手動観測)を参照）。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
 
 対象の設定ファイルは `--settings <パス>` で指定できます。省略すると、環境変数 `CLAUDE_CONFIG_DIR` が設定されていればその下の `settings.json` を、なければ `~/.claude/settings.json` を使います。
 
@@ -106,7 +108,7 @@ Codex のフックには exec form が無く、コマンドは常に利用者の
 
 Windows の Codex は、利用者の設定によって PowerShell かコマンドプロンプトでフックを実行し、両者で引用の規則が違います。そこで、実行ファイルのパスに空白や記号が無く、引用符なしでどちらでも同じように読める場合だけ、`\` 区切りのパスのまま登録します。そう書けない場合は、Codex のフックを登録せずにその旨を表示します。
 
-Codex は、管理者が配ったもの以外のフックを、利用者が Codex CLI（端末で動かす Codex のコマンドラインインターフェース）の `/hooks` で内容を確かめて信頼するまで実行しません。信頼はフックの定義から計算した値で記録されます。信頼する操作は、README の [2. フックと statusLine を登録する](../README.md#2-フックと-statusline-を登録する)に書いています。marimo は Codex の信頼の記録がある `config.toml` を書き換えず、信頼を省く起動のオプションも使いません。`install` を同じ場所の実行ファイルでやり直しても `hooks.json` は変わらないので、信頼し直す必要はありません。`MARIMO_HOME` を変えるなどして実行ファイルの場所が変わったときは、もう一度 `/hooks` で信頼します。
+Codex は、管理者が配ったもの以外のフックを、利用者が Codex CLI（端末で動かす Codex のコマンドラインインターフェース）の `/hooks` で内容を確かめて信頼するまで実行しません。信頼はフックの定義から計算した値で記録されます。信頼する操作は、README の [2. 各ツールに登録する](../README.md#2-各ツールに登録する)に書いています。marimo は Codex の信頼の記録がある `config.toml` を書き換えず、信頼を省く起動のオプションも使いません。`install` を同じ場所の実行ファイルでやり直しても `hooks.json` は変わらないので、信頼し直す必要はありません。`MARIMO_HOME` を変えるなどして実行ファイルの場所が変わったときは、もう一度 `/hooks` で信頼します。
 
 `hooks.json` の書き換えでも、settings.json と同じように、書き換える前に `hooks.json.marimo-backup-<日時>` という名前でバックアップを取り、既存のフックや項目はキーの順序も含めてそのまま残します。ファイルが無ければ新しく作ります。
 
@@ -142,9 +144,28 @@ Codex は、管理者が配ったもの以外のフックを、利用者が Code
 
 `marimo-hook` の場所が変わったときは、`command` を書き直し、もう一度承認します。取り除くときは、`config.yaml` から marimo の項目を消し、`hermes hooks revoke '<command の文字列>'` で承認の記録を消します。
 
+### OpenCode のプラグイン
+
+OpenCode v2 は、設定のフォルダの `plugins/` に置いた JavaScript のファイルを、設定ファイルに書かなくても起動したときに読み込みます。そこで `install` は、OpenCode の設定ファイル（`opencode.jsonc`）を書き換えず、`plugins/marimo.js` にプラグインを一つ置きます。設定のフォルダは、どの OS でも、環境変数 `XDG_CONFIG_HOME` が設定されていればその下の `opencode`、なければホームの `.config/opencode` です。このフォルダが無ければ OpenCode は入っていないものとみなし、OpenCode については何も表示しません。`plugins/` が無ければ作ります。
+
+プラグインは、リポジトリの `crates/marimo-hook/src/opencode_plugin.js` を雛形にして、`install` がコピーした `marimo-hook` の絶対パスを JSON の文字列として埋め込んだものです。JSON の文字列はそのまま JavaScript の文字列として読めるので、パスに空白や引用符があっても崩れません。プラグインは `marimo-hook` をシェルを通さずに起動します。
+
+既存のファイルは次のように扱います。
+
+- 一行目が `// marimo-opencode-plugin` のファイルを、marimo が書いたものとみなします。同じ名前でこの印の無いファイルがあれば、`install` も `uninstall` もそのファイルに触れず、その旨を表示します。
+- 中身が書こうとするものと同じなら「変更はありません（すでにインストール済みです）」と表示し、ファイルに手を付けません。marimo が書いたファイルを手で書き換えていた場合は、次の `install` で元に戻ります。
+- `plugins/marimo.js` がシンボリックリンクなら、リンクを残したままリンク先のファイルを書き換えます。
+- settings.json と違い、このファイルのバックアップは取りません。書き換えは、一時ファイルに書いてから名前を変える方法で行います。
+
+OpenCode はプラグインを起動したときにだけ読むので、ファイルを書いたときと消したときは、`install` と `uninstall` が次の案内を表示します。
+
+```text
+OpenCode は起動したときにプラグインを読み込みます。動いている OpenCode は、バックグラウンドのサービスも含めて起動し直してください（サービスは opencode service restart で起動し直せます）。
+```
+
 ### uninstall が行うこと
 
-`uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。Codex のフォルダがあれば、Codex の `hooks.json` からも marimo のフックだけを取り除きます。取り除くのは marimo が足したものだけで、シェルを通す形で登録されたフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
+`uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。Codex のフォルダがあれば、Codex の `hooks.json` からも marimo のフックだけを取り除きます。OpenCode の設定のフォルダがあれば、marimo が書いた `plugins/marimo.js` を消します。`plugins/` のフォルダは残します。Hermes の `config.yaml` には触れないので、[Hermes のフック](#hermes-のフック)の手順で手で取り除きます。取り除くのは marimo が足したものだけで、シェルを通す形で登録されたフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドを包んでいた場合は元のコマンドへ戻します。
 
 ## ファイルとデータ
 
@@ -155,6 +176,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。完了とエラーのセッションは、SessionEnd の `reason` が `clear`、`resume`、`logout`、`prompt_input_exit` のどれかのときだけ消し、それ以外では残します。24 時間更新のないファイルは、アプリが消します |
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID（セッションに振られる識別子）の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `sessions/hermes-<session_id>.json` | Hermes のセッションごとの状態です。Codex と同じく名前に `hermes-` を付けて分けます。書き方と消し方は Claude Code のセッションと同じです |
+| `sessions/opencode-<session_id>.json` | OpenCode のセッションごとの状態です。Codex と同じく名前に `opencode-` を付けて分けます。OpenCode で会話を消したとき（`session.deleted`）は、完了とエラーのセッションも消します。24 時間更新のないファイルは、ほかのセッションと同じくアプリが消します |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine の入力から、そのセッションに新しい応答が届いていたときだけ書きます |
 | `statusline_responses.json` | セッションごとに、statusLine の入力にあった `cost.total_api_duration_ms`（API の応答を待った時間の累計）と、その値が変わった時刻を持ちます。この値が前回より増えていれば新しい応答が届いたと見て、`rate_limits.json` を書き換えます。24 時間変わらなかったセッションの記録は、次に書くときに消します |
 | `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
@@ -167,7 +189,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。日付の無い名前の `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
 
-セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。どのツールのセッションでも、ファイルはターンを動かしているプロセスの ID と起動した時刻の `host` を持ちます（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前の版のアプリは、Hermes のセッションのファイルを読み飛ばします。
+セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes`、`opencode` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。どのツールのセッションでも、ファイルはターンを動かしているプロセスの ID と起動した時刻の `host` を持ちます（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前の版のアプリは、Hermes のセッションのファイルを読み飛ばします。OpenCode のセッションでは `source` が `opencode-step` になります。`opencode` を知らない以前の版のアプリも、OpenCode のセッションのファイルを同じように読み飛ばします。
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
 
@@ -182,40 +204,41 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 
 状態ファイルは、一時ファイルに書いてから名前を変える方法で書き換えます。この方法だと、読む側が書きかけのファイルを読むことがありません（atomic write、原子的な書き込みと呼ばれます）。書き込みの途中には、`.` で始まり `.tmp` で終わる一時ファイルが一瞬だけ現れます。
 
-`MARIMO_HOME` は、Claude Code から呼ばれるフックと、アプリの両方に同じ値が見えている必要があります。ログイン時の自動起動ではアプリに `MARIMO_HOME` が渡らないので、アプリは `~/.marimo` を読みます。主に、開発中に本来のデータへ触れずに試すための設定です。
+`MARIMO_HOME` は、各ツールから呼ばれる `marimo-hook` と、アプリの両方に同じ値が見えている必要があります。OpenCode では、プラグインを動かしているサービスのプロセスに見えている値が `marimo-hook` に渡ります。ログイン時の自動起動ではアプリに `MARIMO_HOME` が渡らないので、アプリは `~/.marimo` を読みます。主に、開発中に本来のデータへ触れずに試すための設定です。
 
 ## プライバシーとセキュリティ
 
-marimo は Claude Code の作業を一切妨げないことを最優先にしています。フックは状態ファイルへ書き込むだけで、何が失敗しても終了コード 0 で終わり、標準出力には何も出しません。Claude Code はフックの終了コード 2 で操作を止め、一部のフックの標準出力を Claude への文脈に加えるので、marimo がそのどちらも起こさないようにしています。marimo のアプリが起動していなくても、Claude Code の動作には影響しません。
+marimo は、対応しているツールの作業を一切妨げないことを最優先にしています。フックは状態ファイルへ書き込むだけで、何が失敗しても終了コード 0 で終わり、標準出力には何も出しません。Claude Code はフックの終了コード 2 で操作を止め、一部のフックの標準出力を Claude への文脈に加えます。Codex と Hermes のフックも、終了コードと標準出力で操作を止めたり会話に文脈を加えたりできます。marimo はそのどれも起こさないようにしています。OpenCode のプラグインは `marimo-hook` の終了を待たずに OpenCode の処理を続け、`marimo-hook` の終了コードと出力も読みません。marimo のアプリが起動していなくても、どのツールの動作にも影響しません。
 
 ### marimo が読むもの
 
 - **フックの入力** セッションの ID、作業フォルダ、イベント名、ツール名とその引数、応答の最後の文章、通知の種類、エラーの種類、会話ログのパスなどです。
-- **フックの環境** どのアプリから起動されたかを知るための環境変数 `__CFBundleIdentifier` と `TERM_PROGRAM`、そして祖先のプロセスの端末の装置名です。macOS で `__CFBundleIdentifier` が無いときは、セッションの開始時とプロンプトを送ったときに、祖先のプロセスの実行ファイルのパスと、それを収めたアプリの `Info.plist` も読みます。Windows では、これに加えて、Claude Code が動いているコンソールのウィンドウのハンドルと、祖先のプロセスのプロセス ID、起動した時刻、実行ファイルのパスを状態ファイルに記録します。どれも行を押してセッションへ移動するときに使います。
+- **フックの環境** どのアプリから起動されたかを知るための環境変数 `__CFBundleIdentifier` と `TERM_PROGRAM`、そして祖先のプロセスの端末の装置名です。macOS で `__CFBundleIdentifier` が無いときは、セッションの開始時とプロンプトを送ったときに、祖先のプロセスの実行ファイルのパスと、それを収めたアプリの `Info.plist` も読みます。Windows では、これに加えて、Claude Code か Codex が動いているコンソールのウィンドウのハンドルと、祖先のプロセスのプロセス ID、起動した時刻、実行ファイルのパスを状態ファイルに記録します。どれも行を押してセッションへ移動するときに使います。Hermes と OpenCode のセッションでは、フックの祖先が会話のウィンドウではないので、これらを読みません。
 - **作業フォルダの `.git`** 作業フォルダから上へたどって `.git` を探し、リポジトリの名前を決めます。`.git` がファイルのとき（git worktree など）は、その中の `gitdir:` の行だけを読みます。git のコマンドは実行しません。作業フォルダが変わったときと、まだリポジトリ名が分かっていないときだけ調べます。
 - **会話ログ** PostToolUse と Stop のときに、会話ログの末尾から最大 4 MB を読み、最後の応答のトークン数と、読んだ範囲にあるチャットの題名だけを取り出します。コンテキスト使用率と題名を出すためです。
 - **Codex の rollout と session_index.jsonl** Codex のセッションでは、rollout の末尾から最大 4 MB を読んで最後の `token_count` のトークン数と利用制限だけを取り出し、`session_index.jsonl` の末尾から最大 512 KB を読んでそのセッションの題名だけを取り出します。利用者が自分で始めた会話かを見分けるために、フックが届くたびに rollout の先頭から最大 64 KB を読み、最初の行の `originator` だけを取り出します。Codex の `auth.json` と `config.toml` は読みません。
 - **Hermes のセッションの一覧** Hermes のセッションでは、ターンの始まりに、Hermes のフォルダの `sessions/sessions.json` から、そのセッションの行を探してチャットの種類と名前、Discord のサーバーとチャンネルの ID だけを取り出します。Hermes の `.env`、`auth.json`、`state.db` は読みません。
-- **ターンを動かしているプロセス** セッションの開始時とプロンプトを送ったとき（Hermes ではターンの始まり）と、まだ記録の無い行へのフックで、フックの祖先のうちシェルでない最も近いプロセスの ID と起動した時刻を状態ファイルに記録します。シェルを見分けるために祖先の実行ファイルの名前を読みますが、名前は記録しません。アプリは、記録したプロセスがまだ動いているかを OS に尋ねるだけで、引数は読みません。
+- **OpenCode のプラグインが渡すもの** OpenCode のセッションでは、プラグインが選んだイベントの中身（セッションの ID、作業フォルダ、ツールの名前と引数、実行許可を求める操作の種類と対象、質問のフォームの欄、エラーの種類と文、各ステップのトークン数）を受け取ります。プラグインはこれに、ターンで最後に書かれた応答の文章と、OpenCode に尋ねた値を足して渡します。プラグインが OpenCode に尋ねるのは、作成を見ていないセッションの親、題名、作業フォルダと、モデルの一覧にあるコンテキストの上限だけです。OpenCode のファイルは読みません。
+- **ターンを動かしているプロセス** セッションの開始時とプロンプトを送ったとき（Hermes と OpenCode ではターンの始まり）と、まだ記録の無い行へのフックで、フックの祖先のうちシェルでない最も近いプロセスの ID と起動した時刻を状態ファイルに記録します。シェルを見分けるために祖先の実行ファイルの名前を読みますが、名前は記録しません。アプリは、記録したプロセスがまだ動いているかを OS に尋ねるだけで、引数は読みません。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）、API の応答を待った時間の累計（`cost.total_api_duration_ms`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。
-- **アプリのアイコン** パネルの印に使うため、起動したときに一度だけ、Claude と Codex のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop` と `com.openai.codex` のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。
+- **アプリのアイコン** パネルの印に使うため、起動したときに一度だけ、Claude、Codex、OpenCode のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop`、`com.openai.codex`、`ai.opencode.desktop` のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。Windows では OpenCode のアイコンを問い合わせず、いつも `OC` の文字の印を出します。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。
 
 ### marimo が書くもの
 
 - アプリとフックは、`~/.marimo` の中のファイルを書きます（[ファイルとデータ](#ファイルとデータ)を参照）。状態ファイルには、実行したコマンド、ファイルのパス、応答の冒頭などの要約が最大 500 文字まで入ります。リポジトリ名と、チャットの題名も最大 200 文字まで入ります。
-- `install` と `uninstall` は、Claude Code の settings.json とそのバックアップを書きます。Codex のフォルダがある場合は、Codex の `hooks.json` とそのバックアップも書きます。
+- `install` と `uninstall` は、Claude Code の settings.json とそのバックアップを書きます。Codex のフォルダがある場合は、Codex の `hooks.json` とそのバックアップも書きます。OpenCode の設定のフォルダがある場合は、`plugins/marimo.js` を書くか消します。
 - 「ログイン時に起動」を有効にすると、macOS では LaunchAgent の plist を、Windows ではレジストリの値を書きます（場所は[ログイン時に起動する](usage.md#ログイン時に起動する)を参照）。
 
 ### marimo が送るもの
 
-marimo は、状態ファイルも会話の内容も、手元のコンピュータの外へ送りません。アプリもフックも、ネットワークへの通信をしません。
+marimo は、状態ファイルも会話の内容も、手元のコンピュータの外へ送りません。アプリもフックも、ネットワークへの通信をしません。OpenCode のプラグインは、OpenCode のプラグインの仕組みを通して OpenCode に尋ねることと、`marimo-hook` を起動して標準入力にイベントを渡すことだけをします。
 
 ## リポジトリの構成
 
 | パス | 内容 |
 | --- | --- |
-| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、Hermes のフックの入力の読み替えとセッションの一覧の読み取り、ターンを動かしているプロセスが動いているかの確認、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
-| `crates/marimo-hook` | Claude Code、Codex、Hermes から呼ばれるコマンド。`hook`、`codex-hook`、`hermes-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます |
+| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数と題名の読み取り、Codex の rollout と session_index.jsonl の読み取り、Hermes のフックの入力の読み替えとセッションの一覧の読み取り、OpenCode のイベントの読み替え、ターンを動かしているプロセスが動いているかの確認、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
+| `crates/marimo-hook` | Claude Code、Codex、Hermes、OpenCode のプラグインから呼ばれるコマンド。`hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`statusline`、`record`、`cloud-snapshot`、`install`、`uninstall` のサブコマンドを持ちます。`install` が置く OpenCode のプラグインの雛形 `src/opencode_plugin.js` もここにあり、ビルドのときに実行ファイルへ埋め込まれます |
 | `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、窓の制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、macOS でのアプリのアイコンの読み取りを受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
 | `assets/character/index.json` | 組み込みのキャラクターの一覧です（[自分のキャラクターを作る](customize.md#自分のキャラクターを作る)を参照） |
@@ -299,12 +322,14 @@ git push origin v0.1.0
 
 データは次の順に流れます。
 
-1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。Codex のフックからは `marimo-hook codex-hook` が呼ばれ、同じ規則で `sessions/codex-<session_id>.json` に書き、利用制限を `codex_rate_limits.json` へ書きます。Hermes のフックからは `marimo-hook hermes-hook` が呼ばれ、入力を Claude Code の入力に読み替えてから同じ規則で `sessions/hermes-<session_id>.json` に書きます。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、そのセッションに新しい応答が届いていれば利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
+1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。Codex のフックからは `marimo-hook codex-hook` が呼ばれ、同じ規則で `sessions/codex-<session_id>.json` に書き、利用制限を `codex_rate_limits.json` へ書きます。Hermes のフックからは `marimo-hook hermes-hook` が呼ばれ、入力を Claude Code の入力に読み替えてから同じ規則で `sessions/hermes-<session_id>.json` に書きます。OpenCode では、サービスの中で動くプラグインがイベントを購読し、選んだイベントごとに `marimo-hook opencode-hook` を起動します。`opencode-hook` は、イベントを Claude Code の入力に読み替えてから同じ規則で `sessions/opencode-<session_id>.json` に書きます。プラグインは、前に起動した `marimo-hook` が終わってから次を起動するので、書く順がイベントの順と入れ替わりません。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、そのセッションに新しい応答が届いていれば利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
 2. アプリはファイルの監視（file watcher。フォルダの中のファイルが変わると OS から知らせを受け取る仕組み）で `sessions/` と `rate_limits.json` の変化を受け取ります。並列のツール呼び出しで書き込みが重なるので、120 ミリ秒静かになるまで待ち、遅くとも 500 ミリ秒で、全セッションをまとめたスナップショットを読みます。
 3. Rust 側は、スナップショットの全体の状態に合わせてメニューバーと通知領域のアイコンを替え、スナップショットを `snapshot` という名前のイベントで画面部分へ送ります。アイコンを画面部分に任せないのは、窓を隠している間は画面部分が止まることがあるからです。macOS 14 以降では、隠した窓の画面部分を WebKit が止めないよう、`tauri.conf.json` の `backgroundThrottling` を `disabled` にしています。Tauri はこの設定を macOS 13 以前と Windows では扱いません。
 4. 画面部分は、既読の記録を加味して全体の状態を決め直し、表情、吹き出し、パネルを描き直します。アイコンのメニューの先頭に並べるセッションの一覧も画面部分が決め、変わったときだけ Rust 側へ送ります。メニューでセッションを選ぶと、Rust 側はそのセッションの鍵を `tray-session` という名前のイベントで画面部分へ返し、画面部分がパネルの行を押したときと同じ操作をします。
 
 ### 状態の決め方
+
+この節は、Claude Code のサブエージェントの扱いを説明します。Hermes と OpenCode のサブエージェントの扱いは、[Hermes のフックから記録するもの](#hermes-のフックから記録するもの)と [OpenCode のプラグインから記録するもの](#opencode-のプラグインから記録するもの)に書いています。
 
 サブエージェント（Claude が Agent ツールで起動する別の Claude）の中で発火したフックも、親のセッションと同じ session_id で届きます。marimo は、フックの入力にある `agent_id` の項目でこれを見分けます。hooks のドキュメントの Common input fields によると、この項目はサブエージェントの中で発火したときだけ入ります。`--agent` で起動したセッションでは親の会話のフックにも `agent_type` が入るので、`agent_type` は見分けには使いません。
 
@@ -312,13 +337,15 @@ git push origin v0.1.0
 
 ### プロセスが異常な終わり方をしたとき
 
-Claude Code、Codex、Hermes のどれも、プロセスが落ちたり強制終了されたりすると、SessionEnd にあたるフックを送りません。Claude Code が中断の後に送る待機の通知（idle_prompt）も、プロセスが無くなれば届きません。そのままでは、作業中や承認待ちの行が、24 時間後に消えるまで残ります。
+Claude Code、Codex、Hermes、OpenCode のどれも、プロセスが落ちたり強制終了されたりすると、SessionEnd にあたるフックやイベントを送りません。Claude Code が中断の後に送る待機の通知（idle_prompt）も、プロセスが無くなれば届きません。そのままでは、作業中や承認待ちの行が、24 時間後に消えるまで残ります。
 
-そこで、フックはターンを動かしているプロセスの ID と起動した時刻を `host` に記録します。記録するのは、セッションの開始時とプロンプトを送ったときと、まだ記録の無い行へのフックです。`--resume` で別のプロセスへ移った会話は、そこで新しいプロセスに置き換わります。フックの親がシェルのとき（sh、bash、zsh、dash、ksh、fish、cmd、powershell、pwsh と、環境変数 `SHELL` と `COMSPEC` が指すもの）は、シェルを飛ばした先の祖先を記録します。シェルはフックと一緒に終わるからです。macOS の Claude Code では `/bin/sh` が exec でフックに置き換わるので親が claude のプロセスになりますが、Windows の Git Bash の bash.exe は exec しても親として残ります。Codex は、macOS では `SHELL` のシェルの `-lc` で、Windows では `COMSPEC`（無ければ cmd.exe）の `/C` でフックを起動します（codex-rs/hooks/src/engine/command_runner.rs の build_command）。
+そこで、フックはターンを動かしているプロセスの ID と起動した時刻を `host` に記録します。記録するのは、セッションの開始時とプロンプトを送ったときと、まだ記録の無い行へのフックです。`--resume` で別のプロセスへ移った会話は、そこで新しいプロセスに置き換わります。フックの親がシェルのとき（sh、bash、zsh、dash、ksh、fish、cmd、powershell、pwsh と、環境変数 `SHELL` と `COMSPEC` が指すもの）は、シェルを飛ばした先の祖先を記録します。シェルはフックと一緒に終わるからです。macOS の Claude Code では `/bin/sh` が exec でフックに置き換わるので親が claude のプロセスになりますが、Windows の Git Bash の bash.exe は exec しても親として残ります。Codex は、macOS では `SHELL` のシェルの `-lc` で、Windows では `COMSPEC`（無ければ cmd.exe）の `/C` でフックを起動します（codex-rs/hooks/src/engine/command_runner.rs の build_command）。OpenCode のプラグインは `marimo-hook` をシェルを通さずに起動するので、記録するのはプラグインを動かしている OpenCode のサービスのプロセスです。
 
 アプリは起動したときと 10 分ごとに、作業中か承認待ちの行のプロセスが終わっていれば、中断されたものとして待機へ戻し、動いていたサブエージェントの記録も外します。プロセス ID は使い回されるので、起動した時刻が記録と違えば別のプロセスとみなします。macOS では、親に回収される前のゾンビの状態も終わったものとみなします。権限が足りないなどで確かめられないときは、動いているものとみなします。
 
 ### 題名とコンテキスト使用率の取り方
+
+この節は Claude Code のセッションの場合を説明します。Codex、Hermes、OpenCode のセッションの題名とコンテキスト使用率の取り方は、それぞれの「記録するもの」の節に書いています。
 
 デスクトップアプリの Code タブでは statusLine が動かないため、marimo はコンテキスト使用率を会話ログ（transcript。Claude Code がセッションごとに書く JSON Lines 形式の記録）から数えます。このときモデルのコンテキストの上限は分かりません。
 
@@ -361,6 +388,37 @@ Hermes のフックの入力は、どのイベントでも `hook_event_name`、`
 - **プロセスの終わり** cron のジョブのセッションは、終わりを知らせるフック（`on_session_finalize`）を出しません。gateway や CLI が異常な終わり方をしたときも同じです。そこで、ほかのツールと同じく、ターンを動かしているプロセスが終わった行を待機へ戻します（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。Hermes はフックをシェルを通さずに起動するので、記録するのはフックの親である Hermes のプロセスそのものです。gateway を起動し直したときに作業中だった cron のジョブの行も、これで遅くとも 10 分ほどでパネルから消えます。
 - **起動元** Hermes のフックの祖先のプロセスは会話のウィンドウではないので、起動元の手がかりは記録しません。行を押したときは、記録した URL が marimo の組み立てる Discord のチャンネルの形であることを確かめてから開きます。Windows の Discord は、動いている本体へリンクを渡して画面を切り替えるだけで前面には出てこないので、marimo が Discord のウィンドウを前面に出します。URL の無いセッションでは何もしません。
 - **記録しないもの** 利用制限は記録しません。Hermes のフックの入力に、利用制限の値が無いためです。サブエージェント（`delegate_task` で動く子のエージェント）は自分の session_id でフックを出すので、親とは別の行になります。gateway の `/stop` は session_id を持たないイベントしか出さないので、止めた行は作業中のまま残ることがあり、次のターンで正しい状態に戻ります。会話の圧縮で Hermes が session_id を付け替えたときは、新しい ID の行が現れ、古い行は 24 時間で消えます。
+
+### OpenCode のプラグインから記録するもの
+
+OpenCode v2 のプラグイン（`install` が OpenCode の設定のフォルダの `plugins/marimo.js` に置くもの）は、次のイベントを選んで `marimo-hook opencode-hook` に渡します。`marimo-hook` は、これを Claude Code の入力に読み替えてから状態を決めます。親を持つセッション（サブエージェント）のイベントは、プラグインが捨てます。
+
+| OpenCode のイベント | 読み替え先 | 状態 |
+| --- | --- | --- |
+| `session.created` | SessionStart | 待機。題名と作業フォルダ（`location.directory`）を記録する |
+| `session.renamed` | なし | 題名だけを書き換える |
+| `session.execution.started` | UserPromptSubmit | 作業中 |
+| `session.tool.input.started`、`session.tool.called` | PreToolUse | 作業中。ツールの名前と引数を Claude Code のものに置き換える |
+| `session.tool.success`、`session.tool.failed` | PostToolUse、PostToolUseFailure | 作業中 |
+| `permission.asked` | PermissionRequest | 承認待ち |
+| `permission.replied` | PostToolUse か PermissionDenied（`reply` が `reject`） | 作業中 |
+| `form.created` | PreToolUse（AskUserQuestion） | 承認待ち（質問） |
+| `form.replied`、`form.cancelled` | PostToolUse | 作業中 |
+| `session.execution.succeeded` | Stop | 完了。そのターンで最後に書かれた応答の文章を要約に使う |
+| `session.execution.failed` | StopFailure | エラー。`session.step.failed` と `session.retry.scheduled` は再試行されるので使わない |
+| `session.execution.interrupted`（`reason` が `superseded` 以外） | Interrupt | 待機 |
+| `session.deleted` | SessionEnd | 行を消す。完了とエラーの行も消す |
+| `session.step.ended` | なし | コンテキスト使用率だけを書き換える。トークン数はそのステップの入力、出力、推論、キャッシュの和で、上限はモデルの一覧から引けたときだけ使う |
+
+- **対象** プラグインは OpenCode v2 のプラグインの仕組み（`setup` で受け取る `ctx` の `ctx.event.subscribe`）でイベントを購読します。プラグインは、端末の画面（TUI）ではなく、会話を動かすサービスの中で読み込まれます。対象にしているのは、端末の画面がつなぐバックグラウンドのサービス、`--standalone` で起動した専用のサーバー、`opencode serve` のサーバーです。v1 のデスクトップアプリには対応しません。
+- **サブエージェント** 親を持つセッションは、プラグインが作成のイベントで覚えて、そのセッションのイベントを渡しません。作成のイベントを見ていないセッションは、OpenCode に親を尋ねてから決めます。`opencode-hook` も、親を持つ `session.created` を無視します。親の行は、サブエージェントを動かすツール（`subagent`）を使っている作業中として出ます。
+- **途中から見たセッション** プラグインを読み込む前から続いているセッションのように、作成のイベントを見ていないセッションを初めて見たときは、OpenCode にそのセッションの題名と作業フォルダも尋ねて、イベントに足して渡します。
+- **作業の要約** OpenCode のツールを、要約の作り方が同じ Claude Code のツールに置き換えます。`shell` は Bash、`read`、`write`、`edit` はそれぞれ Read、Write、Edit、`patch` は書式が同じ Codex の `apply_patch`、`glob` と `grep` は Glob と Grep、`webfetch` と `websearch` は WebFetch と WebSearch、`subagent` は Agent として扱います。v1 の名前の `bash` と `task` も同じように扱います。それ以外のツールは、ツール名と引数をそのまま短く出します。ツールの実行のイベントはツールの名前を持たないので、プラグインが入力の始まりのイベント（`session.tool.input.started`）で覚えた名前を足して渡します。実行許可の要求はツールの名前ではなく操作の種類（`action`）と対象（`resources`）で届くので、同じ対応でツールに置き換えます。質問のフォームは、各欄の説明を問いの文として、選択肢の見出しと一緒に出します。
+- **コンテキスト使用率** ステップの終わりのトークン数は、そのステップの入力、出力、推論、キャッシュの読み書きの和で、OpenCode の端末の画面がコンテキストの使用量として出す値と同じ数え方です。セッションの累計を知らせる `session.usage.updated` は使いません。上限は、プラグインが読み込みのときに OpenCode のモデルの一覧から引いておき、一覧に無いモデルに切り替えたときだけ引き直します。それでも引けなければ上限を渡さず、パネルにはトークン数が出ます。
+- **イベントの順** プラグインは、前に起動した `marimo-hook` が終わってから次を起動します。別々のプロセスが同時に書くと書く順が入れ替わり、完了の後に作業中へ戻ることがあるためです。待つのはプラグインの中の列だけで、OpenCode の処理は待たせません。同じ ID のイベントは二度渡しません。OpenCode が購読を切ったときは、1 秒置いて購読し直します。プラグインが外されるとき（`opencode run --standalone` のように OpenCode が終わるときを含みます）は、まだ渡していないイベントをその場で渡し切ります。
+- **プロセスの終わり** フックの親は OpenCode のサービスのプロセスなので、サービスが落ちたときや強制終了されたときは、ほかのツールと同じく、作業中や承認待ちの行を遅くとも 10 分ほどで待機へ戻します（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。
+- **起動元** 会話を動かすサービスは端末とは別のプロセスなので、起動元の手がかりは記録しません。行を押したときは、macOS の Ghostty で、題名が `OC | <会話の題名>` のターミナルを探します。これは OpenCode の端末の画面がターミナルに付ける題名で、題名が 40 文字（JavaScript の文字列の長さで、UTF-16 の単位で数えます）を超えるときは、37 文字に切って省略の記号を足した形になります。題名で見つからなければ、作業フォルダが一致するターミナルが一つだけのときにそれを選びます。見つからなければ、Ghostty も前面に出さずに何もしません。Terminal.app と iTerm2 は tty（端末の装置名）でしかタブを探せないので扱わず、Windows では何もしません。
+- **記録しないもの** 利用制限は記録しません。プラグインが OpenCode のイベントから利用制限を取り出さないためです。
 
 ### 起動元のアプリの見分け方
 

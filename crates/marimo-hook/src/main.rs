@@ -6,15 +6,17 @@ use std::thread;
 
 use marimo_core::time::now_ms;
 use marimo_core::{
-    HookInput, HostProcess, MarimoHome, Provider, SessionState, codex, hermes, process, store,
-    transcript,
+    HookInput, HostProcess, MarimoHome, Provider, SessionState, codex, hermes, opencode, process,
+    store, transcript,
 };
 
 mod install;
+mod opencode_plugin;
 mod origin;
 mod settings_edit;
 
-// hook、codex-hook、hermes-hook、statusline、record は、marimo の内部で何が失敗しても終了コード 0 で抜ける。
+// hook、codex-hook、hermes-hook、opencode-hook、statusline、record は、marimo の内部で何が失敗しても
+// 終了コード 0 で抜ける。
 // フックの終了コードと stdout は Claude Code に読まれ、終了コード 2 は操作を止め、
 // UserPromptSubmit や SessionStart の stdout は Claude の文脈に加わるためである。
 // Codex も同じで、終了コード 0 で stdout が空なら、PermissionRequest では判断を示さず通常の承認へ進み、
@@ -22,6 +24,7 @@ mod settings_edit;
 // permission_request.rs、pre_tool_use.rs、user_prompt_submit.rs、stop.rs の parse_completed）。
 // Hermes も、pre_tool_call の終了コード 2 と stdout の JSON で操作を止め、pre_llm_call の stdout の
 // context を会話に加える（agent/shell_hooks.py の _parse_response）。
+// OpenCode のプラグインは終了コードも出力も読まないが、ほかと同じく何も出さない。
 // install と uninstall は利用者が端末で実行するので、失敗は非 0 と stderr で知らせる。
 fn main() -> ExitCode {
     // 既定の panic メッセージは stderr に出るだけで害はないが、Claude Code の
@@ -56,6 +59,10 @@ fn run(args: &[OsString]) -> ExitCode {
         }
         "hermes-hook" => {
             report(hermes_hook());
+            ExitCode::SUCCESS
+        }
+        "opencode-hook" => {
+            report(opencode_hook());
             ExitCode::SUCCESS
         }
         "statusline" => statusline(rest),
@@ -130,7 +137,7 @@ fn hook(provider: Provider) -> Result<(), String> {
             None,
             log.and_then(|p| codex::read_rollout_tail(p, now_ms()).ok()),
         ),
-        Provider::Hermes => (None, None),
+        Provider::Hermes | Provider::Opencode => (None, None),
     };
     let title = codex::codex_home()
         .filter(|_| parsed.wants_codex_title())
@@ -207,6 +214,36 @@ fn hermes_hook() -> Result<(), String> {
             store::apply_context(&home, Provider::Hermes, &raw.session_id, context)
         }
         hermes::Event::Ignore => Ok(()),
+    }
+    .map_err(|e| format!("write failed: {e}"))
+}
+
+// OpenCode のイベントは Claude Code の入力に読み替えてから、同じ規則で状態を決める。OpenCode の会話は
+// 端末とは別のサービスのプロセスの中で動き、プラグインを動かすそのプロセスが marimo-hook の親になるので、
+// 起動元の手がかりは取らない。
+fn opencode_hook() -> Result<(), String> {
+    let input = read_stdin();
+    let raw: opencode::OpencodeInput =
+        serde_json::from_slice(&input).map_err(|e| format!("invalid hook input: {e}"))?;
+    let home = home()?;
+    let session_id = raw.session_id();
+    match opencode::translate(&raw, now_ms()) {
+        opencode::Event::Hook(parsed) => {
+            let current = store::read_session(&home, Provider::Opencode, session_id);
+            let extras = store::HookExtras {
+                title: raw.title(),
+                host: host(&parsed.hook_event_name, current.as_ref()),
+                ..store::HookExtras::default()
+            };
+            store::apply_hook(&home, &parsed, &extras)
+        }
+        opencode::Event::Title(title) => {
+            store::apply_title(&home, Provider::Opencode, session_id, title)
+        }
+        opencode::Event::Context(context) => {
+            store::apply_context(&home, Provider::Opencode, session_id, context)
+        }
+        opencode::Event::Ignore => Ok(()),
     }
     .map_err(|e| format!("write failed: {e}"))
 }

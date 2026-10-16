@@ -38,6 +38,7 @@ pub enum Provider {
     Claude,
     Codex,
     Hermes,
+    Opencode,
 }
 
 pub fn aggregate<I: IntoIterator<Item = Status>>(statuses: I) -> Status {
@@ -420,7 +421,8 @@ pub struct Snapshot {
 
 /// 項目名は https://code.claude.com/docs/en/hooks の Common input fields と、
 /// 各イベントの input の節に従う。Codex のフックの入力も同じ名前の項目を持つ
-/// （codex-rs/hooks/src/schema.rs の各 CommandInput）。Hermes の入力は hermes.rs がこの形に読み替える。
+/// （codex-rs/hooks/src/schema.rs の各 CommandInput）。Hermes と OpenCode の入力は hermes.rs と
+/// opencode.rs がこの形に読み替える。
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct HookInput {
     /// 入力には含まれず、どのサブコマンドで受けたかで決まる。
@@ -503,6 +505,8 @@ impl HookInput {
             Provider::Codex => &["PostToolUse", "Stop", "SessionStart"],
             // Hermes の使用量は、モデルの呼び出しごとのフックが直接知らせてくる。
             Provider::Hermes => &[],
+            // OpenCode の使用量は、プラグインがステップの終わりごとに知らせてくる。
+            Provider::Opencode => &[],
         };
         self.subagent().is_none()
             && events.contains(&self.hook_event_name.as_str())

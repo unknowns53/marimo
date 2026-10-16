@@ -27,6 +27,7 @@ const PROVIDER_NAME: Record<Provider, string> = {
   claude: "Claude Code",
   codex: "Codex",
   hermes: "Hermes Agent",
+  opencode: "OpenCode",
 };
 
 // アプリのアイコンは同梱せず利用者のアプリから読むので、読めないときはこの文字で示す。
@@ -35,6 +36,7 @@ const PROVIDER_BADGE: Record<Provider, string> = {
   claude: "CC",
   codex: "CX",
   hermes: "HM",
+  opencode: "OC",
 };
 
 /** 行を押したときの操作。markRead は移動せずに、そのきっかけを見たものとして扱う。 */

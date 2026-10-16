@@ -29,6 +29,9 @@ struct Env {
     settings: PathBuf,
     /// CODEX_HOME として渡す場所。with_codex で作るまでは存在しないので、Codex は入っていない扱いになる。
     codex: PathBuf,
+    /// XDG_CONFIG_HOME として渡す場所。その下の opencode を with_opencode で作るまでは、OpenCode は
+    /// 入っていない扱いになる。
+    xdg: PathBuf,
 }
 
 impl Env {
@@ -41,6 +44,7 @@ impl Env {
             home,
             settings: claude.join("settings.json"),
             codex: dir.path().join("codex"),
+            xdg: dir.path().join("xdg"),
             dir,
         }
     }
@@ -63,6 +67,7 @@ impl Env {
             .env("HOME", self.dir.path())
             .env("USERPROFILE", self.dir.path())
             .env("CODEX_HOME", &self.codex)
+            .env("XDG_CONFIG_HOME", &self.xdg)
             .env_remove("CLAUDE_CONFIG_DIR")
             .stdin(Stdio::null())
             .output()
@@ -76,6 +81,16 @@ impl Env {
             fs::write(env.codex_hooks(), text).unwrap();
         }
         env
+    }
+
+    fn with_opencode() -> Self {
+        let env = Self::with_settings("{}");
+        fs::create_dir_all(env.xdg.join("opencode")).unwrap();
+        env
+    }
+
+    fn opencode_plugin(&self) -> PathBuf {
+        self.xdg.join("opencode").join("plugins").join("marimo.js")
     }
 
     fn codex_hooks(&self) -> PathBuf {
@@ -455,6 +470,7 @@ fn claude_config_dir_sets_the_default_settings_path() {
         .env("MARIMO_HOME", &env.home)
         .env("CLAUDE_CONFIG_DIR", env.settings.parent().unwrap())
         .env("CODEX_HOME", &env.codex)
+        .env("XDG_CONFIG_HOME", &env.xdg)
         .output()
         .unwrap();
     assert!(
@@ -830,8 +846,10 @@ fn codex_is_handled_only_when_its_folder_exists() {
         let out = env.run(args);
         assert!(out.status.success());
         assert!(!stdout(&out).contains("Codex"), "{args:?}");
+        assert!(!stdout(&out).contains("OpenCode"), "{args:?}");
     }
     assert!(!env.codex.exists());
+    assert!(!env.xdg.exists());
 
     // hooks.json がなければ作る。
     let env = Env::with_codex(None);
@@ -852,4 +870,85 @@ fn codex_is_handled_only_when_its_folder_exists() {
         assert_eq!(fs::read_to_string(env.codex_hooks()).unwrap(), "{}\n");
     }
     assert!(!env.codex.join("config.toml").exists());
+}
+
+#[test]
+fn opencode_plugin_round_trip_and_reinstall_changes_nothing() {
+    let env = Env::with_opencode();
+    let out = env.run(&["install", "--dry-run"]);
+    assert!(out.status.success());
+    assert!(stdout(&out).contains("OpenCode"));
+    assert!(!env.opencode_plugin().exists());
+
+    let out = env.run(&["install"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout(&out).contains("起動し直して"));
+    let text = fs::read_to_string(env.opencode_plugin()).unwrap();
+    assert!(text.starts_with("// marimo-opencode-plugin\n"));
+    let exe = serde_json::to_string(&env.installed_exe().display().to_string()).unwrap();
+    assert!(text.contains(&format!("const HOOK = {exe}")), "{text}");
+    assert!(text.contains("\"opencode-hook\""));
+    // OpenCode の設定ファイルは作らない。
+    assert!(!env.xdg.join("opencode").join("opencode.jsonc").exists());
+
+    let out = env.run(&["install"]);
+    assert!(out.status.success());
+    assert!(stdout(&out).contains("変更はありません"));
+    assert_eq!(fs::read_to_string(env.opencode_plugin()).unwrap(), text);
+
+    // 手で書き換えた marimo のプラグインは、入れ直すと元に戻る。
+    fs::write(env.opencode_plugin(), format!("{text}// edited\n")).unwrap();
+    assert!(env.run(&["install"]).status.success());
+    assert_eq!(fs::read_to_string(env.opencode_plugin()).unwrap(), text);
+
+    assert!(env.run(&["uninstall", "--dry-run"]).status.success());
+    assert!(env.opencode_plugin().exists());
+    let out = env.run(&["uninstall"]);
+    assert!(out.status.success());
+    assert!(!env.opencode_plugin().exists());
+    assert!(env.opencode_plugin().parent().unwrap().is_dir());
+}
+
+#[test]
+fn opencode_leaves_a_plugin_of_the_same_name_alone() {
+    let env = Env::with_opencode();
+    let plugins = env.opencode_plugin().parent().unwrap().to_path_buf();
+    fs::create_dir_all(&plugins).unwrap();
+    let foreign = "export default { id: \"mine\", setup() {} }\n";
+    fs::write(env.opencode_plugin(), foreign).unwrap();
+    for args in [&["install"][..], &["uninstall"][..]] {
+        let out = env.run(args);
+        assert!(out.status.success(), "{args:?}");
+        assert!(stdout(&out).contains("触れていません"), "{args:?}");
+        assert_eq!(
+            fs::read_to_string(env.opencode_plugin()).unwrap(),
+            foreign,
+            "{args:?}"
+        );
+    }
+}
+
+// dotfiles の管理でリンクにしているプラグインは、リンクを残したままリンク先を書き換える。
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_link_is_followed() {
+    let env = Env::with_opencode();
+    assert!(env.run(&["install"]).status.success());
+    let text = fs::read_to_string(env.opencode_plugin()).unwrap();
+    let dotfiles = env.dir.path().join("dotfiles-marimo.js");
+    fs::write(&dotfiles, format!("{text}// old\n")).unwrap();
+    fs::remove_file(env.opencode_plugin()).unwrap();
+    std::os::unix::fs::symlink(&dotfiles, env.opencode_plugin()).unwrap();
+    assert!(env.run(&["install"]).status.success());
+    assert!(
+        fs::symlink_metadata(env.opencode_plugin())
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_to_string(&dotfiles).unwrap(), text);
 }

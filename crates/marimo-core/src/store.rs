@@ -281,6 +281,25 @@ pub fn apply_context(
     session_id: &str,
     context: ContextUsage,
 ) -> io::Result<()> {
+    update_existing(home, provider, session_id, |s| s.context = Some(context))
+}
+
+/// 状態を変えずに、題名だけを書き換える。apply_context と同じく、まだ無いセッションには書かない。
+pub fn apply_title(
+    home: &MarimoHome,
+    provider: Provider,
+    session_id: &str,
+    title: String,
+) -> io::Result<()> {
+    update_existing(home, provider, session_id, |s| s.title = Some(title))
+}
+
+fn update_existing(
+    home: &MarimoHome,
+    provider: Provider,
+    session_id: &str,
+    update: impl FnOnce(&mut SessionState),
+) -> io::Result<()> {
     let _lock = lock_home(home);
     let (Some(path), Some(mut session)) = (
         home.session_file(provider, session_id),
@@ -288,7 +307,7 @@ pub fn apply_context(
     ) else {
         return Ok(());
     };
-    session.context = Some(context);
+    update(&mut session);
     write_json_atomic(&path, &session)
 }
 

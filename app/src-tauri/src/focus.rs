@@ -18,9 +18,11 @@ pub enum Target {
         tty: String,
     },
     /// Ghostty の AppleScript はターミナルの tty を返さないので、題名と作業フォルダで探す。
+    /// open_app は、見つからなかったときに Ghostty を前面に出すかどうか。
     GhosttyTerminal {
         title: Option<String>,
         cwd: Option<String>,
+        open_app: bool,
     },
     EditorFolder {
         bundle_id: String,
@@ -78,6 +80,17 @@ pub fn plan(session: &SessionState) -> Target {
             None => Target::Nothing,
         };
     }
+    // OpenCode の会話は端末とは別のサービスの中で動き、どの端末から始めたかは記録されない。OpenCode の
+    // 端末の画面はターミナルの題名を「OC | 題名」にするので、その題名と作業フォルダで Ghostty の
+    // ターミナルを探す。ほかの端末の AppleScript は tty でしか探せないので扱わない。見つからなければ、
+    // 会話のない Ghostty を前面に出しても意味がないので何もしない。
+    if session.provider == Provider::Opencode {
+        return Target::GhosttyTerminal {
+            title: session.title.as_deref().map(opencode_terminal_title),
+            cwd: session.cwd.clone(),
+            open_app: false,
+        };
+    }
     let origin = session.origin.clone().unwrap_or_default();
     if origin.window.is_some() || !origin.ancestors.is_empty() {
         return windows_target(origin, session.cwd.as_deref());
@@ -96,6 +109,7 @@ pub fn plan(session: &SessionState) -> Target {
         return Target::GhosttyTerminal {
             title: session.title.clone(),
             cwd: session.cwd.clone(),
+            open_app: true,
         };
     }
     // VS Code の派生（Cursor など）も TERM_PROGRAM=vscode を名乗るので、
@@ -115,6 +129,16 @@ pub fn plan(session: &SessionState) -> Target {
         },
         None => Target::Nothing,
     }
+}
+
+// OpenCode の端末の画面がターミナルに付ける題名。40 文字（JavaScript の文字列の長さで、UTF-16 の
+// 単位で数える）を超える題名は、37 文字に切って省略の記号を足す。
+fn opencode_terminal_title(title: &str) -> String {
+    let units: Vec<u16> = title.encode_utf16().collect();
+    if units.len() <= 40 {
+        return format!("OC | {title}");
+    }
+    format!("OC | {}\u{2026}", String::from_utf16_lossy(&units[..37]))
 }
 
 // VS Code の統合ターミナルは持ち主のない ConPTY で動くので、コンソールからたどったウィンドウは
@@ -174,9 +198,13 @@ pub fn run(target: Target) {
                 open(&["-b", ITERM]);
             }
         }
-        Target::GhosttyTerminal { title, cwd } => {
+        Target::GhosttyTerminal {
+            title,
+            cwd,
+            open_app,
+        } => {
             let args = [title.as_deref().unwrap_or(""), cwd.as_deref().unwrap_or("")];
-            if !osascript(GHOSTTY_SCRIPT, &args) {
+            if !osascript(GHOSTTY_SCRIPT, &args) && open_app {
                 open(&["-b", GHOSTTY]);
             }
         }
@@ -446,7 +474,8 @@ mod tests {
             plan(&ghostty),
             Target::GhosttyTerminal {
                 title: Some("seed 600 比較".into()),
-                cwd: Some("/w/proj".into())
+                cwd: Some("/w/proj".into()),
+                open_app: true,
             }
         );
         // tty が分からない Terminal.app は、アプリを前面に出すだけにする。
@@ -651,5 +680,37 @@ mod tests {
             plan(&hermes(Some("file:///C:/Windows/System32/calc.exe"))),
             Target::Nothing
         );
+    }
+
+    #[test]
+    fn opencode_looks_for_its_ghostty_terminal_by_title_and_folder() {
+        let opencode = |title: Option<&str>| SessionState {
+            provider: Provider::Opencode,
+            title: title.map(Into::into),
+            ..session(None, None, None)
+        };
+        let cases = [
+            (Some("短い題"), Some("OC | 短い題".to_owned())),
+            (
+                Some("1234567890123456789012345678901234567890"),
+                Some("OC | 1234567890123456789012345678901234567890".to_owned()),
+            ),
+            (
+                Some("12345678901234567890123456789012345678901"),
+                Some("OC | 1234567890123456789012345678901234567\u{2026}".to_owned()),
+            ),
+            (None, None),
+        ];
+        for (title, wanted) in cases {
+            assert_eq!(
+                plan(&opencode(title)),
+                Target::GhosttyTerminal {
+                    title: wanted,
+                    cwd: Some("/w/proj".into()),
+                    open_app: false,
+                },
+                "{title:?}"
+            );
+        }
     }
 }

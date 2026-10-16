@@ -3,7 +3,7 @@
 export type Status = "idle" | "working" | "waiting" | "done" | "error";
 
 // 以前の版のファイルは provider を持たず、Claude Code のセッションとして扱う。
-export type Provider = "claude" | "codex" | "hermes";
+export type Provider = "claude" | "codex" | "hermes" | "opencode";
 
 export interface ContextUsage {
   used_percentage: number | null;
