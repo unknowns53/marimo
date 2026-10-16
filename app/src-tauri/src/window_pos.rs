@@ -114,7 +114,7 @@ pub fn track(window: &WebviewWindow, home: MarimoHome) {
                 pos = next;
             }
             let saved = SavedPosition { x: pos.x, y: pos.y };
-            if let Err(e) = store::write_json_atomic(&home.window_file(), &saved) {
+            if let Err(e) = store::write_json_durable(&home.window_file(), &saved) {
                 eprintln!("marimo: cannot save window position: {e}");
             }
         }

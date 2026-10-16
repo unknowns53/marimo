@@ -13,6 +13,7 @@ const FALLBACK_SUMMARY: Record<Status, string> = {
 };
 
 const EMPTY_LIST_TEXT = "動いているセッションはありません";
+const STALE_LABEL = "状態不明";
 
 export interface PanelElements {
   panel: HTMLElement;
@@ -178,6 +179,12 @@ function todayChildren(
   return [line, ...plan.today.map((s) => renderRow(s, true, icons, now, actions))];
 }
 
+function countItem(className: string, status: Status, text: string): HTMLElement {
+  const item = el("span", className);
+  item.append(el("span", `dot ${status}`), el("span", "", text));
+  return item;
+}
+
 // 件数だけの表示は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
 // 押したときは、最も優先度の高い要対応のセッションへ移動する。
 function renderCounts(
@@ -189,10 +196,11 @@ function renderCounts(
 ): HTMLElement {
   const line = () => {
     const node = el("div", "counts-line");
-    view.counts.forEach((c, i) => {
+    const items = view.counts.map((c) => countItem("counts-item", c.status, `${STATUS_LABEL[c.status]} ${c.count}`));
+    // 期限の切れた Cloud の観測は詳細では薄い行で残すので、件数でも末尾に薄く数える。
+    if (view.stale > 0) items.push(countItem("counts-item stale", "idle", `${STALE_LABEL} ${view.stale}`));
+    items.forEach((item, i) => {
       if (i > 0) node.append(el("span", "counts-sep", "·"));
-      const item = el("span", "counts-item");
-      item.append(el("span", `dot ${c.status}`), el("span", "", `${STATUS_LABEL[c.status]} ${c.count}`));
       node.append(item);
     });
     return node;

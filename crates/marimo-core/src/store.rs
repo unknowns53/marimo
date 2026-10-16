@@ -60,6 +60,17 @@ fn private_file_options() -> OpenOptions {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_atomic_with(path, bytes, false)
+}
+
+/// 作り直せないユーザーの設定に使う。中身をディスクへ書き切ってから置き換えるので、電源が落ちても
+/// 古い内容か新しい内容のどちらかが残り、空のファイルにはならない。
+pub fn write_json_durable<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
+    let bytes = serde_json::to_vec_pretty(value).map_err(io::Error::other)?;
+    write_atomic_with(path, &bytes, true)
+}
+
+fn write_atomic_with(path: &Path, bytes: &[u8], durable: bool) -> io::Result<()> {
     let dir = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
@@ -74,17 +85,22 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         std::process::id(),
         TMP_SEQ.fetch_add(1, Ordering::Relaxed)
     ));
-    {
-        let mut f = private_file_options().truncate(true).open(&tmp)?;
-        f.write_all(bytes)?;
-        // 状態ファイルは次のフックで作り直せるので、fsync は呼ばない。macOS の
-        // sync_all は F_FULLFSYNC になり、数十ミリ秒の予算を一回で使い切ることがある。
-    }
-    let result = rename_with_retry(&tmp, path);
+    let result = write_new(&tmp, bytes, durable).and_then(|()| rename_with_retry(&tmp, path));
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+fn write_new(path: &Path, bytes: &[u8], durable: bool) -> io::Result<()> {
+    let mut f = private_file_options().truncate(true).open(path)?;
+    f.write_all(bytes)?;
+    // 状態ファイルは次のフックで作り直せるので、fsync は呼ばない。macOS の
+    // sync_all は F_FULLFSYNC になり、数十ミリ秒の予算を一回で使い切ることがある。
+    if durable {
+        f.sync_all()?;
+    }
+    Ok(())
 }
 
 // Windows ではウイルス対策ソフトなどが対象を一瞬開いていると rename が失敗するので、

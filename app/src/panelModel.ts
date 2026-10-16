@@ -1,4 +1,4 @@
-import { sessionKey, triggerKey, type Acknowledged } from "./acknowledged";
+import { sessionKey, STATUS_PRIORITY, triggerKey, type Acknowledged } from "./acknowledged";
 import { chatTitle, folderName, STATUS_LABEL } from "./format";
 import type { SessionState, Snapshot, Status } from "./types";
 
@@ -15,8 +15,6 @@ export interface PanelPlan {
   today: SessionState[];
 }
 
-// 承認待ち、エラー、作業中、完了の順に重要とみなす。marimo-core の Status::priority と同じ順である。
-const COUNT_ORDER: Status[] = ["waiting", "error", "working", "done"];
 
 /**
  * 待機以外のセッションは作業中も畳まずに 1 行ずつ並べ、パネルに収まらない分はスクロールで見せるので、
@@ -41,14 +39,14 @@ export function planPanel(
   now: number = Date.now(),
   keep: ReadonlySet<string> = new Set(),
 ): PanelPlan {
-  const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle" || s.cloud?.expired);
+  const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle" || isStale(s));
   const isRead = (s: SessionState) => s.status === "done" && ack.has(s);
   const kept = active.filter((s) => isRead(s) && keep.has(triggerKey(s)));
   const read = new Set(kept.map(sessionKey));
   const compare: Record<RowOrder, (a: SessionState, b: SessionState) => number> = {
     started: (a, b) => b.started_at - a.started_at,
     status: (a, b) =>
-      COUNT_ORDER.indexOf(a.status) - COUNT_ORDER.indexOf(b.status) ||
+      STATUS_PRIORITY.indexOf(a.status) - STATUS_PRIORITY.indexOf(b.status) ||
       b.updated_at - a.updated_at,
     updated: (a, b) => b.updated_at - a.updated_at,
   };
@@ -59,6 +57,11 @@ export function planPanel(
     .filter((s) => isRead(s) && !keep.has(triggerKey(s)) && sameLocalDay(s.status_since, now))
     .sort((a, b) => b.status_since - a.status_since || compareIds(sessionKey(a), sessionKey(b)));
   return { rows, read, today };
+}
+
+// 期限の切れた Cloud の観測。待機として届くが、状態が分からないだけで会話はまだある。
+function isStale(s: SessionState): boolean {
+  return s.status === "idle" && !!s.cloud?.expired;
 }
 
 function sameLocalDay(a: number, b: number): boolean {
@@ -80,7 +83,7 @@ export type PanelStyle = "detail" | "counts";
 
 export const PANEL_STYLES: readonly PanelStyle[] = ["detail", "counts"];
 
-// 範囲と既定は Rust 側の scale.rs と揃える。保存するときは Rust が範囲に収め直す。
+// 範囲と既定は Rust 側の scale.rs と揃える（sharedConstants.test.ts が照合する）。保存するときは Rust が範囲に収め直す。
 export const PANEL_OPACITY_MIN = 0.2;
 export const PANEL_OPACITY_MAX = 1;
 export const DEFAULT_PANEL_OPACITY = 0.8;
@@ -113,11 +116,15 @@ export interface PanelView {
   order: RowOrder;
   plan: PanelPlan;
   counts: StatusCount[];
+  /** 期限の切れた Cloud の観測の数。状態が分からないので、状態ごとの件数とは別に数える。 */
+  stale: number;
   /** 件数の行を押したときに移動する、最も優先度の高い要対応のセッション。 */
   target: SessionState | null;
 }
 
 const ATTENTION: ReadonlySet<Status> = new Set(["waiting", "error", "done"]);
+// 件数の行は待機を数えない。
+const COUNT_ORDER = STATUS_PRIORITY.filter((s) => s !== "idle");
 
 /**
  * 件数だけの表示でも数え方は詳細と同じにし、見たと示された完了は数えない。吹き出しや表情を決める
@@ -138,8 +145,9 @@ export function panelView(
     status,
     count: counted.filter((s) => s.status === status).length,
   })).filter((c) => c.count > 0);
+  const stale = sessions.filter(isStale).length;
   const target = counted.find((s) => ATTENTION.has(s.status)) ?? null;
-  return { style, order, plan, counts, target };
+  return { style, order, plan, counts, stale, target };
 }
 
 /**
@@ -148,7 +156,7 @@ export function panelView(
  * 受ける場所も無くなるからである。
  */
 export function hasContent(view: PanelView): boolean {
-  return view.style === "detail" ? !isEmpty(view.plan) : view.counts.length > 0;
+  return view.style === "detail" ? !isEmpty(view.plan) : view.counts.length > 0 || view.stale > 0;
 }
 
 /** トレイのメニューの先頭に並べる、手を貸す必要のあるセッション。key は sessionKey である。 */

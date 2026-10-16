@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-// 範囲と丸めは Rust 側の scale.rs と揃える。最終的な値は set_scale の戻り値を正とする。
+// 範囲と丸めは Rust 側の scale.rs と揃える（範囲は sharedConstants.test.ts が照合する）。最終的な値は set_scale の戻り値を正とする。
 export const SCALE_MIN = 0.6;
 export const SCALE_MAX = 2.5;
 const WHEEL_STEP = 0.1;

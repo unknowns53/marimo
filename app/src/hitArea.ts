@@ -98,9 +98,7 @@ export class HitReporter {
 
   /** 次の描画を待たずにすぐ送る。層を見せる前に、その領域を登録し終えておくために使う。 */
   async flush(): Promise<void> {
-    const regions = this.collect();
-    this.last = JSON.stringify(regions);
-    await invoke("set_hit_regions", { regions }).catch((e) => console.error("hit regions", e));
+    await this.send(this.collect());
   }
 
   schedule(): void {
@@ -109,10 +107,18 @@ export class HitReporter {
     requestAnimationFrame(() => {
       this.pending = false;
       const regions = this.collect();
-      const json = JSON.stringify(regions);
-      if (json === this.last) return;
-      this.last = json;
-      void invoke("set_hit_regions", { regions }).catch((e) => console.error("hit regions", e));
+      if (JSON.stringify(regions) !== this.last) void this.send(regions);
+    });
+  }
+
+  // 送れなかった内容は送ったことにせず、次の schedule で送り直させる。後から別の内容を送っていたら
+  // そちらを残す。
+  private async send(regions: HitRegions): Promise<void> {
+    const json = JSON.stringify(regions);
+    this.last = json;
+    await invoke("set_hit_regions", { regions }).catch((e) => {
+      console.error("hit regions", e);
+      if (this.last === json) this.last = "";
     });
   }
 }

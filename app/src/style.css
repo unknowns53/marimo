@@ -14,6 +14,11 @@
   --waiting: #f59e0b;
   --done: #34d399;
   --error: #f87171;
+  /* 立ち絵の倍率 1.0 での幅、パネルの幅、窓の縁との隙間。scale.rs の STAGE_W、PANEL_W、MARGIN と
+     揃える（scale.rs の window_follows_stage_aspect が照合する）。 */
+  --stage-w: 180px;
+  --panel-w: 312px;
+  --margin: 8px;
   /* 立ち絵の表示倍率。Rust の set_scale が返した値を main.ts が入れる。 */
   --scale: 1;
   /* 立ち絵の枠の縦横比（高さ ÷ 幅）。選んだキャラクターの素材の比を main.ts が入れる。 */
@@ -45,7 +50,7 @@ body {
 }
 
 /* 立ち絵は窓の右下に固定し、パネルや吹き出しがどう変わっても動かさない。窓の右下の角は
-   画面上で固定されているので、立ち絵は画面上でも動かない。数値は scale.rs と揃える。 */
+   画面上で固定されているので、立ち絵は画面上でも動かない。 */
 #app {
   position: relative;
   height: 100%;
@@ -53,10 +58,10 @@ body {
 
 #stage {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: calc(180px * var(--scale));
-  height: calc(180px * var(--stage-aspect) * var(--scale));
+  right: var(--margin);
+  bottom: var(--margin);
+  width: calc(var(--stage-w) * var(--scale));
+  height: calc(var(--stage-w) * var(--stage-aspect) * var(--scale));
 }
 
 .character {
@@ -155,12 +160,12 @@ body {
    合わせて窓の上端から --panel-top-room だけ下までで止め、それより多い行は #rows の中でスクロールさせる。 */
 #panel {
   position: absolute;
-  right: calc(8px + 180px * var(--scale) + 8px);
-  bottom: 8px;
+  right: calc(var(--margin) + var(--stage-w) * var(--scale) + var(--margin));
+  bottom: var(--margin);
   display: flex;
   flex-direction: column;
-  width: 312px;
-  max-height: calc(100% - var(--panel-top-room) - var(--panel-tab-h) - 8px);
+  width: var(--panel-w);
+  max-height: calc(100% - var(--panel-top-room) - var(--panel-tab-h) - var(--margin));
   padding: 5px 8px;
   box-sizing: border-box;
   border-radius: 10px;
@@ -252,7 +257,8 @@ body {
 }
 
 .row.read,
-.row.stale {
+.row.stale,
+.counts-item.stale {
   opacity: 0.45;
 }
 

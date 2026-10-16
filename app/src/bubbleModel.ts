@@ -24,6 +24,8 @@ export class BubbleModel {
   private current: BubbleView | null = null;
   // 時間が来て畳んだきっかけ。見たとは限らないので既読にはせず、きっかけが続く間だけ出さずにおく。
   private expiredKey: string | null = null;
+  // 最後にセリフを選ぼうとしたきっかけ。その分類にセリフが無くても、同じきっかけの間は読み直しを求めない。
+  private triedKey: string | null = null;
 
   constructor(
     private readonly ack: Acknowledged,
@@ -39,7 +41,7 @@ export class BubbleModel {
   // 新しいきっかけに切り替わるときだけ、呼び出し側がセリフを読み直せばよい。
   needsText(snapshot: Snapshot | null): boolean {
     const next = this.candidate(snapshot);
-    return next !== null && triggerKey(next) !== this.current?.key;
+    return next !== null && triggerKey(next) !== this.triedKey;
   }
 
   update(snapshot: Snapshot | null, dialogue: Dialogue): BubbleView | null {
@@ -53,6 +55,7 @@ export class BubbleModel {
     }
     const key = triggerKey(next);
     if (this.current?.key === key) return this.current;
+    this.triedKey = key;
     const template = this.pick(linesFor(dialogue, categoryFor(next)));
     this.current = template
       ? { key, sessionKey: sessionKey(next), status: next.status, text: fillTemplate(template, next) }

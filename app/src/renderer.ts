@@ -14,6 +14,7 @@ export interface RendererInput {
 // 絵の描き方はすべてこの口を実装し、main.ts は描き方の違いを知らずに済むようにする。
 // 立ち絵、SD、Live2D のどれを使うかは素材フォルダの manifest.json の mode で決める。
 export interface CharacterRenderer {
+  /** 素材を読み終えた最後に container へ加える。読み終えるまで DOM には何も出さない。 */
   mount(container: HTMLElement): Promise<void>;
   update(input: RendererInput): void;
   setHover(on: boolean): void;

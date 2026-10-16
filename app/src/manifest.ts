@@ -65,7 +65,7 @@ export interface Character {
 /** index.json を読めないときにも、この名前の素材を試す。 */
 export const DEFAULT_CHARACTER = "koharu";
 // 縦横比の書かれていない素材の枠は、既定のキャラクターと同じにする。scale.rs の DEFAULT_ASPECT と揃える。
-const DEFAULT_ASPECT = 1.5;
+export const DEFAULT_ASPECT = 1.5;
 
 export interface CharacterInfo {
   id: string;

@@ -70,7 +70,10 @@ describe("BubbleModel", () => {
 
     // {folder} を持たないセリフはそのまま出し、その状態のセリフが無ければ吹き出しを出さない。
     expect(model().update(snap(session("a", "waiting", 1)), { waiting: ["確認してね"] })?.text).toBe("確認してね");
-    expect(model().update(snap(session("a", "done", 1)), { waiting: ["x"] })).toBeNull();
+    const silent = model();
+    expect(silent.update(snap(session("a", "done", 1)), { waiting: ["x"] })).toBeNull();
+    // セリフが無かったきっかけでは、続く間に読み直しを求めない。
+    expect(silent.needsText(snap(session("a", "done", 1, 9)))).toBe(false);
   });
 });
 

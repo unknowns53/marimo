@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::thread::{self, Thread};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,9 @@ use tauri::{AppHandle, Emitter, PhysicalPosition, PhysicalSize, WebviewWindow, W
 // 窓の外では判定を急ぐ必要がないので、周期を延ばして常駐の負担を減らす。
 const INSIDE_INTERVAL: Duration = Duration::from_millis(40);
 const OUTSIDE_INTERVAL: Duration = Duration::from_millis(150);
+// 窓の上でもカーソルが止まっている間は判定が変わらないので、窓の外と同じ周期に延ばす。止まったカーソルの
+// 下で領域が変わったときは、set が判定のスレッドを起こしてすぐ判定し直させる。
+const STILL_INTERVAL: Duration = OUTSIDE_INTERVAL;
 // 窓を隠している間はカーソルを追う理由が無いので、表示に戻ったことに気づけるだけの周期で待つ。
 const HIDDEN_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -83,6 +86,7 @@ struct Geometry {
 pub struct HitState {
     regions: Mutex<Option<HitRegions>>,
     hidden: AtomicBool,
+    poller: Mutex<Option<Thread>>,
 }
 
 impl HitState {
@@ -95,6 +99,9 @@ impl HitState {
         replay::log_regions(&regions);
         if let Ok(mut r) = self.regions.lock() {
             *r = Some(regions);
+        }
+        if let Some(t) = self.poller.lock().ok().and_then(|p| p.clone()) {
+            t.unpark();
         }
     }
 
@@ -149,9 +156,13 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
     }
 
     thread::spawn(move || {
+        if let Ok(mut p) = state.poller.lock() {
+            *p = Some(thread::current());
+        }
         let mut ignoring = false;
         let mut hovering = false;
         let mut last_cursor: Option<CursorPoint> = None;
+        let mut last_screen: Option<(f64, f64)> = None;
         #[cfg(feature = "cursor-replay")]
         let replay = replay::Script::from_env();
         loop {
@@ -183,6 +194,8 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
                 thread::sleep(OUTSIDE_INTERVAL);
                 continue;
             };
+            let still = last_screen == Some((cursor.x, cursor.y));
+            last_screen = Some((cursor.x, cursor.y));
             let x = (cursor.x - f64::from(g.position.x)) / g.scale;
             let y = (cursor.y - f64::from(g.position.y)) / g.scale;
             let inside = cursor.x >= f64::from(g.position.x)
@@ -211,10 +224,12 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
             if moved && app.emit(WINDOW_CURSOR_EVENT, point).is_ok() {
                 last_cursor = point;
             }
-            thread::sleep(if inside {
-                INSIDE_INTERVAL
-            } else {
+            thread::park_timeout(if !inside {
                 OUTSIDE_INTERVAL
+            } else if still {
+                STILL_INTERVAL
+            } else {
+                INSIDE_INTERVAL
             });
         }
     });

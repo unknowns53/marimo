@@ -1,7 +1,7 @@
 import type { SessionState, Snapshot, Status } from "./types";
 
-// marimo-core の集約と同じ順序。
-const PRIORITY: Status[] = ["waiting", "error", "working", "done", "idle"];
+/** 優先度の高い順。marimo-core の Status::priority と同じ順で、集約もパネルの状態順もこれに従う。 */
+export const STATUS_PRIORITY: readonly Status[] = ["waiting", "error", "working", "done", "idle"];
 
 // ツールごとに session_id を別々に振るので、同じ id が複数のツールにありうる。Claude Code の
 // セッションは以前の版と同じ鍵のままにして、保存してある既読の記録をそのまま使えるようにする。
@@ -68,6 +68,6 @@ export function withAcknowledged(snapshot: Snapshot, ack: Acknowledged): Snapsho
   const effective = snapshot.sessions.map((s) =>
     s.status === "done" && ack.has(s) ? "idle" : s.status,
   );
-  const aggregate = PRIORITY.find((p) => effective.includes(p)) ?? "idle";
+  const aggregate = STATUS_PRIORITY.find((p) => effective.includes(p)) ?? "idle";
   return aggregate === snapshot.aggregate ? snapshot : { ...snapshot, aggregate };
 }

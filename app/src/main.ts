@@ -370,6 +370,8 @@ async function loadCharacters(): Promise<unknown> {
 
 // 新しい立ち絵を読み終えてから古いものと入れ替えるので、読めなかったときは今の立ち絵が残る。
 // 読んでいる間に次の依頼が来ていたら、読み終えたものを捨てて何も変えない。
+// セリフは立ち絵より先に読む。mount は読み終えた最後に立ち絵を DOM へ加えるので、その後で待たずに
+// 古いものを外せば、新旧の立ち絵が重なって描かれることがない。
 // 枠の高さは素材の縦横比で決まり、窓の大きさも合わせるよう Rust に知らせる。
 async function showCharacter(id: string): Promise<"shown" | "failed" | "superseded"> {
   const request = ++characterRequest;
@@ -377,6 +379,10 @@ async function showCharacter(id: string): Promise<"shown" | "failed" | "supersed
   const superseded = () => request !== characterRequest;
   const entry = characters.find((c) => c.info.id === id);
   const base = characterBase(id);
+  const nextDialogue = await fetch(new URL("dialogue.json", base))
+    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
+    .catch(() => ({}));
+  if (superseded()) return "superseded";
   let next: CharacterRenderer | undefined;
   try {
     if (!entry) throw new Error("not in the character index");
@@ -390,9 +396,6 @@ async function showCharacter(id: string): Promise<"shown" | "failed" | "supersed
     requestedCharacter = characterId;
     return "failed";
   }
-  const nextDialogue = await fetch(new URL("dialogue.json", base))
-    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
-    .catch(() => ({}));
   if (superseded()) {
     next.destroy();
     return "superseded";
