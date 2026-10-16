@@ -18,6 +18,8 @@ marimo-core.workspace = true
 notify = "8"
 serde.workspace = true
 serde_json.workspace = true
+# アプリの中からの更新で、取ってきたアーカイブを SHA256SUMS と照合する。
+sha2 = "0.10"
 # 透過した窓を macOS で出すには macos-private-api が要る。メニューバーと通知領域のアイコンに tray-icon を使う。
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-autostart = "2"

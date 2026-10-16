@@ -32,6 +32,7 @@ const SHOW_CHARACTER: &str = "tray:show-character";
 const STYLE_DETAIL: &str = "tray:style-detail";
 const STYLE_COUNTS: &str = "tray:style-counts";
 const MARK_ALL_READ: &str = "tray:mark-all-read";
+const SETTINGS: &str = "tray:settings";
 const QUIT: &str = "tray:quit";
 
 pub struct Tray {
@@ -230,6 +231,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
             &PredefinedMenuItem::separator(app)?,
             &mark_all_read,
             &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, SETTINGS, "設定…", true, None::<&str>)?,
             &MenuItem::with_id(app, QUIT, "終了", true, None::<&str>)?,
         ],
     )?;
@@ -291,6 +293,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
                 eprintln!("marimo: cannot send the tray choice: {e}");
             }
         }
+        SETTINGS => crate::settings::open(app),
         QUIT => app.exit(0),
         id if id.starts_with(SESSION_PREFIX) => {
             let key = &id[SESSION_PREFIX.len()..];

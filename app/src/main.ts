@@ -1,23 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
+import { emitTo, listen } from "@tauri-apps/api/event";
+import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 import { Bubble } from "./bubble";
 import { Acknowledged, sessionKey, triggerKey, unreadDone, withAcknowledged } from "./acknowledged";
 import { BubbleModel, type BubbleView } from "./bubbleModel";
-import {
-  BUBBLE_SECONDS_CHOICES,
-  bubbleEnabled,
-  DEFAULT_BUBBLE_SETTINGS,
-  type BubbleSettings,
-} from "./bubbleSettings";
+import { bubbleEnabled, DEFAULT_BUBBLE_SETTINGS, type BubbleSettings } from "./bubbleSettings";
 import { categoryFor, fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
-import { union, type Point } from "./expander";
+import type { Point } from "./expander";
 import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
-import { OpacityPopover } from "./opacityPopover";
 import { onScrollbar, READ_KEY, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
 import { RowHover } from "./rowHover";
@@ -32,7 +26,14 @@ import {
   type RowOrder,
 } from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer, type Manifest, type RendererInput } from "./renderer";
-import { nearestPreset, SCALE_PRESETS, ScaleControl } from "./scale";
+import { ScaleControl } from "./scale";
+import {
+  SETTINGS_REQUEST_EVENT,
+  SETTINGS_STATE_EVENT,
+  SETTINGS_WINDOW,
+  type SettingsRequest,
+  type SettingsState,
+} from "./settingsProtocol";
 import { Speech } from "./speech";
 import type { AppIcons, Dialogue, SessionState, Snapshot } from "./types";
 
@@ -86,20 +87,9 @@ const expansion = new PanelExpansion(
   () => hits.schedule(),
 );
 const rowHover = new RowHover(panelElements.panel);
-const opacityNode = $("opacity-popover");
-const opacityPopover = new OpacityPopover(opacityNode, {
-  anchor: () =>
-    [rectOf(panelElements.toggle), rectOf(panelElements.order)]
-      .filter((r): r is Rect => r !== null)
-      .reduce<Rect | null>((acc, r) => union(r, acc), null) ?? rectOf(panelElements.panel),
-  preview: applyPanelOpacity,
-  commit: (opacity) => setPanelDisplay({ ...panelDisplay, panel_opacity: opacity }),
-  closed: () => applyPanelOpacity(panelDisplay.panel_opacity),
-  layoutChange: () => hits.schedule(),
-});
 
 let renderer: CharacterRenderer | undefined;
-// manifest を読めなかったキャラクターは選んでも出せないので、読めたものだけをメニューに並べる。
+// manifest を読めなかったキャラクターは選んでも出せないので、読めたものだけを設定の窓に並べる。
 let characters: { info: CharacterInfo; manifest: Manifest }[] = [];
 let characterId: string | undefined;
 // 立ち絵の画像を読む間に別のキャラクターが選ばれることがあるので、最後に頼んだものだけを出す。
@@ -115,6 +105,9 @@ let speechTimer: number | undefined;
 let panelDisplay: PanelDisplay = DEFAULT_PANEL_DISPLAY;
 let appIcons: AppIcons = { claude: null, codex: null, hermes: null };
 let scale: ScaleControl | undefined;
+// ログイン項目の状態はアプリの外（システム設定など）でも変わるので、設定の窓が開くたびに読み直す。
+// 読めなかったときは undefined にする。
+let autostart: boolean | undefined;
 // Rust から届く、窓の中のカーソル位置。窓の外では null になる。
 let cursor: Point | null = null;
 // マウスがパネルの上にある間に既読にした完了の triggerKey。マウスがパネルを離れるまで、その行をその場所に残す。
@@ -234,13 +227,8 @@ async function reactToTouch(): Promise<void> {
 }
 
 function collectHitRegions(): HitRegions {
-  // 切り替えと並べ方のボタンはパネルの上辺の外に付け、不透明度の小窓はパネルの外にも出るので、パネルとは別に加える。
-  const rects = [
-    rectOf(panelElements.panel),
-    rectOf(panelElements.toggle),
-    rectOf(panelElements.order),
-    rectOf(opacityNode),
-  ];
+  // 切り替えと並べ方のボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
+  const rects = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)];
   // 広げた層はパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
@@ -256,7 +244,6 @@ function redrawPanel(): void {
   const actions = { select: selectSession, markRead, toggleToday };
   renderPanel(panelElements, view, limits, appIcons, now, actions, todayOpen);
   placeBubble();
-  opacityPopover.place();
   expansion.evaluate();
   rowHover.apply();
   hits.schedule();
@@ -438,9 +425,9 @@ function applyPanelDisplay(display: PanelDisplay): void {
   panelDisplay = display;
   applyCharacterVisibility();
   applyPanelOpacity(display.panel_opacity);
-  opacityPopover.sync(display.panel_opacity);
   showSpeech();
   redrawPanel();
+  publishSettings();
 }
 
 function setPanelDisplay(display: PanelDisplay): void {
@@ -453,6 +440,7 @@ function setBubbleSettings(next: BubbleSettings): void {
   void invoke("set_bubble_settings", { settings: next }).catch((e) => console.error("bubble settings", e));
   if (shown) bubbleModel.update(shown, dialogue);
   showSpeech();
+  publishSettings();
 }
 
 function setShowCharacter(show: boolean): void {
@@ -477,12 +465,57 @@ function applyPanelOpacity(opacity: number): void {
   document.documentElement.style.setProperty("--panel-alpha", String(opacity));
 }
 
-function openOpacityPopover(): void {
-  opacityPopover.open(panelDisplay.panel_opacity);
-  // 窓は focus: false で開くので、Escape で閉じられるよう自分でキーボードの入力先にする。
-  void getCurrentWindow()
-    .setFocus()
-    .catch((e) => console.error("focus window", e));
+// 設定の窓から頼まれた変更は、メニューやパネルのボタンと同じ経路で反映して保存し、反映したあとの状態を
+// 送り返す。トレイで変えたときも同じように送る。
+function settingsState(): SettingsState {
+  return {
+    display: panelDisplay,
+    bubble: bubbleSettings,
+    characters: characters.map(({ info }) => ({ id: info.id, name: info.displayName })),
+    character: characterId ?? null,
+    scale: scale?.current ?? null,
+    autostart: autostart ?? null,
+  };
+}
+
+function publishSettings(): void {
+  void emitTo(SETTINGS_WINDOW, SETTINGS_STATE_EVENT, settingsState()).catch((e) => console.error("settings state", e));
+}
+
+async function readAutostart(): Promise<void> {
+  autostart = await isEnabled().catch((e) => {
+    console.error("autostart", e);
+    return undefined;
+  });
+}
+
+async function handleSettingsRequest(request: SettingsRequest): Promise<void> {
+  switch (request.kind) {
+    case "sync":
+      await readAutostart();
+      break;
+    case "display":
+      setPanelDisplay({ ...panelDisplay, ...request.patch });
+      return;
+    case "opacity-preview":
+      applyPanelOpacity(request.opacity);
+      return;
+    case "bubble":
+      setBubbleSettings({ ...bubbleSettings, ...request.patch });
+      return;
+    case "character":
+      await switchCharacter(request.id);
+      break;
+    case "scale":
+      // 反映したあとの倍率は set_scale の戻りで決まるので、ScaleControl の知らせを待って送る。
+      scale?.set(request.scale);
+      return;
+    case "autostart":
+      await (request.enabled ? enable() : disable()).catch((e) => console.error("autostart", e));
+      await readAutostart();
+      break;
+  }
+  publishSettings();
 }
 
 const PANEL_STYLE_LABEL: Record<PanelStyle, string> = {
@@ -490,84 +523,7 @@ const PANEL_STYLE_LABEL: Record<PanelStyle, string> = {
   counts: "件数だけ表示",
 };
 
-const bubbleSecondsLabel = (seconds: number): string =>
-  seconds === 0 ? "押すまで表示" : seconds < 60 ? `${seconds} 秒で閉じる` : `${seconds / 60} 分で閉じる`;
-
-const ROW_ORDER_LABEL: Record<RowOrder, string> = {
-  started: "始まった順に並べる",
-  status: "状態の順に並べる",
-  updated: "更新の新しい順に並べる",
-};
-
 async function openMenu(): Promise<void> {
-  const marked = scale ? nearestPreset(scale.current) : undefined;
-  const sizeItems = await Promise.all(
-    SCALE_PRESETS.map((p) =>
-      CheckMenuItem.new({
-        text: p.label,
-        checked: p.scale === marked,
-        action: () => scale?.set(p.scale),
-      }),
-    ),
-  );
-  // ログイン項目の状態はアプリの外（システム設定など）でも変わるので、開くたびに読み直す。
-  const autostart = await isEnabled().catch((e) => {
-    console.error("autostart", e);
-    return undefined;
-  });
-  const characterItems = await Promise.all(
-    characters.map(({ info }) =>
-      CheckMenuItem.new({
-        text: info.displayName,
-        checked: info.id === characterId,
-        action: () => void switchCharacter(info.id),
-      }),
-    ),
-  );
-  const bubbleKinds: { text: string; key: "bubble_waiting" | "bubble_done" | "bubble_error" }[] = [
-    { text: "承認待ちを出す", key: "bubble_waiting" },
-    { text: "完了を出す", key: "bubble_done" },
-    { text: "エラーを出す", key: "bubble_error" },
-  ];
-  const bubbleItems = [
-    ...(await Promise.all(
-      bubbleKinds.map(({ text, key }) =>
-        CheckMenuItem.new({
-          text,
-          checked: bubbleSettings[key],
-          action: () => setBubbleSettings({ ...bubbleSettings, [key]: !bubbleSettings[key] }),
-        }),
-      ),
-    )),
-    await PredefinedMenuItem.new({ item: "Separator" }),
-    ...(await Promise.all(
-      BUBBLE_SECONDS_CHOICES.map((seconds) =>
-        CheckMenuItem.new({
-          text: bubbleSecondsLabel(seconds),
-          checked: seconds === bubbleSettings.bubble_seconds,
-          action: () => setBubbleSettings({ ...bubbleSettings, bubble_seconds: seconds }),
-        }),
-      ),
-    )),
-  ];
-  const panelItems = [
-    ...(await Promise.all(
-      ROW_ORDERS.map((order) =>
-        CheckMenuItem.new({
-          text: ROW_ORDER_LABEL[order],
-          checked: order === panelDisplay.row_order,
-          action: () => setRowOrder(order),
-        }),
-      ),
-    )),
-    await PredefinedMenuItem.new({ item: "Separator" }),
-    await CheckMenuItem.new({
-      text: "Cloud の会話を表示（手動観測）",
-      checked: panelDisplay.show_cloud_sessions,
-      action: () => setPanelDisplay({ ...panelDisplay, show_cloud_sessions: !panelDisplay.show_cloud_sessions }),
-    }),
-    await MenuItem.new({ text: "背景の不透明度…", action: openOpacityPopover }),
-  ];
   const menu = await Menu.new({
     items: [
       await CheckMenuItem.new({
@@ -585,24 +541,16 @@ async function openMenu(): Promise<void> {
         ),
       )),
       await PredefinedMenuItem.new({ item: "Separator" }),
-      await Submenu.new({ text: "パネル", items: panelItems }),
-      await Submenu.new({ text: "吹き出し", items: bubbleItems }),
-      await Submenu.new({ text: "大きさ", enabled: scale !== undefined, items: sizeItems }),
-      await Submenu.new({ text: "キャラクター", enabled: characterItems.length > 0, items: characterItems }),
-      await PredefinedMenuItem.new({ item: "Separator" }),
-      await CheckMenuItem.new({
-        text: "ログイン時に起動",
-        checked: autostart === true,
-        enabled: autostart !== undefined,
-        action: () => void (autostart ? disable() : enable()).catch((e) => console.error("autostart", e)),
-      }),
-      await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         text: "完了をすべて既読にする",
         enabled: unreadDone(snapshot, acknowledged).length > 0,
         action: markAllDoneRead,
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
+      await MenuItem.new({
+        text: "設定…",
+        action: () => void invoke("open_settings").catch((e) => console.error("open settings", e)),
+      }),
       await MenuItem.new({ text: "終了", action: () => void invoke("quit") }),
     ],
   });
@@ -627,11 +575,11 @@ function bindPanelTabs(): void {
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
   // ドラッグはすぐには始めず、押したまま少し動いてから始める。動かずに離したら、立ち絵を押した
-  // ことになる。行と吹き出しとボタンとスクロールバーと不透明度の小窓は押して操作するので、そこからはドラッグを始めない。
+  // ことになる。行と吹き出しとボタンとスクロールバーは押して操作するので、そこからはドラッグを始めない。
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .today-line, .counts-group, #panel-toggle, #row-order, #bubble, #opacity-popover")) {
+    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .today-line, .counts-group, #panel-toggle, #row-order, #bubble")) {
       press = null;
       return;
     }
@@ -666,6 +614,7 @@ async function start(): Promise<void> {
   });
   await listen("tray-mark-all-read", markAllDoneRead);
   await listen<string>("tray-session", (e) => selectTraySession(e.payload));
+  await listen<SettingsRequest>(SETTINGS_REQUEST_EVENT, (e) => void handleSettingsRequest(e.payload));
   const savedDisplay = await loadPanelDisplay();
   if (!trayChose) panelDisplay = savedDisplay;
   bubbleSettings = await invoke<BubbleSettings>("get_bubble_settings").catch((e) => {
@@ -679,7 +628,7 @@ async function start(): Promise<void> {
   applyCharacterVisibility();
   applyPanelOpacity(panelDisplay.panel_opacity);
   try {
-    scale = new ScaleControl(await invoke<number>("get_scale"));
+    scale = new ScaleControl(await invoke<number>("get_scale"), () => publishSettings());
     scale.bindWheel(stage);
   } catch (e) {
     console.error("scale", e);
@@ -689,6 +638,8 @@ async function start(): Promise<void> {
   for (const id of characterCandidates(saved, index)) {
     if ((await showCharacter(id)) !== "failed") break;
   }
+  // 読み込みの途中で設定の窓が開かれていたら、キャラクターの一覧を送り直す。
+  publishSettings();
   // マウスが立ち絵の上にあるかは Rust 側がクリックを通す判定のついでに調べて知らせる。透明な部分では
   // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
   await listen<boolean>("portrait-hover", (e) => renderer?.setHover(e.payload));
@@ -711,14 +662,10 @@ async function start(): Promise<void> {
   // 倍率の変更や行の増減で形が変わったら、クリックを受け取る領域を送り直す。
   const observer = new ResizeObserver(() => {
     placeBubble();
-    opacityPopover.place();
     hits.schedule();
   });
   for (const el of [stage, panelElements.panel, bubbleNode]) observer.observe(el);
-  window.addEventListener("resize", () => {
-    opacityPopover.place();
-    hits.schedule();
-  });
+  window.addEventListener("resize", () => hits.schedule());
 }
 
 void start();
