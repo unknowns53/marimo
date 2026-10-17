@@ -807,9 +807,13 @@ fn subagent_update(
     if run.agent_type.is_none() {
         run.agent_type = input.agent_type.clone().filter(|t| !t.is_empty());
     }
+    // 親の会話と同じく、質問や計画の承認のツールも呼ばれた時点で利用者の答えを待つ。
     let asks_permission = match input.hook_event_name.as_str() {
         "PermissionRequest" => true,
-        "PreToolUse" => input.tool_name.as_deref() == Some("request_permissions"),
+        "PreToolUse" => matches!(
+            input.tool_name.as_deref(),
+            Some("request_permissions" | "AskUserQuestion" | "ExitPlanMode" | "request_user_input")
+        ),
         _ => false,
     };
     match input.hook_event_name.as_str() {
@@ -1605,14 +1609,17 @@ mod tests {
                 "{end}"
             );
         }
-        // Codex のサブエージェントが request_permissions で承認を求めた場合も同じく待つ。
-        let mut ask = sub("PreToolUse", "a3");
-        ask.tool_name = Some("request_permissions".to_owned());
-        let asked = write(transition(&ask, Some(&done), 55));
-        assert_eq!(
-            (asked.status, asked.status_reason.as_deref()),
-            (Status::Waiting, Some("permission"))
-        );
+        // Codex のサブエージェントが request_permissions で承認を求めた場合と、質問した場合も同じく待つ。
+        for tool in ["request_permissions", "AskUserQuestion"] {
+            let mut ask = sub("PreToolUse", "a3");
+            ask.tool_name = Some(tool.to_owned());
+            let asked = write(transition(&ask, Some(&done), 55));
+            assert_eq!(
+                (asked.status, asked.status_reason.as_deref()),
+                (Status::Waiting, Some("permission")),
+                "{tool}"
+            );
+        }
         let s = write(transition(&sub("PostToolUse", "a1"), Some(&s), 50));
         let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 60));
         assert_eq!((s.status, s.status_since), (Status::Done, 60));
