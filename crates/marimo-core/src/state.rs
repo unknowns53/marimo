@@ -827,6 +827,19 @@ fn subagent_update(
     Some(next)
 }
 
+/// `keep` が false を返すサブエージェントを外し、親の会話の状態はそのままに表示用の値を組み立て直す。
+pub fn without_agents(
+    state: &SessionState,
+    keep: impl Fn(&AgentRun) -> bool,
+    now_ms: u64,
+) -> SessionState {
+    let mut next = state.clone();
+    next.fill_own();
+    next.agents.retain(|_, a| keep(a));
+    settle(&mut next, Some(state.status), now_ms, now_ms);
+    next
+}
+
 /// `AGENT_STALE_MS` のあいだイベントのないサブエージェントを外す。表示が変わるなら新しい状態を返す。
 /// updated_at は変えない。セッションを消すまでの 24 時間を、最後のフックから数え続けるためである。
 pub fn expire_agents(state: &SessionState, now_ms: u64) -> Option<SessionState> {

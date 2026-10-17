@@ -17,6 +17,7 @@ use crate::state::{
     AgentRun, CodexRateLimits, ContextUsage, HookInput, HostProcess, Origin, Provider, RateLimits,
     RateWindow, SessionState, Snapshot, Status, Transition, aggregate, clean_title,
     context_from_codex, context_from_transcript, expire_agents, refresh_repo, transition,
+    without_agents,
 };
 use crate::time::{now_ms, rfc3339_utc, utc_date};
 use crate::transcript::{self, LastTurn, TranscriptTail};
@@ -509,6 +510,8 @@ fn is_temp_file_name(name: &str) -> bool {
 /// 持つものは、そのサブエージェントを外して書き直す。親の会話もサブエージェントもフックを送らなく
 /// なったセッションは、次のフックを待っていると作業中のまま残るからである。同じ理由で、ターンを
 /// 動かしていたプロセスが終わった作業中か承認待ちのセッションは、中断されたものとして待機へ戻す。
+/// 完了とエラーは、まだ読んでいない結果なので、動いていたサブエージェントだけを外す。プロセスが終わった
+/// 待機のセッションは消す。
 /// Claude Code で利用者が応答を止めたか承認や質問を断ったまま次のプロンプトを送っていない作業中か
 /// 承認待ちのセッションも、会話ログの末尾から見分けて待機へ戻す。
 /// バックグラウンドへ移した Claude Code の会話は新しい session_id の行で続くので、元の行は古さによらず消す。
@@ -553,7 +556,8 @@ pub fn prune_stale_sessions(
             let stale = match session.as_ref().map(|s| s.updated_at).filter(|&t| t != 0) {
                 Some(t) => t.saturating_add(max_age_ms) < now_ms,
                 None => modified_before(&path, now, max_age),
-            } || turn == LastTurn::Moved;
+            } || turn == LastTurn::Moved
+                || session.as_ref().is_some_and(abandoned);
             if !stale
                 && let Some(next) = session.and_then(|s| {
                     release_orphan(&s, now_ms)
@@ -597,7 +601,14 @@ fn release_orphan(session: &SessionState, now_ms: u64) -> Option<SessionState> {
         return None;
     }
     // サブエージェントも同じプロセスの中で動くので、一緒に終わっている。
-    interrupt(session, BTreeMap::new(), now_ms)
+    interrupt(session, |_| false, now_ms)
+}
+
+// Claude Code が裏で用意しておく予備のプロセス（claude bg-spare）は、自分の session_id で SessionStart を
+// 送るので待機の行を作り、使われないまま終わっても SessionEnd を送らない。待機の行はパネルに出ないので、
+// まだ動いているセッションのものを消しても、次のフックで作り直されるまで見え方は変わらない。
+fn abandoned(session: &SessionState) -> bool {
+    session.status == Status::Idle && session.host.as_ref().is_some_and(process::has_exited)
 }
 
 // 利用者が応答を止めると Stop は発火せず、デスクトップアプリは待機の通知（idle_prompt）も送らない。
@@ -618,30 +629,29 @@ fn release_interrupted(
     {
         return None;
     }
-    let agents = session
-        .agents
-        .iter()
-        .filter(|(_, a)| a.last_seen > at_ms)
-        .map(|(k, a)| (k.clone(), a.clone()))
-        .collect();
-    interrupt(session, agents, now_ms).filter(|next| next != session)
+    interrupt(session, |a| a.last_seen > at_ms, now_ms).filter(|next| next != session)
 }
 
 fn interrupt(
     session: &SessionState,
-    agents: BTreeMap<String, AgentRun>,
+    keep: impl Fn(&AgentRun) -> bool,
     now_ms: u64,
 ) -> Option<SessionState> {
+    // 完了とエラーは、まだ読んでいない結果なので残す。
+    if matches!(
+        session.own_status.unwrap_or(session.status),
+        Status::Done | Status::Error
+    ) {
+        return Some(without_agents(session, keep, now_ms));
+    }
     let input = HookInput {
         provider: session.provider,
         session_id: session.session_id.clone(),
         hook_event_name: "Interrupt".to_owned(),
         ..HookInput::default()
     };
-    let ended = SessionState {
-        agents,
-        ..session.clone()
-    };
+    let mut ended = session.clone();
+    ended.agents.retain(|_, a| keep(a));
     // updated_at は変えない。expire_agents と同じく、セッションを消すまでの 24 時間を最後のフックから
     // 数え続けるためである。
     match transition(&input, Some(&ended), now_ms) {
@@ -1280,35 +1290,99 @@ mod tests {
             created: alive.created + 1,
             ..alive
         };
+        let agent = AgentRun {
+            agent_type: None,
+            started_at: NOW_MS - HOUR_MS,
+            last_seen: NOW_MS - HOUR_MS,
+            pending: None,
+        };
+        // (id, 親の会話の状態, 表示の状態, プロセス, 見回りの後の表示の状態。消えたら None)
         let cases = [
             (
                 "working-alive",
                 Status::Working,
-                Some(alive),
                 Status::Working,
+                Some(alive),
+                Some(Status::Working),
             ),
-            ("working-ended", Status::Working, Some(ended), Status::Idle),
-            ("waiting-ended", Status::Waiting, Some(ended), Status::Idle),
-            ("done-ended", Status::Done, Some(ended), Status::Done),
-            ("working-unknown", Status::Working, None, Status::Working),
+            (
+                "working-ended",
+                Status::Working,
+                Status::Working,
+                Some(ended),
+                Some(Status::Idle),
+            ),
+            (
+                "waiting-ended",
+                Status::Waiting,
+                Status::Waiting,
+                Some(ended),
+                Some(Status::Idle),
+            ),
+            (
+                "done-ended",
+                Status::Done,
+                Status::Done,
+                Some(ended),
+                Some(Status::Done),
+            ),
+            (
+                "agents-ended",
+                Status::Done,
+                Status::Working,
+                Some(ended),
+                Some(Status::Done),
+            ),
+            (
+                "error-ended",
+                Status::Error,
+                Status::Working,
+                Some(ended),
+                Some(Status::Error),
+            ),
+            ("idle-ended", Status::Idle, Status::Idle, Some(ended), None),
+            (
+                "idle-alive",
+                Status::Idle,
+                Status::Idle,
+                Some(alive),
+                Some(Status::Idle),
+            ),
+            (
+                "working-unknown",
+                Status::Working,
+                Status::Working,
+                None,
+                Some(Status::Working),
+            ),
         ];
-        for (id, status, host, _) in &cases {
+        for (id, own, status, host, _) in &cases {
             let session = SessionState {
                 provider: Provider::Hermes,
                 status: *status,
-                own_status: Some(*status),
+                own_status: Some(*own),
                 updated_at: NOW_MS - HOUR_MS,
                 host: *host,
+                agents: (own != status)
+                    .then(|| ("a1".to_owned(), agent.clone()))
+                    .into_iter()
+                    .collect(),
                 ..SessionState::new(*id)
             };
             let path = home.session_file(Provider::Hermes, id).unwrap();
             write_json_atomic(&path, &session).unwrap();
         }
         prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
-        for (id, _, _, expected) in cases {
-            let after = read_session(&home, Provider::Hermes, id).unwrap();
-            assert_eq!(after.status, expected, "{id}");
-            assert_eq!(after.updated_at, NOW_MS - HOUR_MS, "{id}");
+        for (id, _, _, _, expected) in cases {
+            let after = read_session(&home, Provider::Hermes, id);
+            assert_eq!(after.as_ref().map(|s| s.status), expected, "{id}");
+            if let Some(after) = after {
+                assert_eq!(
+                    (after.updated_at, after.agents.len()),
+                    (NOW_MS - HOUR_MS, 0),
+                    "{id}"
+                );
+            }
         }
     }
 
