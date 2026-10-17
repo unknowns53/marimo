@@ -299,6 +299,10 @@ pub struct SessionState {
     /// このプロセスが消えた作業中の行を待機へ戻すのに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<HostProcess>,
+    /// Claude Code の会話ログ。会話をバックグラウンドへ移すと、Claude Code は元のセッションに SessionEnd も
+    /// Stop も送らず、プロセスも残ったまま新しい session_id で続けるので、ログに残る印からそれを見分けるのに使う。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_path: Option<String>,
     /// 親の会話だけで決まる状態。status、activity、status_reason は、これに動いているサブエージェントを
     /// 重ねて表示用に組み立てた値である。サブエージェントのフックは親と同じ session_id で届くので、
     /// 分けて持たないと親が終えた後もサブエージェントのイベントで作業中へ戻ってしまう。
@@ -348,6 +352,7 @@ impl SessionState {
             context: None,
             origin: None,
             host: None,
+            transcript_path: None,
             own_status: None,
             own_activity: None,
             own_status_reason: None,

@@ -173,7 +173,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 
 | パス | 用途 |
 | --- | --- |
-| `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。完了とエラーのセッションは、SessionEnd の `reason` が `clear`、`resume`、`logout`、`prompt_input_exit` のどれかのときだけ消し、それ以外では残します。24 時間更新のないファイルは、アプリが消します |
+| `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。完了とエラーのセッションは、SessionEnd の `reason` が `clear`、`resume`、`logout`、`prompt_input_exit` のどれかのときだけ消し、それ以外では残します。24 時間更新のないファイルと、バックグラウンドへ移した会話の元のファイルは、アプリが消します |
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID（セッションに振られる識別子）の組でセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `sessions/hermes-<session_id>.json` | Hermes のセッションごとの状態です。Codex と同じく名前に `hermes-` を付けて分けます。書き方と消し方は Claude Code のセッションと同じです |
 | `sessions/opencode-<session_id>.json` | OpenCode のセッションごとの状態です。Codex と同じく名前に `opencode-` を付けて分けます。OpenCode で会話を消したとき（`session.deleted`）は、完了とエラーのセッションも消します。24 時間更新のないファイルは、ほかのセッションと同じくアプリが消します |
@@ -189,7 +189,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。日付の無い名前の `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
 
-セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes`、`opencode` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。どのツールのセッションでも、ファイルはターンを動かしているプロセスの ID と起動した時刻の `host` を持ちます（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前のバージョンのアプリは、Hermes のセッションのファイルを読み飛ばします。OpenCode のセッションでは `source` が `opencode-step` になります。`opencode` を知らない以前のバージョンのアプリも、OpenCode のセッションのファイルを同じように読み飛ばします。
+セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes`、`opencode` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。どのツールのセッションでも、ファイルはターンを動かしているプロセスの ID と起動した時刻の `host` を持ちます（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。Claude Code のセッションでは、ファイルは会話ログの場所の `transcript_path` も持ちます（[バックグラウンドへ移した会話](#バックグラウンドへ移した会話)を参照）。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前のバージョンのアプリは、Hermes のセッションのファイルを読み飛ばします。OpenCode のセッションでは `source` が `opencode-step` になります。`opencode` を知らない以前のバージョンのアプリも、OpenCode のセッションのファイルを同じように読み飛ばします。
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
 
@@ -353,6 +353,12 @@ Claude Code、Codex、Hermes、OpenCode のどれも、プロセスが落ちた�
 そこで、フックはターンを動かしているプロセスの ID と起動した時刻を `host` に記録します。記録するのは、セッションの開始時とプロンプトを送ったときと、まだ記録の無い行へのフックです。`--resume` で別のプロセスへ移った会話は、そこで新しいプロセスに置き換わります。フックの親がシェルのとき（sh、bash、zsh、dash、ksh、fish、cmd、powershell、pwsh と、環境変数 `SHELL` と `COMSPEC` が指すもの）は、シェルを飛ばした先の祖先を記録します。シェルはフックと一緒に終わるからです。macOS の Claude Code では `/bin/sh` が exec でフックに置き換わるので親が claude のプロセスになりますが、Windows の Git Bash の bash.exe は exec しても親として残ります。Codex は、macOS では `SHELL` のシェルの `-lc` で、Windows では `COMSPEC`（無ければ cmd.exe）の `/C` でフックを起動します（codex-rs/hooks/src/engine/command_runner.rs の build_command）。OpenCode のプラグインは `marimo-hook` をシェルを通さずに起動するので、記録するのはプラグインを動かしている OpenCode のサービスのプロセスです。
 
 アプリは起動したときと 10 分ごとに、作業中か承認待ちの行のプロセスが終わっていれば、中断されたものとして待機へ戻し、動いていたサブエージェントの記録も外します。プロセス ID は使い回されるので、起動した時刻が記録と違えば別のプロセスとみなします。macOS では、親に回収される前のゾンビの状態も終わったものとみなします。権限が足りないなどで確かめられないときは、動いているものとみなします。
+
+### バックグラウンドへ移した会話
+
+Claude Code で会話をバックグラウンドへ移すと、会話は新しい session_id のセッションで続き、そのセッションが自分の行を作ります。元のセッションには SessionEnd も Stop も届かず、元の CLI のプロセスも動き続けるので、元の行は作業中のまま残ります。
+
+そこで、フックは親の会話のフックの入力にある `transcript_path` を行に記録します。アプリは起動したときと 10 分ごとに、記録した会話ログの末尾を読み、最後の会話の行（`user` か `assistant` の行）より後に `continued-in` の行があれば、元の行を消します。`continued-in` は、移したときに Claude Code が元の会話ログに書く行です。移した後でも元のセッションが応答を続けることがあり、そのときは `continued-in` の後に会話の行が続くので消しません。この行の形は Claude Code のドキュメントに無く、手元の会話ログで確かめたものです。
 
 ### 題名とコンテキスト使用率の取り方
 

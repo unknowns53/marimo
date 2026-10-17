@@ -19,7 +19,7 @@ use crate::state::{
     context_from_codex, context_from_transcript, expire_agents, refresh_repo, transition,
 };
 use crate::time::{now_ms, rfc3339_utc, utc_date};
-use crate::transcript::TranscriptTail;
+use crate::transcript::{self, TranscriptTail};
 
 // フックは Claude Code の処理を止めてしまうので、ロックを待つ時間に上限を設ける。
 // 上限を過ぎたらロックなしで書く。書き込み自体は rename で原子的なので、
@@ -257,6 +257,12 @@ fn apply_session(
             }
             if let Some(host) = extras.host {
                 next.host = Some(host);
+            }
+            if input.provider == Provider::Claude
+                && input.subagent().is_none()
+                && let Some(p) = input.transcript_path.as_deref().filter(|p| !p.is_empty())
+            {
+                next.transcript_path = Some(p.to_owned());
             }
             // 調べ直すかどうかは保存済みの cwd で決まるので、ロックの内側で調べる。
             // 調べるのは cwd が変わったときなどに限られ、数回の stat で済む。
@@ -503,6 +509,7 @@ fn is_temp_file_name(name: &str) -> bool {
 /// 持つものは、そのサブエージェントを外して書き直す。親の会話もサブエージェントもフックを送らなく
 /// なったセッションは、次のフックを待っていると作業中のまま残るからである。同じ理由で、ターンを
 /// 動かしていたプロセスが終わった作業中か承認待ちのセッションは、中断されたものとして待機へ戻す。
+/// バックグラウンドへ移した Claude Code の会話は新しい session_id の行で続くので、元の行は古さによらず消す。
 ///
 /// 消したセッションがまだ動いていても、SessionEnd と SubagentStop 以外のフックが次に届けば
 /// `transition` がファイルを作り直すので、行は次の操作で戻る。`transition` がファイルのないセッションに
@@ -543,7 +550,7 @@ pub fn prune_stale_sessions(
             let stale = match session.as_ref().map(|s| s.updated_at).filter(|&t| t != 0) {
                 Some(t) => t.saturating_add(max_age_ms) < now_ms,
                 None => modified_before(&path, now, max_age),
-            };
+            } || session.as_ref().is_some_and(continued_elsewhere);
             if !stale
                 && let Some(next) = session
                     .and_then(|s| release_orphan(&s, now_ms).or_else(|| expire_agents(&s, now_ms)))
@@ -567,6 +574,14 @@ pub fn prune_stale_sessions(
         }
     }
     first_err.map_or(Ok(removed), Err)
+}
+
+// 会話ログが読めないときは、移ったと分からないので残す。
+fn continued_elsewhere(session: &SessionState) -> bool {
+    session
+        .transcript_path
+        .as_deref()
+        .is_some_and(|p| transcript::continued_elsewhere(Path::new(p)).unwrap_or(false))
 }
 
 fn release_orphan(session: &SessionState, now_ms: u64) -> Option<SessionState> {
@@ -1253,6 +1268,26 @@ mod tests {
             assert_eq!(after.status, expected, "{id}");
             assert_eq!(after.updated_at, NOW_MS - HOUR_MS, "{id}");
         }
+    }
+
+    #[test]
+    fn prune_removes_sessions_continued_in_the_background() {
+        let (dir, home) = home();
+        for (id, last) in [("moved", "continued-in"), ("here", "user")] {
+            let log = dir.path().join(format!("{id}.jsonl"));
+            fs::write(&log, format!("{}\n", json!({"type": last}))).unwrap();
+            hook(
+                &home,
+                json!({"session_id": id, "hook_event_name": "UserPromptSubmit", "prompt": "x",
+                       "transcript_path": log}),
+            );
+        }
+        assert_eq!(
+            prune_stale_sessions(&home, now_ms(), STALE_SESSION_AGE).unwrap(),
+            1
+        );
+        assert!(read_session(&home, Provider::Claude, "moved").is_none());
+        assert!(read_session(&home, Provider::Claude, "here").is_some());
     }
 
     #[test]

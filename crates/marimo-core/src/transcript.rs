@@ -89,6 +89,25 @@ pub fn read_tail(path: &Path) -> io::Result<TranscriptTail> {
     })
 }
 
+/// 会話がバックグラウンドへ移り、このログの続きが別のセッションで書かれているかを返す。移すと元のログの末尾に
+/// continued-in の行が書かれる。その後で元のセッションが応答を続けることもあるので、それより後に user か
+/// assistant の行があれば移っていないとみなす。continued-in の行は Claude Code のドキュメントに載っていない
+/// 形式なので、形が変わったら移ったと分からずに 24 時間で消えるのを待つだけで済むよう、読めない行は捨てる。
+pub fn continued_elsewhere(path: &Path) -> io::Result<bool> {
+    #[derive(Deserialize)]
+    struct KindLine {
+        #[serde(rename = "type")]
+        kind: Option<String>,
+    }
+    search_tail(path, |buf, head| {
+        let last = complete_lines(buf, head).into_iter().rev().find_map(|l| {
+            let kind = serde_json::from_slice::<KindLine>(l).ok()?.kind?;
+            matches!(kind.as_str(), "continued-in" | "user" | "assistant").then_some(kind)
+        });
+        (last.as_deref() == Some("continued-in"), last.is_some())
+    })
+}
+
 /// JSON Lines のファイルを末尾から読み、`scan` が見つけたと答えるか、ファイルの先頭か読む量の
 /// 上限に達するまで範囲を広げる。`scan` には読んだバイト列と、それがファイルの先頭から始まるかを渡す。
 pub(crate) fn search_tail<T>(
@@ -270,6 +289,27 @@ mod tests {
         let lines = vec![assistant(usage(1, 2, 3), false), cut, filler];
         let f = write(&lines, "");
         assert_eq!(last_usage(f.path()).unwrap().unwrap().context_tokens, 27);
+    }
+
+    #[test]
+    fn continued_elsewhere_only_while_the_moved_mark_is_the_last_turn() {
+        let user = json!({"type": "user", "message": {"role": "user", "content": "x"}}).to_string();
+        let moved =
+            json!({"type": "continued-in", "sessionId": "s1", "continuedInSessionId": "s2"})
+                .to_string();
+        let queued = json!({"type": "queue-operation", "operation": "enqueue"}).to_string();
+        let cases = [
+            (vec![user.clone(), moved.clone()], true),
+            (vec![user.clone(), moved.clone(), queued.clone()], true),
+            (vec![moved.clone(), queued, user.clone()], false),
+            (vec![moved, assistant(usage(1, 2, 3), false)], false),
+            (vec![user], false),
+            (vec![], false),
+        ];
+        for (lines, want) in cases {
+            let f = write(&lines, "");
+            assert_eq!(continued_elsewhere(f.path()).unwrap(), want, "{lines:?}");
+        }
     }
 
     #[test]
