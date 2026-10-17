@@ -26,6 +26,19 @@ const FORWARD = new Set([
   "form.cancelled",
 ])
 
+// サブエージェントのセッションからは、利用者の答えを待つイベントと、その答えのイベントと、ターンの終わりだけを
+// 親の行へ渡す。
+const FROM_CHILD = new Set([
+  "permission.asked",
+  "permission.replied",
+  "form.created",
+  "form.replied",
+  "form.cancelled",
+  "session.execution.succeeded",
+  "session.execution.failed",
+  "session.execution.interrupted",
+])
+
 const LIMIT = 500
 
 // プラグインが場所ごとに読み込まれても、同じモジュールの値を分け合って同じイベントを二度渡さない。
@@ -122,6 +135,25 @@ async function lookup(ctx, sessionID) {
   }
 }
 
+// サブエージェントがさらにサブエージェントを動かすこともあるので、親を持たないセッションまでたどる。
+// 途中で親を引けなければ、どの行のものか分からないので undefined を返す。
+async function rootOf(ctx, sessionID) {
+  let id = sessionID
+  for (let depth = 0; depth < 8; depth++) {
+    if (known.has(id)) return id
+    let parent = children.get(id)
+    if (parent === undefined) {
+      const info = await lookup(ctx, id)
+      if (!info) return undefined
+      if (!info.parentID) return id
+      parent = info.parentID
+      remember(children, id, parent)
+    }
+    id = parent
+  }
+  return undefined
+}
+
 async function loadWindows(ctx) {
   try {
     const listed = await ctx.model.list({})
@@ -163,22 +195,30 @@ async function handle(ctx, event) {
   const payload = { id: event.id, type: event.type, location: event.location, data }
   // サブエージェントは親の行の作業として見えるので、自分の行を作らせない。作成のイベントを見ていない
   // セッションは、OpenCode に親と題名と場所を尋ねてから扱う。
+  let parent = children.get(sessionID)
   if (event.type === "session.created") {
     if (data.parentID) {
-      remember(children, sessionID, true)
+      remember(children, sessionID, data.parentID)
       return
     }
     remember(known, sessionID, true)
-  } else if (children.has(sessionID)) {
-    return
-  } else if (!known.has(sessionID)) {
+  } else if (parent === undefined && !known.has(sessionID)) {
     const info = await lookup(ctx, sessionID)
     if (info?.parentID) {
-      remember(children, sessionID, true)
-      return
+      parent = info.parentID
+      remember(children, sessionID, parent)
+    } else {
+      remember(known, sessionID, true)
+      if (info) payload.session = { title: info.title, directory: info.location?.directory }
     }
-    remember(known, sessionID, true)
-    if (info) payload.session = { title: info.title, directory: info.location?.directory }
+  }
+  // サブエージェントが実行の許可や質問の答えを待つ間は、親の行を承認待ちとして見せる。marimo-hook は、
+  // parent に入れた親の行の中で動くサブエージェントとして扱う。
+  if (parent !== undefined) {
+    if (!FROM_CHILD.has(event.type)) return
+    payload.parent = await rootOf(ctx, parent)
+    if (payload.parent !== undefined) send(payload)
+    return
   }
 
   switch (event.type) {

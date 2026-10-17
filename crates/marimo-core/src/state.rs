@@ -299,6 +299,10 @@ pub struct SessionState {
     /// このプロセスが消えた作業中の行を待機へ戻すのに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<HostProcess>,
+    /// Claude Code の会話ログ。会話をバックグラウンドへ移すと、Claude Code は元のセッションに SessionEnd も
+    /// Stop も送らず、プロセスも残ったまま新しい session_id で続けるので、ログに残る印からそれを見分けるのに使う。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_path: Option<String>,
     /// 親の会話だけで決まる状態。status、activity、status_reason は、これに動いているサブエージェントを
     /// 重ねて表示用に組み立てた値である。サブエージェントのフックは親と同じ session_id で届くので、
     /// 分けて持たないと親が終えた後もサブエージェントのイベントで作業中へ戻ってしまう。
@@ -348,6 +352,7 @@ impl SessionState {
             context: None,
             origin: None,
             host: None,
+            transcript_path: None,
             own_status: None,
             own_activity: None,
             own_status_reason: None,
@@ -650,9 +655,22 @@ fn main_update(
                 (Status::Waiting, Act::Keep)
             }
             Some("quota_auto_resume_fired") => (Status::Working, Act::Keep),
-            // idle_prompt は応答を終えて 60 秒ほど経ったときに届く。ユーザーの割り込みで
-            // Stop が発火せず作業中のまま残ったセッションを、ここで待機へ戻す。
-            Some("idle_prompt") if cur_status == Some(Status::Working) => (Status::Idle, Act::Keep),
+            // idle_prompt は応答を終えて 60 秒ほど経ったときに届く。Claude Code はターンを動かしておらず、
+            // 承認や質問の画面も出ておらず、裏で動くサブエージェントも無いときにだけ送る。利用者が Esc で
+            // 止めたり承認を断ったりすると Stop が発火しないので、作業中や承認待ちのまま残った状態をここで
+            // 待機へ戻す。止めた前景のサブエージェントも SubagentStop を送らないので、ここで外す。
+            // 完了とエラーは、まだ読んでいない結果なのでそのまま残す。
+            Some("idle_prompt") => {
+                let status = match cur_status {
+                    Some(Status::Working | Status::Waiting) => Status::Idle,
+                    Some(s) => s,
+                    None => return Err(Transition::Nothing),
+                };
+                if cur_status == Some(status) && current.is_none_or(|c| c.agents.is_empty()) {
+                    return Err(Transition::Nothing);
+                }
+                (status, Act::Keep)
+            }
             _ => return Err(Transition::Nothing),
         },
         // 応答の文章が流れるたびに届く。状態は変えず、いま表示された最後の行を一行表示に使う。
@@ -730,6 +748,9 @@ fn main_update(
         // 終わる前に必ず終わる。そこでターンの終わりに裏で動いている一覧に無いものを外す。一覧の ID が
         // agent_id と同じ値だとは文書に書かれていないので、一つも一致しないときは見分けられないとみなして
         // 何も外さず、AGENT_STALE_MS での期限切れに任せる。
+        "Notification" if input.notification_type.as_deref() == Some("idle_prompt") => {
+            next.agents.clear();
+        }
         "Stop" => {
             if let Some(running) = input.running_agents() {
                 let matched = next.agents.keys().any(|k| running.contains(&k.as_str()));
@@ -786,9 +807,13 @@ fn subagent_update(
     if run.agent_type.is_none() {
         run.agent_type = input.agent_type.clone().filter(|t| !t.is_empty());
     }
+    // 親の会話と同じく、質問や計画の承認のツールも呼ばれた時点で利用者の答えを待つ。
     let asks_permission = match input.hook_event_name.as_str() {
         "PermissionRequest" => true,
-        "PreToolUse" => input.tool_name.as_deref() == Some("request_permissions"),
+        "PreToolUse" => matches!(
+            input.tool_name.as_deref(),
+            Some("request_permissions" | "AskUserQuestion" | "ExitPlanMode" | "request_user_input")
+        ),
         _ => false,
     };
     match input.hook_event_name.as_str() {
@@ -804,6 +829,19 @@ fn subagent_update(
         _ => {}
     }
     Some(next)
+}
+
+/// `keep` が false を返すサブエージェントを外し、親の会話の状態はそのままに表示用の値を組み立て直す。
+pub fn without_agents(
+    state: &SessionState,
+    keep: impl Fn(&AgentRun) -> bool,
+    now_ms: u64,
+) -> SessionState {
+    let mut next = state.clone();
+    next.fill_own();
+    next.agents.retain(|_, a| keep(a));
+    settle(&mut next, Some(state.status), now_ms, now_ms);
+    next
 }
 
 /// `AGENT_STALE_MS` のあいだイベントのないサブエージェントを外す。表示が変わるなら新しい状態を返す。
@@ -988,7 +1026,22 @@ mod tests {
             ),
             (
                 json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
+                Some(Waiting),
+                Some(Idle),
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
                 Some(Done),
+                None,
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
+                Some(Error),
+                None,
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
+                None,
                 None,
             ),
             (
@@ -1556,14 +1609,17 @@ mod tests {
                 "{end}"
             );
         }
-        // Codex のサブエージェントが request_permissions で承認を求めた場合も同じく待つ。
-        let mut ask = sub("PreToolUse", "a3");
-        ask.tool_name = Some("request_permissions".to_owned());
-        let asked = write(transition(&ask, Some(&done), 55));
-        assert_eq!(
-            (asked.status, asked.status_reason.as_deref()),
-            (Status::Waiting, Some("permission"))
-        );
+        // Codex のサブエージェントが request_permissions で承認を求めた場合と、質問した場合も同じく待つ。
+        for tool in ["request_permissions", "AskUserQuestion"] {
+            let mut ask = sub("PreToolUse", "a3");
+            ask.tool_name = Some(tool.to_owned());
+            let asked = write(transition(&ask, Some(&done), 55));
+            assert_eq!(
+                (asked.status, asked.status_reason.as_deref()),
+                (Status::Waiting, Some("permission")),
+                "{tool}"
+            );
+        }
         let s = write(transition(&sub("PostToolUse", "a1"), Some(&s), 50));
         let s = write(transition(&sub("SubagentStop", "a1"), Some(&s), 60));
         assert_eq!((s.status, s.status_since), (Status::Done, 60));
@@ -1700,6 +1756,37 @@ mod tests {
                 after.status == Status::Working,
                 !expected.is_empty(),
                 "{tasks:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn idle_prompt_drops_agents_and_keeps_unread_results() {
+        let idle = input(
+            json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
+        );
+        let fail = input(json!({"session_id":"s1","hook_event_name":"StopFailure","error":"x"}));
+        let with_agent = write(transition(
+            &sub("PermissionRequest", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        // (親の会話の最後のイベント, idle_prompt の後に表示する状態)
+        let cases = [
+            (None, Status::Idle),
+            (Some(stop()), Status::Done),
+            (Some(fail), Status::Error),
+        ];
+        for (last, expected) in cases {
+            let s = match &last {
+                Some(e) => write(transition(e, Some(&with_agent), 30)),
+                None => with_agent.clone(),
+            };
+            let after = write(transition(&idle, Some(&s), 40));
+            assert_eq!(
+                (after.status, after.agents.len()),
+                (expected, 0),
+                "{expected:?}"
             );
         }
     }

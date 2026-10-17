@@ -4,9 +4,9 @@
 //! `ctx.event.subscribe` で受けたものから選んで送ってくる。形は OpenCode の本体の定義
 //! （Session.Event、Permission、Form の各イベント）に従い、どのイベントも
 //! `{id, created, type, location?, data}` を持つ。プラグインは、イベントだけでは分からない値
-//! （ツールの名前、最後の応答の文章、モデルのコンテキストの上限、途中から見たセッションの題名と場所）を
-//! 同じ JSON の最上位に足して送る。状態の決め方は Claude Code と同じ規則を使うので、ここでは
-//! イベント名とツールの名前と引数を Claude Code のものに置き換えるだけにする。
+//! （ツールの名前、最後の応答の文章、モデルのコンテキストの上限、途中から見たセッションの題名と場所、
+//! サブエージェントのイベントを書く親の行）を同じ JSON の最上位に足して送る。状態の決め方は Claude Code と
+//! 同じ規則を使うので、ここではイベント名とツールの名前と引数を Claude Code のものに置き換えるだけにする。
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -35,6 +35,10 @@ pub struct OpencodeInput {
     /// 引いた題名と作業フォルダを入れてくる。
     #[serde(default)]
     pub session: Option<SessionMeta>,
+    /// プラグインが足す値。サブエージェントのセッションのイベントに、親をたどった先の親を持たない
+    /// セッションの ID を入れてくる。
+    #[serde(default)]
+    pub parent: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -63,8 +67,25 @@ pub enum Event {
 }
 
 impl OpencodeInput {
-    /// フォームの作成のイベントだけは、セッションの ID をフォームの中に持つ。
+    /// 状態を書く行のセッションの ID。サブエージェントのイベントは親の行に書く。
     pub fn session_id(&self) -> &str {
+        self.parent
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(|| self.event_session_id())
+    }
+
+    /// サブエージェントのイベントなら、そのサブエージェントのセッションの ID を返す。
+    fn subagent(&self) -> Option<&str> {
+        self.parent
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .map(|_| self.event_session_id())
+            .filter(|s| !s.is_empty())
+    }
+
+    /// フォームの作成のイベントだけは、セッションの ID をフォームの中に持つ。
+    fn event_session_id(&self) -> &str {
         let data = &self.data;
         data.get("sessionID")
             .or_else(|| data.pointer("/form/sessionID"))
@@ -100,13 +121,32 @@ pub fn translate(input: &OpencodeInput, now_ms: u64) -> Event {
     }
     let data = &input.data;
     let text = |pointer: &str| data.pointer(pointer).and_then(Value::as_str);
+    let agent = input.subagent();
     let hook = |name: &str| HookInput {
         provider: Provider::Opencode,
         session_id: session_id.to_owned(),
         hook_event_name: name.to_owned(),
         cwd: input.cwd(),
+        agent_id: agent.map(str::to_owned),
         ..HookInput::default()
     };
+    if agent.is_some() {
+        // プラグインがサブエージェントから渡すのは、利用者の答えを待つイベントとその答えと、ターンの終わりだけ。
+        // 答えを待つ間は親の行の承認待ちとして出し、ターンが終わったら親の行の作業から外す。
+        match input.kind.as_str() {
+            "permission.asked" | "permission.replied" | "form.created" | "form.replied"
+            | "form.cancelled" => {}
+            "session.execution.interrupted" if text("/reason") == Some("superseded") => {
+                return Event::Ignore;
+            }
+            "session.execution.succeeded"
+            | "session.execution.failed"
+            | "session.execution.interrupted" => {
+                return Event::Hook(Box::new(hook("SubagentStop")));
+            }
+            _ => return Event::Ignore,
+        }
+    }
     let event = match input.kind.as_str() {
         // サブエージェントは親の行の作業として見えるので、自分の行を持たせない。プラグインも捨てるが、
         // 作成のイベントだけは親を持つかをここでも確かめられる。
@@ -567,6 +607,118 @@ mod tests {
             if let Some(s) = state {
                 assert_eq!(s.provider, Provider::Opencode, "{name}");
             }
+        }
+    }
+
+    #[test]
+    fn subagent_waits_show_on_the_parent_row() {
+        let child = |kind: &str, data: Value| {
+            let mut data = data;
+            if data.get("form").is_none() {
+                data["sessionID"] = json!("ses_child");
+            }
+            OpencodeInput {
+                parent: Some(SID.to_owned()),
+                ..ev(kind, data)
+            }
+        };
+        let asked = || {
+            child(
+                "permission.asked",
+                json!({ "action": "shell", "resources": ["rm x"] }),
+            )
+        };
+        let replied = |reply: &str| {
+            child(
+                "permission.replied",
+                json!({ "requestID": "per_1", "reply": reply }),
+            )
+        };
+        let done = || vec![started(), ev("session.execution.succeeded", json!({}))];
+        let with = |mut events: Vec<OpencodeInput>, more: Vec<OpencodeInput>| {
+            events.extend(more);
+            events
+        };
+        let cases: Vec<(&str, Vec<OpencodeInput>, Status)> = vec![
+            ("asked", with(done(), vec![asked()]), Status::Waiting),
+            (
+                "granted while still running",
+                with(done(), vec![asked(), replied("once")]),
+                Status::Working,
+            ),
+            (
+                "rejected",
+                with(done(), vec![asked(), replied("reject")]),
+                Status::Working,
+            ),
+            (
+                "child finished",
+                with(
+                    done(),
+                    vec![
+                        asked(),
+                        replied("once"),
+                        child("session.execution.succeeded", json!({})),
+                    ],
+                ),
+                Status::Done,
+            ),
+            (
+                "child superseded",
+                with(
+                    done(),
+                    vec![
+                        asked(),
+                        child(
+                            "session.execution.interrupted",
+                            json!({ "reason": "superseded" }),
+                        ),
+                    ],
+                ),
+                Status::Waiting,
+            ),
+            (
+                "question",
+                with(
+                    done(),
+                    vec![child(
+                        "form.created",
+                        json!({ "form": { "id": "frm_1", "sessionID": "ses_child", "fields": [] } }),
+                    )],
+                ),
+                Status::Waiting,
+            ),
+            (
+                "answered",
+                with(
+                    done(),
+                    vec![
+                        child(
+                            "form.created",
+                            json!({ "form": { "id": "frm_1", "sessionID": "ses_child", "fields": [] } }),
+                        ),
+                        child("form.cancelled", json!({ "id": "frm_1" })),
+                        child("session.execution.failed", json!({})),
+                    ],
+                ),
+                Status::Done,
+            ),
+            (
+                "other child events",
+                with(
+                    done(),
+                    vec![child("session.tool.success", json!({ "id": "c" }))],
+                ),
+                Status::Done,
+            ),
+        ];
+        for (name, events, expected) in cases {
+            let s = run(&events).unwrap();
+            assert_eq!(
+                (s.session_id.as_str(), s.status, s.own_status),
+                (SID, expected, Some(Status::Done)),
+                "{name}"
+            );
         }
     }
 
