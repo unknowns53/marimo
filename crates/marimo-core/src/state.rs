@@ -655,9 +655,22 @@ fn main_update(
                 (Status::Waiting, Act::Keep)
             }
             Some("quota_auto_resume_fired") => (Status::Working, Act::Keep),
-            // idle_prompt は応答を終えて 60 秒ほど経ったときに届く。ユーザーの割り込みで
-            // Stop が発火せず作業中のまま残ったセッションを、ここで待機へ戻す。
-            Some("idle_prompt") if cur_status == Some(Status::Working) => (Status::Idle, Act::Keep),
+            // idle_prompt は応答を終えて 60 秒ほど経ったときに届く。Claude Code はターンを動かしておらず、
+            // 承認や質問の画面も出ておらず、裏で動くサブエージェントも無いときにだけ送る。利用者が Esc で
+            // 止めたり承認を断ったりすると Stop が発火しないので、作業中や承認待ちのまま残った状態をここで
+            // 待機へ戻す。止めた前景のサブエージェントも SubagentStop を送らないので、ここで外す。
+            // 完了とエラーは、まだ読んでいない結果なのでそのまま残す。
+            Some("idle_prompt") => {
+                let status = match cur_status {
+                    Some(Status::Working | Status::Waiting) => Status::Idle,
+                    Some(s) => s,
+                    None => return Err(Transition::Nothing),
+                };
+                if cur_status == Some(status) && current.is_none_or(|c| c.agents.is_empty()) {
+                    return Err(Transition::Nothing);
+                }
+                (status, Act::Keep)
+            }
             _ => return Err(Transition::Nothing),
         },
         // 応答の文章が流れるたびに届く。状態は変えず、いま表示された最後の行を一行表示に使う。
@@ -735,6 +748,9 @@ fn main_update(
         // 終わる前に必ず終わる。そこでターンの終わりに裏で動いている一覧に無いものを外す。一覧の ID が
         // agent_id と同じ値だとは文書に書かれていないので、一つも一致しないときは見分けられないとみなして
         // 何も外さず、AGENT_STALE_MS での期限切れに任せる。
+        "Notification" if input.notification_type.as_deref() == Some("idle_prompt") => {
+            next.agents.clear();
+        }
         "Stop" => {
             if let Some(running) = input.running_agents() {
                 let matched = next.agents.keys().any(|k| running.contains(&k.as_str()));
@@ -993,7 +1009,22 @@ mod tests {
             ),
             (
                 json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
+                Some(Waiting),
+                Some(Idle),
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
                 Some(Done),
+                None,
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
+                Some(Error),
+                None,
+            ),
+            (
+                json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
+                None,
                 None,
             ),
             (
@@ -1705,6 +1736,37 @@ mod tests {
                 after.status == Status::Working,
                 !expected.is_empty(),
                 "{tasks:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn idle_prompt_drops_agents_and_keeps_unread_results() {
+        let idle = input(
+            json!({"session_id":"s1","hook_event_name":"Notification","notification_type":"idle_prompt"}),
+        );
+        let fail = input(json!({"session_id":"s1","hook_event_name":"StopFailure","error":"x"}));
+        let with_agent = write(transition(
+            &sub("PermissionRequest", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        // (親の会話の最後のイベント, idle_prompt の後に表示する状態)
+        let cases = [
+            (None, Status::Idle),
+            (Some(stop()), Status::Done),
+            (Some(fail), Status::Error),
+        ];
+        for (last, expected) in cases {
+            let s = match &last {
+                Some(e) => write(transition(e, Some(&with_agent), 30)),
+                None => with_agent.clone(),
+            };
+            let after = write(transition(&idle, Some(&s), 40));
+            assert_eq!(
+                (after.status, after.agents.len()),
+                (expected, 0),
+                "{expected:?}"
             );
         }
     }
