@@ -14,12 +14,12 @@ use crate::paths::MarimoHome;
 use crate::process;
 use crate::repo::repo_name;
 use crate::state::{
-    CodexRateLimits, ContextUsage, HookInput, HostProcess, Origin, Provider, RateLimits,
+    AgentRun, CodexRateLimits, ContextUsage, HookInput, HostProcess, Origin, Provider, RateLimits,
     RateWindow, SessionState, Snapshot, Status, Transition, aggregate, clean_title,
     context_from_codex, context_from_transcript, expire_agents, refresh_repo, transition,
 };
 use crate::time::{now_ms, rfc3339_utc, utc_date};
-use crate::transcript::{self, TranscriptTail};
+use crate::transcript::{self, LastTurn, TranscriptTail};
 
 // フックは Claude Code の処理を止めてしまうので、ロックを待つ時間に上限を設ける。
 // 上限を過ぎたらロックなしで書く。書き込み自体は rename で原子的なので、
@@ -509,6 +509,8 @@ fn is_temp_file_name(name: &str) -> bool {
 /// 持つものは、そのサブエージェントを外して書き直す。親の会話もサブエージェントもフックを送らなく
 /// なったセッションは、次のフックを待っていると作業中のまま残るからである。同じ理由で、ターンを
 /// 動かしていたプロセスが終わった作業中か承認待ちのセッションは、中断されたものとして待機へ戻す。
+/// Claude Code で利用者が応答を止めたか承認や質問を断ったまま次のプロンプトを送っていない作業中か
+/// 承認待ちのセッションも、会話ログの末尾から見分けて待機へ戻す。
 /// バックグラウンドへ移した Claude Code の会話は新しい session_id の行で続くので、元の行は古さによらず消す。
 ///
 /// 消したセッションがまだ動いていても、SessionEnd と SubagentStop 以外のフックが次に届けば
@@ -547,13 +549,17 @@ pub fn prune_stale_sessions(
                 .and_then(|bytes| serde_json::from_slice::<SessionState>(&bytes).ok());
             // updated_at が 0 のファイルは、この項目を持たない古い形式で書かれたものなので、
             // 更新時刻が分からないものとして読めないファイルと同じく mtime で判定する。
+            let turn = session.as_ref().map_or(LastTurn::Other, last_turn);
             let stale = match session.as_ref().map(|s| s.updated_at).filter(|&t| t != 0) {
                 Some(t) => t.saturating_add(max_age_ms) < now_ms,
                 None => modified_before(&path, now, max_age),
-            } || session.as_ref().is_some_and(continued_elsewhere);
+            } || turn == LastTurn::Moved;
             if !stale
-                && let Some(next) = session
-                    .and_then(|s| release_orphan(&s, now_ms).or_else(|| expire_agents(&s, now_ms)))
+                && let Some(next) = session.and_then(|s| {
+                    release_orphan(&s, now_ms)
+                        .or_else(|| release_interrupted(&s, turn, now_ms))
+                        .or_else(|| expire_agents(&s, now_ms))
+                })
                 && let Err(e) = write_json_atomic(&path, &next)
             {
                 first_err.get_or_insert(e);
@@ -576,12 +582,13 @@ pub fn prune_stale_sessions(
     first_err.map_or(Ok(removed), Err)
 }
 
-// 会話ログが読めないときは、移ったと分からないので残す。
-fn continued_elsewhere(session: &SessionState) -> bool {
+// 会話ログが読めないときは、移ったか止めたか分からないので何もしない。
+fn last_turn(session: &SessionState) -> LastTurn {
     session
         .transcript_path
         .as_deref()
-        .is_some_and(|p| transcript::continued_elsewhere(Path::new(p)).unwrap_or(false))
+        .and_then(|p| transcript::last_turn(Path::new(p)).ok())
+        .unwrap_or(LastTurn::Other)
 }
 
 fn release_orphan(session: &SessionState, now_ms: u64) -> Option<SessionState> {
@@ -589,20 +596,55 @@ fn release_orphan(session: &SessionState, now_ms: u64) -> Option<SessionState> {
     if !busy || !session.host.as_ref().is_some_and(process::has_exited) {
         return None;
     }
-    let interrupt = HookInput {
+    // サブエージェントも同じプロセスの中で動くので、一緒に終わっている。
+    interrupt(session, BTreeMap::new(), now_ms)
+}
+
+// 利用者が応答を止めると Stop は発火せず、デスクトップアプリは待機の通知（idle_prompt）も送らない。
+// 止めた後に次のプロンプトを送っていれば、会話ログがまだ追いついていないだけなので触らない。
+// 裏で動くサブエージェントは止めた後も動き続けてフックを送るので、止めた後に動きのあったものは残す。
+fn release_interrupted(
+    session: &SessionState,
+    turn: LastTurn,
+    now_ms: u64,
+) -> Option<SessionState> {
+    let LastTurn::Interrupted { at_ms } = turn else {
+        return None;
+    };
+    let busy = matches!(session.status, Status::Working | Status::Waiting);
+    if session.provider != Provider::Claude
+        || !busy
+        || session.turn_started_at.is_some_and(|t| t > at_ms)
+    {
+        return None;
+    }
+    let agents = session
+        .agents
+        .iter()
+        .filter(|(_, a)| a.last_seen > at_ms)
+        .map(|(k, a)| (k.clone(), a.clone()))
+        .collect();
+    interrupt(session, agents, now_ms).filter(|next| next != session)
+}
+
+fn interrupt(
+    session: &SessionState,
+    agents: BTreeMap<String, AgentRun>,
+    now_ms: u64,
+) -> Option<SessionState> {
+    let input = HookInput {
         provider: session.provider,
         session_id: session.session_id.clone(),
         hook_event_name: "Interrupt".to_owned(),
         ..HookInput::default()
     };
-    // サブエージェントも同じプロセスの中で動くので、一緒に終わっている。
     let ended = SessionState {
-        agents: BTreeMap::new(),
+        agents,
         ..session.clone()
     };
     // updated_at は変えない。expire_agents と同じく、セッションを消すまでの 24 時間を最後のフックから
     // 数え続けるためである。
-    match transition(&interrupt, Some(&ended), now_ms) {
+    match transition(&input, Some(&ended), now_ms) {
         Transition::Write(next) => Some(SessionState {
             updated_at: session.updated_at,
             ..*next
@@ -1288,6 +1330,101 @@ mod tests {
         );
         assert!(read_session(&home, Provider::Claude, "moved").is_none());
         assert!(read_session(&home, Provider::Claude, "here").is_some());
+    }
+
+    #[test]
+    fn prune_releases_sessions_interrupted_by_the_user() {
+        let (dir, home) = home();
+        let at_ms = NOW_MS - 5 * 60_000;
+        let marker = json!({"type": "user", "timestamp": rfc3339_utc(at_ms), "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}]
+        }});
+        let reply = json!({"type": "assistant", "message": {"content": []}});
+        let agent = |last_seen| AgentRun {
+            agent_type: None,
+            started_at: at_ms - 60_000,
+            last_seen,
+            pending: None,
+        };
+        // (id, 表示の状態, 会話ログの最後の行, ターンの始まり, サブエージェントの最後の動き, 見回りの後の表示の状態)
+        let cases = [
+            (
+                "rejected",
+                Status::Waiting,
+                &marker,
+                None,
+                None,
+                Status::Idle,
+            ),
+            (
+                "stopped",
+                Status::Working,
+                &marker,
+                Some(at_ms - 9),
+                Some(at_ms - 5),
+                Status::Idle,
+            ),
+            (
+                "background",
+                Status::Working,
+                &marker,
+                None,
+                Some(at_ms + 1),
+                Status::Working,
+            ),
+            (
+                "next-prompt",
+                Status::Working,
+                &marker,
+                Some(at_ms + 1),
+                None,
+                Status::Working,
+            ),
+            (
+                "answered",
+                Status::Working,
+                &reply,
+                None,
+                None,
+                Status::Working,
+            ),
+        ];
+        let updated_at = |seen: Option<u64>| seen.unwrap_or(0).max(at_ms - 60_000);
+        for (id, status, last, turn, seen, _) in &cases {
+            let log = dir.path().join(format!("{id}.jsonl"));
+            fs::write(&log, format!("{last}\n")).unwrap();
+            let session = SessionState {
+                status: *status,
+                own_status: Some(*status),
+                updated_at: updated_at(*seen),
+                turn_started_at: *turn,
+                transcript_path: Some(log.to_string_lossy().into_owned()),
+                agents: seen.iter().map(|&t| ("a1".to_owned(), agent(t))).collect(),
+                ..SessionState::new(*id)
+            };
+            write_json_atomic(&home.session_file(Provider::Claude, id).unwrap(), &session).unwrap();
+        }
+        assert_eq!(
+            prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap(),
+            0
+        );
+        for (id, _, _, _, seen, expected) in cases {
+            let after = read_session(&home, Provider::Claude, id).unwrap();
+            assert_eq!(
+                (after.status, after.updated_at),
+                (expected, updated_at(seen)),
+                "{id}"
+            );
+        }
+        // 止めた後も動いているサブエージェントだけを残し、親の会話は待機へ戻す。
+        let after = read_session(&home, Provider::Claude, "background").unwrap();
+        assert_eq!(
+            (after.own_status, after.agents.len()),
+            (Some(Status::Idle), 1)
+        );
+        let after = read_session(&home, Provider::Claude, "stopped").unwrap();
+        assert!(after.agents.is_empty());
     }
 
     #[test]

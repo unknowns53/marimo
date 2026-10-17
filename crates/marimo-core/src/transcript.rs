@@ -3,8 +3,10 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::state::clean_title;
+use crate::time::parse_rfc3339_utc_ms;
 
 // 会話ログは数十 MB になりうるので、末尾から少しずつ広げて探す。最後の assistant の
 // 応答はふつう末尾近くにあり、最初の範囲で見つかる。
@@ -89,23 +91,81 @@ pub fn read_tail(path: &Path) -> io::Result<TranscriptTail> {
     })
 }
 
-/// 会話がバックグラウンドへ移り、このログの続きが別のセッションで書かれているかを返す。移すと元のログの末尾に
-/// continued-in の行が書かれる。その後で元のセッションが応答を続けることもあるので、それより後に user か
-/// assistant の行があれば移っていないとみなす。continued-in の行は Claude Code のドキュメントに載っていない
-/// 形式なので、形が変わったら移ったと分からずに 24 時間で消えるのを待つだけで済むよう、読めない行は捨てる。
-pub fn continued_elsewhere(path: &Path) -> io::Result<bool> {
+/// 親の会話の最後の行が何だったか。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LastTurn {
+    /// 会話がバックグラウンドへ移り、このログの続きが別のセッションで書かれている。
+    Moved,
+    /// 利用者が応答を止めたか、承認や質問を断った。`at_ms` はその行の時刻。
+    Interrupted { at_ms: u64 },
+    /// それ以外か、会話の行が見つからない。
+    Other,
+}
+
+// 応答を止めたときと、承認や質問を断ったときに Claude Code が書く user の行の文章。
+const INTERRUPT_MARKERS: [&str; 2] = [
+    "[Request interrupted by user]",
+    "[Request interrupted by user for tool use]",
+];
+
+/// 末尾から見て最初の親の会話の行（user、assistant、continued-in の行）で、会話がどう終わっているかを返す。
+/// 会話をバックグラウンドへ移すと、元のログの末尾に continued-in の行が書かれる。その後で元のセッションが
+/// 応答を続けることもあるので、それより後に user か assistant の行があれば移っていないとみなす。利用者が
+/// 応答を止めたり承認や質問を断ったりすると、Stop が発火しないまま中断の文章だけの user の行が書かれる。
+/// これらの行は Claude Code のドキュメントに載っていない形式なので、形が変わったら見分けられずに
+/// 24 時間で消えるのを待つだけで済むよう、読めない行は捨てる。
+pub fn last_turn(path: &Path) -> io::Result<LastTurn> {
     #[derive(Deserialize)]
     struct KindLine {
         #[serde(rename = "type")]
         kind: Option<String>,
+        #[serde(rename = "isSidechain", default)]
+        is_sidechain: bool,
     }
     search_tail(path, |buf, head| {
         let last = complete_lines(buf, head).into_iter().rev().find_map(|l| {
-            let kind = serde_json::from_slice::<KindLine>(l).ok()?.kind?;
-            matches!(kind.as_str(), "continued-in" | "user" | "assistant").then_some(kind)
+            let line = serde_json::from_slice::<KindLine>(l).ok()?;
+            let kind = line.kind.filter(|_| !line.is_sidechain)?;
+            match kind.as_str() {
+                "continued-in" => Some(LastTurn::Moved),
+                "user" => Some(
+                    interrupted_at(l)
+                        .map_or(LastTurn::Other, |at_ms| LastTurn::Interrupted { at_ms }),
+                ),
+                "assistant" => Some(LastTurn::Other),
+                _ => None,
+            }
         });
-        (last.as_deref() == Some("continued-in"), last.is_some())
+        (last.unwrap_or(LastTurn::Other), last.is_some())
     })
+}
+
+// 文章は content に文字列で入る形と、text の要素の配列で入る形の両方を受け付ける。
+fn interrupted_at(bytes: &[u8]) -> Option<u64> {
+    #[derive(Deserialize)]
+    struct UserLine {
+        timestamp: Option<String>,
+        message: Option<UserMessage>,
+    }
+    #[derive(Deserialize)]
+    struct UserMessage {
+        content: Option<Value>,
+    }
+    if !contains(bytes, b"[Request interrupted by user") {
+        return None;
+    }
+    let line: UserLine = serde_json::from_slice(bytes).ok()?;
+    let is_marker = |v: &Value| v.as_str().is_some_and(|t| INTERRUPT_MARKERS.contains(&t));
+    let marked = match line.message?.content? {
+        Value::Array(items) => items
+            .iter()
+            .any(|i| i["type"] == "text" && is_marker(&i["text"])),
+        text => is_marker(&text),
+    };
+    if !marked {
+        return None;
+    }
+    parse_rfc3339_utc_ms(line.timestamp.as_deref()?)
 }
 
 /// JSON Lines のファイルを末尾から読み、`scan` が見つけたと答えるか、ファイルの先頭か読む量の
@@ -292,23 +352,59 @@ mod tests {
     }
 
     #[test]
-    fn continued_elsewhere_only_while_the_moved_mark_is_the_last_turn() {
+    fn last_turn_follows_the_last_main_thread_line() {
         let user = json!({"type": "user", "message": {"role": "user", "content": "x"}}).to_string();
         let moved =
             json!({"type": "continued-in", "sessionId": "s1", "continuedInSessionId": "s2"})
                 .to_string();
         let queued = json!({"type": "queue-operation", "operation": "enqueue"}).to_string();
+        let at = "2026-10-16T12:13:57.473Z";
+        let at_ms = parse_rfc3339_utc_ms(at).unwrap();
+        let rejected = json!({"type": "user", "isSidechain": false, "timestamp": at, "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}]
+        }})
+        .to_string();
+        let stopped = json!({"type": "user", "timestamp": at, "message": {
+            "role": "user", "content": "[Request interrupted by user]"
+        }})
+        .to_string();
+        let quoted = json!({"type": "user", "timestamp": at, "message": {
+            "role": "user", "content": "なぜ [Request interrupted by user] と出るの"
+        }})
+        .to_string();
+        let untimed =
+            json!({"type": "user", "message": {"content": "[Request interrupted by user]"}})
+                .to_string();
+        let side = json!({"type": "assistant", "isSidechain": true, "message": {"content": []}})
+            .to_string();
+        let interrupted = LastTurn::Interrupted { at_ms };
         let cases = [
-            (vec![user.clone(), moved.clone()], true),
-            (vec![user.clone(), moved.clone(), queued.clone()], true),
-            (vec![moved.clone(), queued, user.clone()], false),
-            (vec![moved, assistant(usage(1, 2, 3), false)], false),
-            (vec![user], false),
-            (vec![], false),
+            (vec![user.clone(), moved.clone()], LastTurn::Moved),
+            (
+                vec![user.clone(), moved.clone(), queued.clone()],
+                LastTurn::Moved,
+            ),
+            (vec![moved.clone(), queued, user.clone()], LastTurn::Other),
+            (
+                vec![moved, assistant(usage(1, 2, 3), false)],
+                LastTurn::Other,
+            ),
+            (vec![user.clone(), rejected.clone()], interrupted),
+            (vec![stopped.clone(), side], interrupted),
+            (vec![rejected, user.clone()], LastTurn::Other),
+            (
+                vec![stopped, assistant(usage(1, 2, 3), false)],
+                LastTurn::Other,
+            ),
+            (vec![quoted], LastTurn::Other),
+            (vec![untimed], LastTurn::Other),
+            (vec![user], LastTurn::Other),
+            (vec![], LastTurn::Other),
         ];
         for (lines, want) in cases {
             let f = write(&lines, "");
-            assert_eq!(continued_elsewhere(f.path()).unwrap(), want, "{lines:?}");
+            assert_eq!(last_turn(f.path()).unwrap(), want, "{lines:?}");
         }
     }
 
