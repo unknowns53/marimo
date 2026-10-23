@@ -221,15 +221,7 @@ pub fn track(
                 pos = next;
             }
             let (pos, corner) = settled(pos);
-            let saved = SavedPosition {
-                x: pos.x,
-                y: pos.y,
-                left: corner.left,
-                top: corner.top,
-            };
-            if let Err(e) = store::write_json_durable(&home.window_file(), &saved) {
-                eprintln!("marimo: cannot save window position: {e}");
-            }
+            save(&home, pos, corner);
         }
     });
     // 隠している窓の位置は画面上のどこでもないので、仮に届いても覚えない。
@@ -241,6 +233,18 @@ pub fn track(
             let _ = tx.send(*pos);
         }
     });
+}
+
+pub fn save(home: &MarimoHome, pos: PhysicalPosition<i32>, corner: Corner) {
+    let saved = SavedPosition {
+        x: pos.x,
+        y: pos.y,
+        left: corner.left,
+        top: corner.top,
+    };
+    if let Err(e) = store::write_json_durable(&home.window_file(), &saved) {
+        eprintln!("marimo: cannot save window position: {e}");
+    }
 }
 
 fn m_contains(monitor: &Monitor, x: i32, y: i32) -> bool {

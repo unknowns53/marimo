@@ -320,8 +320,12 @@ fn main() {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = corner;
             // 以前の版が保存した位置には隅が無いので、起動したときにも置き場所に合う隅を選び直す。
+            // 窓を出す前の移動は Moved として track に届かないので、選び直したらここで保存する。
             if let Ok(pos) = window.outer_position() {
-                relayout(app.handle(), pos);
+                let (moved, next) = relayout(app.handle(), pos);
+                if (moved, next) != (pos, corner) {
+                    window_pos::save(&home, moved, next);
+                }
             }
             window.show()?;
             let handle = app.handle().clone();
