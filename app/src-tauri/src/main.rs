@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use marimo_core::{MarimoHome, Provider, Snapshot, store};
 use serde_json::Value;
-use tauri::{AppHandle, LogicalSize, Manager, State};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State};
 
 struct AppState {
     home: MarimoHome,
@@ -31,13 +31,21 @@ struct AppState {
     tray: OnceLock<tray::Tray>,
     // フロントエンドが既読にしたきっかけ。メニューバーのアイコンを決めるのに使う。
     acknowledged: Mutex<HashSet<String>>,
+    // 立ち絵を置いている窓の隅。窓を置いた場所で Rust が決め、フロントエンドは配置を合わせる。
+    corner: Mutex<window_pos::Corner>,
 }
 
 impl AppState {
     fn aspect(&self) -> f64 {
         *self.aspect.lock().unwrap_or_else(|e| e.into_inner())
     }
+
+    fn corner(&self) -> window_pos::Corner {
+        *self.corner.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
+
+const LAYOUT_EVENT: &str = "layout";
 
 // 大きさを変えるのはいつも立ち絵の窓なので、呼び出し元の窓ではなくラベルで取る。
 fn resize(app: &AppHandle, scale: f64, aspect: f64) {
@@ -45,9 +53,38 @@ fn resize(app: &AppHandle, scale: f64, aspect: f64) {
         return;
     };
     let (w, h) = scale::window_size(scale, aspect);
-    if let Err(e) = window_pos::resize_keeping_bottom_right(&window, LogicalSize::new(w, h)) {
+    let corner = app.state::<AppState>().corner();
+    if let Err(e) = window_pos::resize_keeping_corner(&window, LogicalSize::new(w, h), corner) {
         eprintln!("marimo: cannot resize window: {e}");
     }
+}
+
+// 窓を置き終えた位置に合わせて立ち絵の隅を選び直し、変わったらフロントエンドに配置を切り替えさせる。
+fn relayout(
+    app: &AppHandle,
+    pos: PhysicalPosition<i32>,
+) -> (PhysicalPosition<i32>, window_pos::Corner) {
+    let state = app.state::<AppState>();
+    let current = state.corner();
+    let Some(window) = app.get_webview_window("main") else {
+        return (pos, current);
+    };
+    let (scale, aspect) = (scale::load(&state.home), state.aspect());
+    let Some((next, moved)) = window_pos::settle(&window, pos, current, |c| {
+        scale::stage_rect(scale, aspect, c)
+    }) else {
+        return (pos, current);
+    };
+    *state.corner.lock().unwrap_or_else(|e| e.into_inner()) = next;
+    if let Err(e) = app.emit(LAYOUT_EVENT, next) {
+        eprintln!("marimo: cannot send the layout: {e}");
+    }
+    (moved, next)
+}
+
+#[tauri::command]
+fn get_layout(state: State<'_, AppState>) -> window_pos::Corner {
+    state.corner()
 }
 
 #[tauri::command]
@@ -240,12 +277,14 @@ fn main() {
             aspect: Mutex::new(aspect),
             tray: OnceLock::new(),
             acknowledged: Mutex::new(acknowledged::load(&home).into_iter().collect()),
+            corner: Mutex::new(window_pos::Corner::default()),
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             get_dialogue,
             get_scale,
             set_scale,
+            get_layout,
             get_panel_display,
             set_panel_display,
             get_bubble_settings,
@@ -275,9 +314,18 @@ fn main() {
                 .get_webview_window("main")
                 .expect("main window is declared in tauri.conf.json");
             let (w, h) = scale::window_size(scale::load(&home), aspect);
-            window_pos::restore(&window, &home, LogicalSize::new(w, h));
+            let corner = window_pos::restore(&window, &home, LogicalSize::new(w, h));
+            *app.state::<AppState>()
+                .corner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = corner;
+            // 以前の版が保存した位置には隅が無いので、起動したときにも置き場所に合う隅を選び直す。
+            if let Ok(pos) = window.outer_position() {
+                relayout(app.handle(), pos);
+            }
             window.show()?;
-            window_pos::track(&window, home.clone());
+            let handle = app.handle().clone();
+            window_pos::track(&window, home.clone(), move |pos| relayout(&handle, pos));
             let display = scale::load_panel_display(&home).unwrap_or_default();
             let tray = tray::build(app.handle(), display)?;
             let _ = app.state::<AppState>().tray.set(tray);

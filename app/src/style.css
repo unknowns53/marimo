@@ -28,6 +28,19 @@
   /* パネルと広げた層が窓の上端との間に空ける高さ。立ち絵を出している間は、パネルの右上に重なって
      出る吹き出し（3 行で 88px）とその隙間の分を空け、吹き出しがタブと行を隠さないようにする。 */
   --panel-top-room: 104px;
+  /* 立ち絵を上の隅に置くときの、窓の上端から立ち絵とパネルの上端までの高さ。吹き出しをこの中に出す。
+     scale.rs の BUBBLE_ROOM と揃える。 */
+  --bubble-room: 120px;
+}
+
+/* 立ち絵を置く窓の隅は、窓を置いた場所に合わせて Rust が決め、main.ts が #app の left と top で知らせる。
+   上の隅では、パネルは立ち絵と上端を揃えて下へ伸びる。 */
+#app.top {
+  --panel-top: var(--bubble-room);
+}
+
+#app.top.character-hidden {
+  --panel-top: calc(var(--margin) + var(--panel-tab-h));
 }
 
 #app.character-hidden {
@@ -49,8 +62,8 @@ body {
   cursor: default;
 }
 
-/* 立ち絵は窓の右下に固定し、パネルや吹き出しがどう変わっても動かさない。窓の右下の角は
-   画面上で固定されているので、立ち絵は画面上でも動かない。 */
+/* 立ち絵は窓の隅の一つに固定し、パネルや吹き出しがどう変わっても動かさない。窓は立ち絵のある隅の角を
+   画面上で固定して大きさを変えるので、立ち絵は画面上でも動かない。 */
 #app {
   position: relative;
   height: 100%;
@@ -62,6 +75,16 @@ body {
   bottom: var(--margin);
   width: calc(var(--stage-w) * var(--scale));
   height: calc(var(--stage-w) * var(--stage-aspect) * var(--scale));
+}
+
+#app.left #stage {
+  right: auto;
+  left: var(--margin);
+}
+
+#app.top #stage {
+  bottom: auto;
+  top: var(--bubble-room);
 }
 
 .character {
@@ -147,6 +170,17 @@ body {
   border-top-color: var(--bubble-bg);
 }
 
+/* 左の隅では、吹き出しは立ち絵の左端に揃えてパネルの側へ伸ばし、しっぽは頭の真上に保つ。 */
+#app.left #bubble {
+  right: auto;
+  left: 0;
+}
+
+#app.left #bubble::after {
+  right: auto;
+  left: calc(90px * var(--scale) - 6px);
+}
+
 /* 出したままにするので、押して閉じられるようにする。 */
 #bubble.show {
   opacity: 1;
@@ -173,6 +207,17 @@ body {
   color: var(--panel-fg);
   font-size: 11px;
   line-height: 1.35;
+}
+
+#app.left #panel {
+  right: auto;
+  left: calc(var(--margin) + var(--stage-w) * var(--scale) + var(--margin));
+}
+
+#app.top #panel {
+  bottom: auto;
+  top: var(--panel-top);
+  max-height: calc(100% - var(--panel-top) - var(--margin));
 }
 
 #panel[hidden],
@@ -424,7 +469,8 @@ body {
 
 /* 件数の行にマウスを載せたときだけ出す層。元の行の下端に揃えて上へ伸ばし、パネルの高さを変えない。
    窓の上端から --panel-top-room だけ下までで止め、それより多い行は層の中でスクロールさせる。--layer-below は、層の
-   下端から窓の下端までの距離で、panel.ts が入れる。 */
+   下端から窓の下端までの距離で、panel.ts が入れる。上の隅では、元の行の上端に揃えて下へ伸ばし、窓の下端の
+   --margin の手前で止める。--layer-above は、元の行の上端から窓の上端までの距離である。 */
 .hover-layer {
   display: none;
   flex-direction: column;
@@ -443,6 +489,12 @@ body {
 
 /* 開閉は Rust から届くカーソル位置で panelExpansion.ts が決め、DOM のホバーは使わない。
    measuring は、見せる前に大きさを測ってクリックを受け取る領域へ登録する間の状態。 */
+#app.top .hover-layer {
+  bottom: auto;
+  top: 0;
+  max-height: calc(100vh - var(--layer-above, 0px) - var(--margin));
+}
+
 .open > .hover-layer,
 .measuring > .hover-layer {
   display: flex;

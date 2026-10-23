@@ -135,13 +135,15 @@ function restoreScroll(rows: HTMLElement, kept: KeptScroll): void {
   }
 }
 
-// 層は件数の行の下端から上へ伸びるので、窓の上端までに収め、収まらない行は層の中でスクロールさせる。
-// 窓の高さが変わっても、パネルは下端を固定しているので層の下端から窓の下端までの距離は変わらない。
-// その距離を CSS へ渡し、窓の高さからの計算は CSS に任せる。
+// 層は件数の行の下端から上へ、上の隅では上端から下へ伸びるので、窓の端までに収め、収まらない行は層の中で
+// スクロールさせる。窓の高さが変わっても、パネルは立ち絵の側の端を固定しているので、件数の行からその側の
+// 窓の端までの距離は変わらない。その距離を CSS へ渡し、窓の高さからの計算は CSS に任せる。
 function fitLayers(rows: HTMLElement): void {
   for (const layer of rows.querySelectorAll<HTMLElement>(".hover-layer")) {
     const anchor = layer.parentElement?.getBoundingClientRect();
-    if (anchor) layer.style.setProperty("--layer-below", `${window.innerHeight - anchor.bottom}px`);
+    if (!anchor) continue;
+    layer.style.setProperty("--layer-below", `${window.innerHeight - anchor.bottom}px`);
+    layer.style.setProperty("--layer-above", `${anchor.top}px`);
   }
 }
 

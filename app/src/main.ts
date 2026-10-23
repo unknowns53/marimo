@@ -194,15 +194,16 @@ function scheduleExpiry(view: BubbleView | null): void {
   expiry = { key, seconds, timer };
 }
 
-// 背の低い立ち絵では、頭の上に出した吹き出しが左のパネルに重なることがある。重なるときだけ
-// パネルの上端より上へ持ち上げ、窓の上端からははみ出させない。吹き出しには動きの transform が
-// 掛かるので、大きさは transform の影響を受けない offset の値で測る。
+// 頭の上に出した吹き出しは、立ち絵の外側の端に揃えてパネルの側へ伸びるので、背の低い立ち絵や上の隅では
+// パネルやタブに重なることがある。重なるときだけその上端より上へ持ち上げ、窓の上端からははみ出させない。
+// 吹き出しには動きの transform が掛かるので、大きさは transform の影響を受けない offset の値で測る。
 function placeBubble(): void {
   const box = stage.getBoundingClientRect();
   const bottom = box.top - BUBBLE_GAP_PX;
-  const left = box.right - bubbleNode.offsetWidth;
+  const width = bubbleNode.offsetWidth;
+  const [left, right] = app.classList.contains("left") ? [box.left, box.left + width] : [box.right - width, box.right];
   const tops = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)]
-    .filter((r): r is Rect => r !== null && r.x + r.w > left)
+    .filter((r): r is Rect => r !== null && r.x + r.w > left && r.x < right)
     .map((r) => r.y - BUBBLE_GAP_PX);
   const lift = Math.max(0, Math.min(bottom - Math.min(bottom, ...tops), bottom - bubbleNode.offsetHeight));
   bubbleNode.style.setProperty("--bubble-lift", `${lift}px`);
@@ -437,6 +438,18 @@ function setRowOrder(order: RowOrder): void {
   setPanelDisplay({ ...panelDisplay, row_order: order });
 }
 
+interface Corner {
+  left: boolean;
+  top: boolean;
+}
+
+// 立ち絵の隅が変わると、パネルの位置と伸びる向き、吹き出しの向きが変わるので、測り直して描き直す。
+function applyLayout(corner: Corner): void {
+  app.classList.toggle("left", corner.left);
+  app.classList.toggle("top", corner.top);
+  redrawPanel();
+}
+
 // 立ち絵は隠している間も描き続け、瞬きや表情の切り替えの時計も止めない。戻したときに今の状態の
 // 表情がすぐ出るようにするためである。
 function applyCharacterVisibility(): void {
@@ -598,6 +611,8 @@ async function start(): Promise<void> {
   await listen("tray-mark-all-read", markAllRead);
   await listen<string>("tray-session", (e) => selectTraySession(e.payload));
   await listen<SettingsRequest>(SETTINGS_REQUEST_EVENT, (e) => void handleSettingsRequest(e.payload));
+  await listen<Corner>("layout", (e) => applyLayout(e.payload));
+  applyLayout(await invoke<Corner>("get_layout").catch(() => ({ left: false, top: false })));
   const savedDisplay = await loadPanelDisplay();
   if (!trayChose) panelDisplay = savedDisplay;
   bubbleSettings = await invoke<BubbleSettings>("get_bubble_settings").catch((e) => {

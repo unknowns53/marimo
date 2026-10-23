@@ -11,10 +11,32 @@ use tauri::{LogicalSize, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow,
 const SAVE_AFTER: Duration = Duration::from_millis(400);
 const EDGE_MARGIN: f64 = 24.0;
 
+/// 立ち絵を窓のどの隅に置くか。パネルは立ち絵の横の画面の内側の方へ置き、上下は立ち絵と同じ端を揃えて
+/// 反対の向きへ伸ばす。立ち絵が画面の右か左か、上か下かの半分にあるかで決める。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Corner {
+    pub left: bool,
+    pub top: bool,
+}
+
+/// 窓の左上からの立ち絵の枠。論理 px。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StageRect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+// 隅を持たない以前の window.json は、右下に置いていた窓の位置である。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct SavedPosition {
     x: i32,
     y: i32,
+    #[serde(default)]
+    left: bool,
+    #[serde(default)]
+    top: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,7 +47,8 @@ pub struct Rect {
     pub h: i32,
 }
 
-pub fn restore(window: &WebviewWindow, home: &MarimoHome, size: LogicalSize<f64>) {
+/// 保存した位置と隅を戻し、戻した隅を返す。
+pub fn restore(window: &WebviewWindow, home: &MarimoHome, size: LogicalSize<f64>) -> Corner {
     let physical: PhysicalSize<u32> = size.to_physical(window.scale_factor().unwrap_or(1.0));
     let _ = window.set_size(physical);
     let (w, h) = (physical.width as i32, physical.height as i32);
@@ -36,6 +59,10 @@ pub fn restore(window: &WebviewWindow, home: &MarimoHome, size: LogicalSize<f64>
         .and_then(|b| serde_json::from_slice::<SavedPosition>(&b).ok())
         // モニタの構成が変わって保存した位置が画面外になった場合は、既定の位置へ戻す。
         .filter(|p| monitors.iter().any(|m| m_contains(m, p.x + 16, p.y + 16)));
+    let corner = saved.map_or(Corner::default(), |p| Corner {
+        left: p.left,
+        top: p.top,
+    });
     let pos = match saved {
         Some(p) => {
             let area = monitor_at(&monitors, p.x + 16, p.y + 16).map(|m| work_area(&m));
@@ -54,13 +81,15 @@ pub fn restore(window: &WebviewWindow, home: &MarimoHome, size: LogicalSize<f64>
     if let Some((x, y)) = pos {
         let _ = window.set_position(PhysicalPosition::new(x, y));
     }
+    corner
 }
 
-// 画面の右下に置く使い方が基本なので、大きさを変えても右下の角を動かさず、
-// 左と上へ広げる。そのうえで、はみ出した分は画面内へ押し戻す。
-pub fn resize_keeping_bottom_right(
+// 立ち絵のある隅の角を動かさずに大きさを変え、立ち絵が画面上で動かないようにする。
+// そのうえで、はみ出した分は画面内へ押し戻す。
+pub fn resize_keeping_corner(
     window: &WebviewWindow,
     size: LogicalSize<f64>,
+    corner: Corner,
 ) -> tauri::Result<()> {
     let pos = window.outer_position()?;
     let old = window.outer_size()?;
@@ -72,19 +101,92 @@ pub fn resize_keeping_bottom_right(
         h: old.height as i32,
     };
     let monitors = window.available_monitors().unwrap_or_default();
-    let corner = (current.x + current.w - 1, current.y + current.h - 1);
-    let area = monitor_at(&monitors, corner.0, corner.1)
+    let fixed_x = if corner.left {
+        current.x
+    } else {
+        current.x + current.w - 1
+    };
+    let fixed_y = if corner.top {
+        current.y
+    } else {
+        current.y + current.h - 1
+    };
+    let area = monitor_at(&monitors, fixed_x, fixed_y)
         .or_else(|| window.current_monitor().ok().flatten())
         .map(|m| work_area(&m));
-    let (x, y) = anchor_bottom_right(current, new.width as i32, new.height as i32, area);
+    let (x, y) = anchor(current, new.width as i32, new.height as i32, corner, area);
     window.set_size(new)?;
     window.set_position(PhysicalPosition::new(x, y))
 }
 
-pub fn anchor_bottom_right(current: Rect, w: i32, h: i32, area: Option<Rect>) -> (i32, i32) {
-    let x = current.x + current.w - w;
-    let y = current.y + current.h - h;
+pub fn anchor(current: Rect, w: i32, h: i32, corner: Corner, area: Option<Rect>) -> (i32, i32) {
+    let x = if corner.left {
+        current.x
+    } else {
+        current.x + current.w - w
+    };
+    let y = if corner.top {
+        current.y
+    } else {
+        current.y + current.h - h
+    };
     fit(Rect { x, y, w, h }, area)
+}
+
+/// 窓を置き終えた位置で、立ち絵のある画面の半分に合う隅を選び直す。隅が変わったら、立ち絵が画面上で
+/// 動かないよう窓をずらして、新しい隅と位置を返す。`stage` は隅ごとの窓の中の立ち絵の枠を返す。
+pub fn settle(
+    window: &WebviewWindow,
+    pos: PhysicalPosition<i32>,
+    current: Corner,
+    stage: impl Fn(Corner) -> StageRect,
+) -> Option<(Corner, PhysicalPosition<i32>)> {
+    let factor = window.scale_factor().ok()?;
+    let size = window.outer_size().ok()?;
+    let window_rect = Rect {
+        x: pos.x,
+        y: pos.y,
+        w: size.width as i32,
+        h: size.height as i32,
+    };
+    let (cx, cy) = stage_center(window_rect, stage(current), factor);
+    let monitors = window.available_monitors().unwrap_or_default();
+    let area = monitor_at(&monitors, cx, cy)
+        .or_else(|| window.current_monitor().ok().flatten())
+        .map(|m| work_area(&m))?;
+    let (next, (x, y)) = relocate(window_rect, current, &stage, factor, area)?;
+    window.set_position(PhysicalPosition::new(x, y)).ok()?;
+    Some((next, PhysicalPosition::new(x, y)))
+}
+
+fn stage_center(window: Rect, stage: StageRect, factor: f64) -> (i32, i32) {
+    (
+        window.x + ((stage.x + stage.w / 2.0) * factor).round() as i32,
+        window.y + ((stage.y + stage.h / 2.0) * factor).round() as i32,
+    )
+}
+
+// 隅の判定は、窓ではなく立ち絵の中心で行う。隅を変えても立ち絵は動かないので、ずらした窓で判定し直しても
+// 隅が行き来しない。
+fn relocate(
+    window: Rect,
+    current: Corner,
+    stage: impl Fn(Corner) -> StageRect,
+    factor: f64,
+    area: Rect,
+) -> Option<(Corner, (i32, i32))> {
+    let (cx, cy) = stage_center(window, stage(current), factor);
+    let next = Corner {
+        left: cx < area.x + area.w / 2,
+        top: cy < area.y + area.h / 2,
+    };
+    if next == current {
+        return None;
+    }
+    let (from, to) = (stage(current), stage(next));
+    let x = window.x + ((from.x - to.x) * factor).round() as i32;
+    let y = window.y + ((from.y - to.y) * factor).round() as i32;
+    Some((next, fit(Rect { x, y, ..window }, Some(area))))
 }
 
 fn fit(rect: Rect, area: Option<Rect>) -> (i32, i32) {
@@ -106,14 +208,25 @@ fn fit(rect: Rect, area: Option<Rect>) -> (i32, i32) {
     )
 }
 
-pub fn track(window: &WebviewWindow, home: MarimoHome) {
+/// 窓が止まるたびに `settled` を呼び、それが返した位置と隅を保存する。
+pub fn track(
+    window: &WebviewWindow,
+    home: MarimoHome,
+    settled: impl Fn(PhysicalPosition<i32>) -> (PhysicalPosition<i32>, Corner) + Send + 'static,
+) {
     let (tx, rx) = mpsc::channel::<PhysicalPosition<i32>>();
     thread::spawn(move || {
         while let Ok(mut pos) = rx.recv() {
             while let Ok(next) = rx.recv_timeout(SAVE_AFTER) {
                 pos = next;
             }
-            let saved = SavedPosition { x: pos.x, y: pos.y };
+            let (pos, corner) = settled(pos);
+            let saved = SavedPosition {
+                x: pos.x,
+                y: pos.y,
+                left: corner.left,
+                top: corner.top,
+            };
             if let Err(e) = store::write_json_durable(&home.window_file(), &saved) {
                 eprintln!("marimo: cannot save window position: {e}");
             }
@@ -178,18 +291,54 @@ mod tests {
         h: 1900,
     };
 
+    const BR: Corner = Corner {
+        left: false,
+        top: false,
+    };
+
     #[test]
-    fn anchor_bottom_right_cases() {
+    fn anchor_cases() {
         let current = Rect {
             x: 2400,
             y: 1000,
             w: 520,
             h: 880,
         };
-        let (x, y) = anchor_bottom_right(current, 964, 1690, Some(SCREEN));
-        assert_eq!((x + 964, y + 1690), (2920, 1880));
-        let (x, y) = anchor_bottom_right(current, 400, 700, Some(SCREEN));
-        assert_eq!((x + 400, y + 700), (2920, 1880));
+        // 立ち絵のある隅の角は、広げても縮めても動かない。
+        for (corner, (w, h), expected) in [
+            (BR, (964, 1690), (2920 - 964, 1880 - 1690)),
+            (BR, (400, 700), (2920 - 400, 1880 - 700)),
+            (
+                Corner {
+                    left: true,
+                    top: false,
+                },
+                (400, 700),
+                (2400, 1880 - 700),
+            ),
+            (
+                Corner {
+                    left: false,
+                    top: true,
+                },
+                (400, 700),
+                (2920 - 400, 1000),
+            ),
+            (
+                Corner {
+                    left: true,
+                    top: true,
+                },
+                (400, 700),
+                (2400, 1000),
+            ),
+        ] {
+            assert_eq!(
+                anchor(current, w, h, corner, Some(SCREEN)),
+                expected,
+                "{corner:?}"
+            );
+        }
 
         let rect = |x, y| Rect {
             x,
@@ -234,11 +383,61 @@ mod tests {
             ),
         ];
         for (label, current, (w, h), area, expected) in cases {
+            assert_eq!(anchor(current, w, h, BR, area), expected, "{label}");
+        }
+    }
+
+    #[test]
+    fn relocate_keeps_the_stage_still() {
+        // 窓 500×400、立ち絵 180×270 を左右の端から 8、上の隅では上から 120、下の隅では下から 8 に置く。
+        let stage = |c: Corner| StageRect {
+            x: if c.left { 8.0 } else { 312.0 },
+            y: if c.top { 120.0 } else { 122.0 },
+            w: 180.0,
+            h: 270.0,
+        };
+        let at = |x, y| Rect {
+            x,
+            y,
+            w: 1000,
+            h: 800,
+        };
+        let tl = Corner {
+            left: true,
+            top: true,
+        };
+        let cases = [
+            ("stays bottom right", at(1800, 1000), BR, None),
+            (
+                "moved to the top left",
+                at(100, 100),
+                BR,
+                Some((tl, (100 + 608, 100 + 4))),
+            ),
+            ("stays top left", at(708, 104), tl, None),
+            // ずらした窓が画面からはみ出す分は押し戻す。
+            (
+                "pushed back in",
+                at(100, 1300),
+                BR,
+                Some((
+                    Corner {
+                        left: true,
+                        top: false,
+                    },
+                    (100 + 608, 1950 - 800),
+                )),
+            ),
+        ];
+        for (label, window, current, expected) in cases {
             assert_eq!(
-                anchor_bottom_right(current, w, h, area),
+                relocate(window, current, stage, 2.0, SCREEN),
                 expected,
                 "{label}"
             );
         }
+        // 移した窓で判定し直しても、隅は変わらない。
+        let (corner, (x, y)) = relocate(at(100, 100), BR, stage, 2.0, SCREEN).unwrap();
+        assert_eq!(relocate(at(x, y), corner, stage, 2.0, SCREEN), None);
     }
 }

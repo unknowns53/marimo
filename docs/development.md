@@ -181,7 +181,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `statusline_responses.json` | セッションごとに、statusLine の入力にあった `cost.total_api_duration_ms`（API の応答を待った時間の累計）と、その値が変わった時刻を持ちます。この値が前回より増えていれば新しい応答が届いたと見て、`rate_limits.json` を書き換えます。24 時間変わらなかったセッションの記録は、次に書くときに消します |
 | `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
 | `display.json` | 表示の設定です。倍率の `scale`、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、パネルの地の不透明度の `panel_opacity`（0.2 から 1.0 までの数。無いときや数でないときは 0.8 を使い、範囲の外の数は近い端に寄せます。文字やアイコンは薄くしません）、吹き出しを出す種類ごとの `bubble_waiting`、`bubble_done`、`bubble_error`（真偽値で、無いときや真偽値でないときは `true`）、吹き出しを自動で閉じるまでの秒数の `bubble_seconds`（0 から 3600 までの整数で、0 は押すまで出し続けます。無いときや整数でないときは 0 を使い、上限を超える数は上限に寄せます）、選んだキャラクターの名前の `character`、選んだキャラクターの立ち絵の枠の縦横比（高さを幅で割った値）の `stage_aspect` を持ちます。`stage_aspect` は画面部分が値を知らせるたびに保存し、次の起動では窓を最初からこの縦横比で開くので、起動の直後に窓が動きません。無いときや値が正しくないときは 1.5 を使い、0.25 から 4.0 の範囲に収めます。古い形式の鍵 `panel_mode` が残っている場合は、表示を切り替えて新しい鍵を保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンから窓を隠したかどうかは保存しません |
-| `window.json` | 窓の位置です |
+| `window.json` | 窓の位置と、立ち絵を置いている窓の隅です |
 | `acknowledged.json` | 既読にした完了などのきっかけの記録です |
 | `dialogue.json` | 利用者が書くセリフの上書きです。marimo はこのファイルを作りません |
 | `dialogue.json.unused-default` | marimo の古いバージョンが書き出した既定のセリフと中身が同じだった `dialogue.json` を、起動時に退避したものです |

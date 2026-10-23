@@ -4,13 +4,15 @@ use std::io;
 use marimo_core::{MarimoHome, store};
 use serde::{Deserialize, Serialize};
 
+use crate::window_pos::{Corner, StageRect};
+
 pub const MIN: f64 = 0.6;
 pub const MAX: f64 = 2.5;
 pub const DEFAULT: f64 = 1.0;
 
 // style.css の配置と揃えておく必要があり、window_follows_stage_aspect が照合する。立ち絵（倍率 1.0 で
-// 幅 180、高さは幅に素材の縦横比を掛けたもの）を窓の右下に固定し、パネル（幅 312）をその左に下端を
-// 揃えて置く。倍率 1.0 で既定のキャラクターのときの窓の大きさは tauri.conf.json にも書く。
+// 幅 180、高さは幅に素材の縦横比を掛けたもの）を窓の隅の一つに固定し、パネル（幅 312）をその横に置く。
+// 倍率 1.0 で既定のキャラクターのときの窓の大きさは tauri.conf.json にも書く。
 const STAGE_W: f64 = 180.0;
 /// 立ち絵の縦横比（高さ ÷ 幅）。既定のキャラクターの素材 800×1200 の比で、比がまだ保存されていないときに窓を開くのに使う。
 pub const DEFAULT_ASPECT: f64 = 1.5;
@@ -19,7 +21,8 @@ const MIN_ASPECT: f64 = 0.25;
 const MAX_ASPECT: f64 = 4.0;
 const PANEL_W: f64 = 312.0;
 const MARGIN: f64 = 8.0;
-// 吹き出しは立ち絵の頭の上に出すので、その分を立ち絵の上に空けておく。
+// 吹き出しは立ち絵の頭の上に出すので、その分を立ち絵の上に空けておく。上の隅に置くときも、立ち絵の上端は
+// 窓の上端からこれだけ下にする。
 const BUBBLE_ROOM: f64 = 120.0;
 // パネルは行の増減や、件数の行に詳細を重ねたときに上へ伸びる。その最大の高さ。
 const PANEL_COLUMN_H: f64 = 380.0;
@@ -369,6 +372,26 @@ pub fn window_size(scale: f64, aspect: f64) -> (f64, f64) {
     let width = MARGIN + PANEL_W + MARGIN + STAGE_W * scale + MARGIN;
     let height = PANEL_COLUMN_H.max(MARGIN + STAGE_W * aspect * scale + BUBBLE_ROOM);
     (width.round(), height.round())
+}
+
+/// style.css の #stage と同じ置き方で、窓の中の立ち絵の枠を返す。
+pub fn stage_rect(scale: f64, aspect: f64, corner: Corner) -> StageRect {
+    let (width, height) = window_size(scale, aspect);
+    let (w, h) = (STAGE_W * scale, STAGE_W * aspect * scale);
+    StageRect {
+        x: if corner.left {
+            MARGIN
+        } else {
+            width - MARGIN - w
+        },
+        y: if corner.top {
+            BUBBLE_ROOM
+        } else {
+            height - MARGIN - h
+        },
+        w,
+        h,
+    }
 }
 
 #[cfg(test)]
@@ -723,6 +746,7 @@ mod tests {
             ("--stage-w", STAGE_W),
             ("--panel-w", PANEL_W),
             ("--margin", MARGIN),
+            ("--bubble-room", BUBBLE_ROOM),
         ] {
             assert!(css.contains(&format!("{var}: {value}px;")), "{var}");
         }
