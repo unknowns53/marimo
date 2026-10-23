@@ -75,6 +75,10 @@ pub struct Origin {
     /// `/dev/ttys003` の形。フックは制御端末を持たずに動くので、祖先のプロセスから得る。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tty: Option<String>,
+    /// デスクトップアプリの Code タブが CLI の環境に入れる `CLAUDE_CODE_HOST_SESSION_ID`。アプリの中の
+    /// 会話の id（`local_` で始まる）で、`claude://code/continue?session=` に渡すとその会話を開ける。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop_session: Option<String>,
     /// 会話ログの各行にある `entrypoint`。値の意味が確かめられるまでは、移動の判断には使わず記録だけする。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entrypoint: Option<String>,
@@ -121,7 +125,10 @@ impl Origin {
     }
 
     fn has_env_clues(&self) -> bool {
-        self.bundle_id.is_some() || self.term_program.is_some() || self.tty.is_some()
+        self.bundle_id.is_some()
+            || self.term_program.is_some()
+            || self.tty.is_some()
+            || self.desktop_session.is_some()
     }
 
     fn has_window_clues(&self) -> bool {
@@ -153,6 +160,7 @@ impl Origin {
                 }),
                 term_program: p.term_program.clone(),
                 tty: p.tty.clone(),
+                desktop_session: p.desktop_session.clone(),
                 ..previous
             },
             _ => previous,
