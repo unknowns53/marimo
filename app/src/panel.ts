@@ -264,7 +264,7 @@ function renderRow(
     names,
     renderContext(s),
     providerMarker(s.provider ?? "claude", icons),
-    el("div", "row-summary", summary),
+    renderSummary(s, summary),
     renderAge(s.updated_at, now),
   );
   if (MARKABLE.has(s.status) && !read) {
@@ -272,6 +272,20 @@ function renderRow(
     row.append(markReadButton(s, actions));
   }
   return row;
+}
+
+// 動いているサブエージェントの数は、要約の頭に小さく出す。要約は右から省略されるので、数は隠れない。
+// Hermes Agent のサブエージェントは別の行になるので、ここには数えない。
+function renderSummary(s: SessionState, summary: string): HTMLElement {
+  const line = el("div", "row-summary");
+  const agents = Object.keys(s.agents ?? {}).length;
+  if (agents > 0) {
+    const badge = el("span", "row-agents", `サブ ${agents}`);
+    badge.title = `サブエージェント ${agents} 件が動いています`;
+    line.append(badge);
+  }
+  line.append(summary);
+  return line;
 }
 
 function markReadButton(s: SessionState, actions: RowActions): HTMLElement {
