@@ -73,9 +73,6 @@
     "idle_look_away": {
       "face": "art/koharu/idle_look_away.png"
     },
-    "react_shy": {
-      "face": "art/koharu/react_shy.png"
-    },
     "idle_hair": {
       "whole": "art/koharu/idle_hair.png"
     },

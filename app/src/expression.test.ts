@@ -19,7 +19,6 @@ const FULL: StandingManifest = {
       "error",
       "idle_look_away",
       "idle_hair",
-      "react_shy",
     ].map((n) => [n, { image: `${n}.png` }]),
   ),
   rules: {
@@ -38,7 +37,6 @@ const FULL: StandingManifest = {
         { expression: "idle_hair", duration_ms: [3000, 5000] },
       ],
     },
-    reaction: { expression: "react_shy", duration_ms: 2500 },
     variants: { "done.long": "idle_hair", "error.rate_limit": "idle_yawn" },
     hover: { working: "idle" },
     hover_release_ms: 600,
@@ -146,17 +144,7 @@ describe("ExpressionDirector", () => {
     expect(d.current(66_000)).toBe("idle_look_away");
   });
 
-  it("reaction and hover override the base expression for their durations", () => {
-    const d = director();
-    d.setInput({ status: "working", tool: "Bash" });
-    d.setHover(true, 0);
-    expect(d.current(0)).toBe("idle");
-    expect(d.react(100)).toBe(true);
-    expect(d.current(200)).toBe("react_shy");
-    expect(d.current(2599)).toBe("react_shy");
-    expect(d.current(2600)).toBe("idle");
-
-    // カーソルが離れても、hover_release_ms の間はマウスを載せたときの表情を保つ。
+  it("hover overrides the base expression until hover_release_ms after the cursor leaves", () => {
     const e = director();
     e.setInput({ status: "working", tool: "Bash" });
     e.setHover(true, 0);
@@ -167,10 +155,9 @@ describe("ExpressionDirector", () => {
   });
 
   it("falls back to the status expression when assets are missing", () => {
-    const d = director(["working_focus", "react_shy", "idle_look_away", "idle_hair"]);
+    const d = director(["working_focus", "idle_look_away", "idle_hair"]);
     d.setInput({ status: "working", tool: "Bash" });
     expect(d.current(0)).toBe("working");
-    expect(d.react(0)).toBe(false);
     const idle = director(["idle_look_away", "idle_hair"]);
     idle.setInput({ status: "idle", tool: null });
     idle.current(0);
@@ -191,7 +178,6 @@ describe("normalize", () => {
     expect(Object.keys(c.expressions)).toEqual(["idle", "done"]);
     expect(c.rules.status).toEqual({ idle: "idle", done: "done" });
     expect(c.rules.idleGestures).toBeNull();
-    expect(c.rules.reaction).toBeNull();
     expect(c.rules.minSwitchMs).toBe(4000);
     const d = new ExpressionDirector(c.rules, (n) => n in c.expressions);
     d.setInput({ status: "working", tool: "Bash" });

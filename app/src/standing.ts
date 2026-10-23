@@ -76,12 +76,6 @@ export class StandingRenderer implements CharacterRenderer {
     this.refresh(false);
   }
 
-  react(): boolean {
-    const ok = this.director.react(performance.now());
-    this.refresh(false);
-    return ok;
-  }
-
   // 瞬きの差分は顔だけが違い、輪郭は基本の画像と同じなので、基本の画像の形で判定する。
   hitArea(): { element: HTMLElement; mask: HitMask | null } {
     const assets = this.assets();

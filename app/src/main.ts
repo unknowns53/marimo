@@ -16,7 +16,7 @@ import {
 } from "./acknowledged";
 import { BubbleModel, type BubbleView } from "./bubbleModel";
 import { bubbleEnabled, DEFAULT_BUBBLE_SETTINGS, type BubbleSettings } from "./bubbleSettings";
-import { categoryFor, fillTemplate, linesFor, mergeDialogue, reactionCategory } from "./dialogue";
+import { categoryFor, mergeDialogue } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
 import type { Point } from "./expander";
 import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
@@ -42,7 +42,6 @@ import {
   type SettingsRequest,
   type SettingsState,
 } from "./settingsProtocol";
-import { Speech } from "./speech";
 import type { AppIcons, Dialogue, SessionState, Snapshot } from "./types";
 
 const CHARACTER_ROOT = new URL("/character/", window.location.href).href;
@@ -51,10 +50,9 @@ const CHARACTER_ROOT = new URL("/character/", window.location.href).href;
 const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";
 // 利用制限の「古い」「リセット済み」と、今日の既読に数える日は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
-const REACTION_SPEECH_MS = 2500;
 // style.css の #bubble の bottom に足している、立ち絵と吹き出しの間の隙間と揃える必要がある。
 const BUBBLE_GAP_PX = 2;
-// 押してからこれ以上動いたらドラッグとみなし、立ち絵の反応は出さない。
+// 押してからこれ以上動いたらドラッグとみなし、立ち絵を押したことにはしない。
 const DRAG_THRESHOLD_PX = 4;
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
@@ -74,18 +72,14 @@ const acknowledged = new Acknowledged((keys) =>
 let bubbleSettings: BubbleSettings = DEFAULT_BUBBLE_SETTINGS;
 const bubbleModel = new BubbleModel(acknowledged, undefined, (status) => bubbleEnabled(bubbleSettings, status));
 // 知らせの吹き出しは、押すとその行を押したのと同じ操作になる。移動せずに閉じたいときは行と同じ修飾キーを使う。
-// 立ち絵を押したときのひとことにはセッションが無いので、押しても閉じるだけである。
-const speech = new Speech();
 const bubble = new Bubble(bubbleNode, (e) => {
   const view = bubbleModel.view;
   const session = view ? shown?.sessions.find((s) => triggerKey(s) === view.key) : undefined;
   if (session && !e.altKey) {
     selectSession(session);
-    speech.clearReaction();
     return;
   }
   if (view) bubbleModel.dismiss();
-  speech.clearReaction();
   refreshAcknowledged();
 });
 const hits = new HitReporter(collectHitRegions);
@@ -109,7 +103,6 @@ let shown: Snapshot | null = null;
 let dialogue: Dialogue = {};
 // 組み込みの既定のセリフ。利用者の dialogue.json は上書きしたい分類だけを持ち、分類ごとに重ねる。
 let defaultDialogue: Dialogue = {};
-let speechTimer: number | undefined;
 let panelDisplay: PanelDisplay = DEFAULT_PANEL_DISPLAY;
 let appIcons: AppIcons = { claude: null, codex: null, hermes: null, opencode: null };
 let scale: ScaleControl | undefined;
@@ -174,14 +167,9 @@ async function reloadDialogue(): Promise<void> {
 // 立ち絵を隠している間は吹き出しを出さない。知らせの吹き出しはきっかけが続く間 bubbleModel に残るので、
 // 立ち絵を戻したときにまだ続いていれば、そのとき出る。
 function showSpeech(): void {
-  const visible = panelDisplay.show_character;
-  const text = visible ? speech.current(bubbleModel.view, performance.now()) : null;
-  scheduleExpiry(visible ? bubbleModel.view : null);
-  if (text)
-    bubble.show(
-      text,
-      bubbleModel.view ? `押すとセッションへ移動します（${READ_KEY} を押しながら押すと閉じます）` : "押すと閉じます",
-    );
+  const view = panelDisplay.show_character ? bubbleModel.view : null;
+  scheduleExpiry(view);
+  if (view) bubble.show(view.text, `押すとセッションへ移動します（${READ_KEY} を押しながら押すと閉じます）`);
   else bubble.hide();
   placeBubble();
   hits.schedule();
@@ -218,21 +206,6 @@ function placeBubble(): void {
     .map((r) => r.y - BUBBLE_GAP_PX);
   const lift = Math.max(0, Math.min(bottom - Math.min(bottom, ...tops), bottom - bubbleNode.offsetHeight));
   bubbleNode.style.setProperty("--bubble-lift", `${lift}px`);
-}
-
-async function reactToTouch(): Promise<void> {
-  renderer?.react();
-  if (bubbleModel.view) return;
-  await reloadDialogue();
-  const aggregate = shown?.aggregate ?? "idle";
-  const focus = shown?.sessions.find((s) => s.status === aggregate) ?? null;
-  const lines = linesFor(dialogue, reactionCategory(aggregate));
-  const template = lines[Math.floor(Math.random() * lines.length)];
-  const text = template === undefined ? undefined : fillTemplate(template, focus);
-  if (!speech.react(text, performance.now(), REACTION_SPEECH_MS, bubbleModel.view)) return;
-  showSpeech();
-  window.clearTimeout(speechTimer);
-  speechTimer = window.setTimeout(showSpeech, REACTION_SPEECH_MS);
 }
 
 function collectHitRegions(): HitRegions {
@@ -584,7 +557,7 @@ function bindPanelTabs(): void {
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
   // ドラッグはすぐには始めず、押したまま少し動いてから始める。動かずに離したら、立ち絵を押した
-  // ことになる。行と吹き出しとボタンとスクロールバーは押して操作するので、そこからはドラッグを始めない。
+  // ことになり、パネルの詳細と件数を切り替える。行と吹き出しとボタンとスクロールバーは押して操作するので、そこからはドラッグを始めない。
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
@@ -602,7 +575,8 @@ function bindWindowControls(): void {
     void getCurrentWindow().startDragging();
   });
   document.addEventListener("mouseup", () => {
-    if (press && !press.dragging && press.onStage) void reactToTouch();
+    if (press && !press.dragging && press.onStage)
+      setPanelStyle(panelDisplay.panel_style === "detail" ? "counts" : "detail");
     press = null;
   });
   document.addEventListener("contextmenu", (e) => {

@@ -33,7 +33,6 @@ export interface ManifestRules {
     interval_ms: [number, number];
     gestures: { expression: string; duration_ms: [number, number] }[];
   };
-  reaction?: { expression: string; duration_ms: number };
   hover?: Partial<Record<Status, string>>;
   hover_release_ms?: number;
 }
@@ -52,7 +51,6 @@ export interface ExpressionRules {
     intervalMs: [number, number];
     gestures: { expression: string; durationMs: [number, number] }[];
   } | null;
-  reaction: { expression: string; durationMs: number } | null;
   hover: Partial<Record<Status, string>>;
   hoverReleaseMs: number;
 }
@@ -140,9 +138,6 @@ export function normalize(manifest: StandingManifest): Character {
               durationMs: g.duration_ms,
             })),
           }
-        : null,
-      reaction: r.reaction
-        ? { expression: r.reaction.expression, durationMs: r.reaction.duration_ms }
         : null,
       hover: r.hover ?? {},
       hoverReleaseMs: r.hover_release_ms ?? DEFAULT_HOVER_RELEASE_MS,

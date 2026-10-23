@@ -10,7 +10,7 @@ export interface DirectorInput {
 
 /**
  * 今どの表情を出すかを決める。DOM と時計に触れず、時刻は呼び出し側が渡すので単体で試せる。
- * 優先度は、押したときの反応、マウスを載せたときの表情、待機中の仕草、状態の基本の表情の順。
+ * 優先度は、マウスを載せたときの表情、待機中の仕草、状態の基本の表情の順。
  * 素材の無い表情は選ばず、状態の基本の表情で代用する。
  */
 export class ExpressionDirector {
@@ -24,7 +24,6 @@ export class ExpressionDirector {
   private nextGestureAt: number | null = null;
   private hovered = false;
   private hoverUntil = 0;
-  private reactUntil = 0;
 
   constructor(
     private readonly rules: ExpressionRules,
@@ -47,20 +46,9 @@ export class ExpressionDirector {
     this.hovered = on;
   }
 
-  /** 反応の表情を出せたら true を返す。吹き出しを出すかどうかは呼び出し側が決める。 */
-  react(now: number): boolean {
-    const r = this.rules.reaction;
-    if (!r || !this.available(r.expression)) return false;
-    this.reactUntil = now + r.durationMs;
-    this.gesture = null;
-    return true;
-  }
-
   current(now: number): string | null {
     const base = this.baseExpression(now);
     this.advanceGesture(now);
-    const r = this.rules.reaction;
-    if (r && now < this.reactUntil) return r.expression;
     const hover = this.rules.hover[this.input.status];
     if (hover && this.hoverActive(now) && this.available(hover)) return hover;
     if (this.gesture) return this.gesture.expression;
@@ -130,7 +118,7 @@ export class ExpressionDirector {
       this.nextGestureAt = now + this.between(g.intervalMs);
       return;
     }
-    if (now < this.nextGestureAt || this.hoverActive(now) || now < this.reactUntil) return;
+    if (now < this.nextGestureAt || this.hoverActive(now)) return;
     // 候補が複数あるときは、直前と同じ仕草が続かないようにする。
     const pool =
       candidates.length > 1 ? candidates.filter((x) => x.expression !== this.lastGesture) : candidates;

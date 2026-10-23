@@ -18,8 +18,6 @@ export interface CharacterRenderer {
   mount(container: HTMLElement): Promise<void>;
   update(input: RendererInput): void;
   setHover(on: boolean): void;
-  /** 押されたときの反応。反応の表情を出せたら true を返す。 */
-  react(): boolean;
   /** 絵の輪郭が変わったとき（表情の切り替えなど）に呼ばれる。 */
   onShapeChange: (() => void) | null;
   destroy(): void;

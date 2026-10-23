@@ -32,10 +32,6 @@ export function categoryFor(s: SessionState): string {
   return status;
 }
 
-export function reactionCategory(aggregate: Status): string {
-  return aggregate === "working" ? "reaction.working" : "reaction";
-}
-
 /** 細かい分類にセリフがなければ、ドットで区切られた親の分類へ順に戻る。 */
 export function linesFor(dialogue: Dialogue, category: string): string[] {
   for (let c: string | null = category; c; c = parent(c)) {

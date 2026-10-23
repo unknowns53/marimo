@@ -28,7 +28,6 @@ PALETTE = {
     "#": (215, 119, 87),
     "E": (30, 30, 30),
     "k": (30, 30, 30),
-    "p": (244, 160, 170),
     "y": (250, 204, 72),
     "a": (245, 166, 35),
     "b": (110, 182, 236),
@@ -75,7 +74,6 @@ RIGHT = face("", "", "....EE............EE", "....EE............EE", "....EE....
 FOCUS = face("", ".kk..............kk", "...k............k", "", "..EE............EE", "..EE............EE")
 WINK = face("", "", "..EE", "..EE.............kk", "..EE............k..k", "..EE")
 HAPPY = face("", "", "..kk............kk", ".k..k..........k..k")
-SHY = face("", "", "..kk............kk", ".k..k..........k..k", "", "ppp..............ppp", "ppp..............ppp")
 CROSS = face("", ".k..k..........k..k", "..kk............kk", "..kk............kk", ".k..k..........k..k")
 SLEEP = face("", "", "", "", ".k..k..........k..k", "..kk............kk")
 CLOSED = face("", "", "", "", ".kkkk..........kkkk")
@@ -113,7 +111,6 @@ STATES = {
     "idle_hop": state(OPEN, arms="lift", hop=4),
     "idle_sleep": state(SLEEP, extras=[(SMALL_Z, 46, 5), (BIG_Z, 51, 0)]),
     "idle_stretch": state(CLOSED, arms="high"),
-    "react_shy": state(SHY),
 }
 BLINKS = ["idle", "working", "working_focus", "working_read", "working_curious", "working_think", "working_delegate"]
 

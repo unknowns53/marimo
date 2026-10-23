@@ -82,9 +82,6 @@
     },
     "idle_hum": {
       "image": "idle_hum.png"
-    },
-    "react_shy": {
-      "image": "react_shy.png"
     }
   },
   "rules": {
@@ -228,10 +225,6 @@
           ]
         }
       ]
-    },
-    "reaction": {
-      "expression": "react_shy",
-      "duration_ms": 2500
     },
     "hover": {
       "working": "idle"
