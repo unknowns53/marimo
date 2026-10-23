@@ -1,14 +1,14 @@
 import type { BubbleSettings } from "./bubbleSettings";
 import type { PanelDisplay } from "./panelModel";
 
-// 設定の持ち主はメインの窓で、設定の窓は変更を頼むだけにする。表示の状態と描画をメインの窓が持つので、
-// 設定の窓が自分で保存すると、反映の処理を二か所に書くことになるからである。
+// 設定の持ち主はメインのウィンドウで、設定のウィンドウは変更を頼むだけにする。表示の状態と描画をメインのウィンドウが持つので、
+// 設定のウィンドウが自分で保存すると、反映の処理を二か所に書くことになるからである。
 export const MAIN_WINDOW = "main";
 export const SETTINGS_WINDOW = "settings";
 
-/** 設定の窓からメインの窓へ送る。 */
+/** 設定のウィンドウからメインのウィンドウへ送る。 */
 export const SETTINGS_REQUEST_EVENT = "settings-request";
-/** メインの窓から設定の窓へ、反映したあとの状態の全体を送る。 */
+/** メインのウィンドウから設定のウィンドウへ、反映したあとの状態の全体を送る。 */
 export const SETTINGS_STATE_EVENT = "settings-state";
 
 export interface CharacterChoice {
@@ -29,7 +29,7 @@ export interface SettingsState {
 }
 
 export type SettingsRequest =
-  /** 窓を開いたときに今の状態を求める。 */
+  /** ウィンドウを開いたときに今の状態を求める。 */
   | { kind: "sync" }
   | { kind: "display"; patch: Partial<PanelDisplay> }
   /** スライダーを動かしている間の不透明度。見た目だけに反映し、保存は離したときの display で行う。 */

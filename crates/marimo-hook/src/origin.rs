@@ -158,7 +158,7 @@ fn outermost_app(exe: &str) -> Option<&str> {
     None
 }
 
-// 手元のアプリの Info.plist は XML なので、CFBundleIdentifier の直後の string だけを拾う。
+// ローカルのアプリの Info.plist は XML なので、CFBundleIdentifier の直後の string だけを拾う。
 // バイナリの plist や想定と違う形のものは読まずに None とする。
 #[cfg(any(target_os = "macos", test))]
 fn foreground_bundle_id(plist: &str) -> Option<&str> {

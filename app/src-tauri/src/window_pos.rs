@@ -11,7 +11,7 @@ use tauri::{Monitor, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent}
 const SAVE_AFTER: Duration = Duration::from_millis(400);
 const EDGE_MARGIN: f64 = 24.0;
 
-/// 立ち絵を窓のどの隅に置くか。パネルは立ち絵の横の画面の内側の方へ置き、上下は立ち絵と同じ端を揃えて
+/// 立ち絵をウィンドウのどの隅に置くか。パネルは立ち絵の横の画面の内側の方へ置き、上下は立ち絵と同じ端を揃えて
 /// 反対の向きへ伸ばす。立ち絵が画面の右か左か、上か下かの半分にあるかで決める。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Corner {
@@ -19,7 +19,7 @@ pub struct Corner {
     pub top: bool,
 }
 
-/// 窓の左上からの立ち絵の枠。論理 px。
+/// ウィンドウの左上からの立ち絵の領域。論理 px。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StageRect {
     pub x: f64,
@@ -28,7 +28,7 @@ pub struct StageRect {
     pub h: f64,
 }
 
-// 隅を持たない以前の window.json は、右下に置いていた窓の位置である。
+// 隅を持たない以前の window.json は、右下に置いていたウィンドウの位置である。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct SavedPosition {
     x: i32,
@@ -65,15 +65,15 @@ pub struct Display {
     pub factor: f64,
 }
 
-/// 窓の位置と大きさを読み書きする口。本物は WebviewWindow で、テストでは画面を持たない偽物を渡し、
+/// ウィンドウの位置と大きさを読み書きする trait。実装は WebviewWindow で、テストでは画面を持たない fake を渡し、
 /// 起動、移動、大きさの変更の流れを画面に何も出さずに確かめる。
 pub trait Screen {
     fn factor(&self) -> f64;
-    /// 窓の外枠。物理 px。
+    /// 枠を含めたウィンドウ全体の矩形。物理 px。
     fn outer(&self) -> Option<Rect>;
     fn displays(&self) -> Vec<Display>;
     fn primary(&self) -> Option<Display>;
-    /// 窓が今いるモニタ。どのモニタにも入らない位置のときに使う。
+    /// ウィンドウが今いるモニタ。どのモニタにも入らない位置のときに使う。
     fn current(&self) -> Option<Display>;
     fn set_size(&self, w: i32, h: i32);
     fn set_position(&self, x: i32, y: i32) -> bool;
@@ -154,8 +154,8 @@ fn work_at(screen: &impl Screen, x: i32, y: i32) -> Option<Rect> {
         .map(|d| d.work)
 }
 
-/// 窓を開くときに、保存した位置と隅を戻してから、置き場所に合う隅を選び直す。選び直して窓を動かしたら
-/// 保存する。窓を出す前の移動は Moved として track に届かないので、ここで保存しないと残らない。
+/// ウィンドウを開くときに、保存した位置と隅を戻してから、置き場所に合う隅を選び直す。選び直してウィンドウを動かしたら
+/// 保存する。ウィンドウを出す前の移動は Moved として track に届かないので、ここで保存しないと残らない。
 /// 以前の版が保存した位置には隅が無いので、そのときもここで選び直す。`size` は論理 px。
 pub fn start(
     screen: &impl Screen,
@@ -252,8 +252,8 @@ pub fn anchor(current: Rect, w: i32, h: i32, corner: Corner, area: Option<Rect>)
     fit(Rect { x, y, w, h }, area)
 }
 
-/// 窓を置き終えた位置で、立ち絵のある画面の半分に合う隅を選び直す。隅が変わったら、立ち絵が画面上で
-/// 動かないよう窓をずらして、新しい隅と位置を返す。`stage` は隅ごとの窓の中の立ち絵の枠を返す。
+/// ウィンドウを置き終えた位置で、立ち絵のある画面の半分に合う隅を選び直す。隅が変わったら、立ち絵が画面上で
+/// 動かないようウィンドウをずらして、新しい隅と位置を返す。`stage` は隅ごとのウィンドウの中の立ち絵の領域を返す。
 pub fn settle(
     screen: &impl Screen,
     pos: (i32, i32),
@@ -280,7 +280,7 @@ fn stage_center(window: Rect, stage: StageRect, factor: f64) -> (i32, i32) {
     )
 }
 
-// 隅の判定は、窓ではなく立ち絵の中心で行う。隅を変えても立ち絵は動かないので、ずらした窓で判定し直しても
+// 隅の判定は、ウィンドウではなく立ち絵の中心で行う。隅を変えても立ち絵は動かないので、ずらしたウィンドウで判定し直しても
 // 隅が行き来しない。
 fn relocate(
     window: Rect,
@@ -309,7 +309,7 @@ fn fit(rect: Rect, area: Option<Rect>) -> (i32, i32) {
     };
     let along = |v: i32, len: i32, start: i32, span: i32| {
         let max = start + span - len;
-        // 窓が画面より大きいときは、左上をそろえて上端のつまみどころを残す。
+        // ウィンドウが画面より大きいときは、左上をそろえて、ドラッグできる上端を画面に残す。
         if max < start {
             start
         } else {
@@ -322,7 +322,7 @@ fn fit(rect: Rect, area: Option<Rect>) -> (i32, i32) {
     )
 }
 
-/// 窓が止まるたびに `settled` を呼び、それが返した位置と隅を保存する。
+/// ウィンドウが止まるたびに `settled` を呼び、それが返した位置と隅を保存する。
 pub fn track(
     window: &WebviewWindow,
     home: MarimoHome,
@@ -338,7 +338,7 @@ pub fn track(
             save(&home, pos, corner);
         }
     });
-    // 隠している窓の位置は画面上のどこでもないので、仮に届いても覚えない。
+    // 隠しているウィンドウの位置は画面上のどこでもないので、仮に届いても覚えない。
     let tracked = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::Moved(pos) = event
@@ -442,7 +442,7 @@ mod tests {
             w: 520,
             h: 880,
         };
-        // 画面の上端近くに置いた窓を大きくすると、上へ広げた分が画面外へ出るので押し戻す。
+        // 画面の上端近くに置いたウィンドウを大きくすると、上へ広げた分が画面外へ出るので押し戻す。
         let cases = [
             (
                 "near top",
@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     fn relocate_keeps_the_stage_still() {
-        // 窓 500×400、立ち絵 180×270 を左右の端から 8、上の隅では上から 120、下の隅では下から 8 に置く。
+        // ウィンドウ 500×400、立ち絵 180×270 を左右の端から 8、上の隅では上から 120、下の隅では下から 8 に置く。
         let stage = |c: Corner| StageRect {
             x: if c.left { 8.0 } else { 312.0 },
             y: if c.top { 120.0 } else { 122.0 },
@@ -511,7 +511,7 @@ mod tests {
                 Some((tl, (100 + 608, 100 + 4))),
             ),
             ("stays top left", at(708, 104), tl, None),
-            // ずらした窓が画面からはみ出す分は押し戻す。
+            // ずらしたウィンドウが画面からはみ出す分は押し戻す。
             (
                 "pushed back in",
                 at(100, 1300),
@@ -532,12 +532,12 @@ mod tests {
                 "{label}"
             );
         }
-        // 移した窓で判定し直しても、隅は変わらない。
+        // 移したウィンドウで判定し直しても、隅は変わらない。
         let (corner, (x, y)) = relocate(at(100, 100), BR, stage, 2.0, SCREEN).unwrap();
         assert_eq!(relocate(at(x, y), corner, stage, 2.0, SCREEN), None);
     }
 
-    // 画面を持たない窓。モニタは一つで、上端 50 物理 px をメニューバーが使う。
+    // 画面を持たないウィンドウ。モニタは一つで、上端 50 物理 px をメニューバーが使う。
     struct FakeScreen {
         outer: Cell<Rect>,
     }

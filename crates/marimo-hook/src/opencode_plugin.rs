@@ -5,8 +5,8 @@ use marimo_core::paths::user_home;
 
 const TEMPLATE: &str = include_str!("opencode_plugin.js");
 
-/// marimo が書いたプラグインだと見分ける印。雛形の一行目にある。利用者が同じ名前で置いた別のファイルは、
-/// この印を持たないので書き換えも削除もしない。
+/// marimo が書いたプラグインだと見分けるマーカー。雛形の一行目にある。利用者が同じ名前で置いた別のファイルは、
+/// このマーカーを持たないので書き換えも削除もしない。
 const MARKER: &str = "// marimo-opencode-plugin";
 
 const HOOK_PLACEHOLDER: &str = "__MARIMO_HOOK__";

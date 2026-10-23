@@ -143,7 +143,7 @@ describe("acknowledged sessions", () => {
     const ack = new Acknowledged();
     const claudeDone = session("same", "done", 10, 10, 1);
     const codexDone = { ...session("same", "done", 10, 10, 2), provider: "codex" as const };
-    // Claude Code の鍵は以前のバージョンと同じなので、保存してある既読の記録がそのまま効く。
+    // Claude Code のキーは以前のバージョンと同じなので、保存してある既読の記録がそのまま効く。
     expect([triggerKey(claudeDone), triggerKey(codexDone)]).toEqual(["same:done:10", "codex:same:done:10"]);
     expect(planPanel(snap(claudeDone, codexDone), ack).rows).toHaveLength(2);
     const keep = new Set([triggerKey(claudeDone), triggerKey(codexDone)]);
@@ -286,7 +286,7 @@ describe("trayList", () => {
       [
         "titles, clipped to about 40 characters",
         [
-          { ...session("short", "done", 1), title: "短い題名" },
+          { ...session("short", "done", 1), title: "短いタイトル" },
           { ...session("long", "error", 2), title: "あ".repeat(50) },
           { ...session(longName, "error", 1), title: "い".repeat(20) },
           { ...session("chat", "waiting", 3), provider: "hermes", cwd: null, title: "#general" },
@@ -296,7 +296,7 @@ describe("trayList", () => {
             { key: "hermes:chat", label: "承認待ち  #general" },
             { key: "long", label: `エラー  long  ${"あ".repeat(28)}…` },
             { key: longName, label: `エラー  ${longName}  ${"い".repeat(9)}…` },
-            { key: "short", label: "完了  short  短い題名" },
+            { key: "short", label: "完了  short  短いタイトル" },
           ],
           more: 0,
         },

@@ -3,8 +3,8 @@ import type { SessionState, Status } from "./types";
 type Named = Pick<SessionState, "cwd" | "session_id" | "repo" | "title" | "provider" | "cloud">;
 
 // Codex のデスクトップアプリは、プロジェクトを選ばずに始めた会話ごとに ~/Documents/Codex/<日付>/<名前> の
-// 作業フォルダを作り、その名前を最初のプロンプトから付ける。フォルダ名は題名の言い換えでしかないので、
-// 行の名前には題名を使う。
+// 作業フォルダを作り、その名前を最初のプロンプトから付ける。フォルダ名はタイトルの言い換えでしかないので、
+// 行の名前にはタイトルを使う。
 const CODEX_SCRATCH = /[\\/]Documents[\\/]Codex[\\/]\d{4}-\d{2}-\d{2}[\\/][^\\/]+[\\/]?$/;
 
 export function isCodexScratch(session: Pick<SessionState, "cwd" | "provider">): boolean {
@@ -12,12 +12,12 @@ export function isCodexScratch(session: Pick<SessionState, "cwd" | "provider">):
 }
 
 // Hermes の gateway の会話は作業フォルダを持たない（gateway の作業フォルダは marimo-hook が捨てる）ので、
-// チャンネル名などの題名を行の名前にする。CLI の会話は作業フォルダを持つので、ほかのツールと同じく扱う。
+// チャンネル名などのタイトルを行の名前にする。CLI の会話は作業フォルダを持つので、ほかのツールと同じく扱う。
 function isChatSession(session: Pick<SessionState, "cwd" | "provider">): boolean {
   return session.provider === "hermes" && !session.cwd;
 }
 
-// 題名が行の名前の役をしているセッション。パネルは同じ題名を名前の横に重ねて出さない。
+// タイトルが行の名前の役をしているセッション。パネルは同じタイトルを名前の横に重ねて出さない。
 export function titleIsName(session: Pick<SessionState, "cwd" | "provider" | "cloud">): boolean {
   return !!session.cloud || isCodexScratch(session) || isChatSession(session);
 }
@@ -31,7 +31,7 @@ export const STATUS_LABEL: Record<Status, string> = {
   error: "エラー",
 };
 
-// 名前の横に添える会話の題名。repo が名前のときは題名が名前の役をしていないので、添える。
+// 名前の横に添える会話のタイトル。repo が名前のときはタイトルが名前の役をしていないので、添える。
 export function chatTitle(session: Named): string | null {
   return session.title && (session.repo || !titleIsName(session)) ? session.title : null;
 }

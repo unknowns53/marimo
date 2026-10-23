@@ -5,8 +5,8 @@ use serde::Serialize;
 #[cfg(any(target_os = "macos", windows))]
 const ICON_PX: u32 = 64;
 
-/// 利用者が入れているアプリのアイコン。アイコンは同梱せず、読めなければ画面が文字の印に切り替える。
-/// Hermes はデスクトップアプリを持たないので、いつも文字の印で出す。
+/// 利用者が入れているアプリのアイコン。アイコンは同梱せず、読めなければ画面が文字のマークに切り替える。
+/// Hermes はデスクトップアプリを持たないので、いつも文字のマークで出す。
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AppIcons {
     pub claude: Option<String>,
@@ -44,7 +44,7 @@ fn platform_pngs() -> [Option<Vec<u8>>; 3] {
     .map(mac::app_icon_png)
 }
 
-// OpenCode のデスクトップアプリを MSIX のパッケージとして読む手がかりが無いので、文字の印で出す。
+// OpenCode のデスクトップアプリを MSIX のパッケージとして読む手がかりが無いので、文字のマークで出す。
 #[cfg(windows)]
 fn platform_pngs() -> [Option<Vec<u8>>; 3] {
     let mut logos = marimo_core::appicon::package_logos(

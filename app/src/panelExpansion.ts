@@ -4,14 +4,14 @@ import { rectOf, type Rect } from "./hitArea";
 const EXPAND_ATTR = "data-expand-id";
 
 /**
- * 窓の透明な部分にはマウスのイベントが届かないので、件数だけの表示の畳んだ行は Rust から届く
+ * ウィンドウの透明な部分にはマウスのイベントが届かないので、件数だけの表示の折りたたんだ行は Rust から届く
  * カーソル位置で開閉する。
- * 開く順序は、層を見えない状態で置いて大きさを測り、その領域をクリックを受け取る領域として
- * Rust へ登録し終えてから見せる。見せた瞬間に層の上のカーソルが下のウィンドウへ抜けないためである。
- * 層の中にさらに開ける行を置けば、同じ仕組みで入れ子に開ける。
+ * 開く順序は、レイヤーを見えない状態で置いて大きさを測り、その領域をクリックを受け取る領域として
+ * Rust へ登録し終えてから見せる。見せた瞬間にレイヤーの上のカーソルが下のウィンドウへ抜けないためである。
+ * レイヤーの中にさらに開ける行を置けば、同じ仕組みで入れ子に開ける。
  */
 export class PanelExpansion {
-  // 開ける行は件数の行だけで、その層の中の行は開かないので一段で足りる。
+  // 開ける行は件数の行だけで、そのレイヤーの中の行は開かないので一段で足りる。
   private readonly levels = [new Expander()];
   private cursor: Point | null = null;
   private timer: number | undefined;
@@ -20,7 +20,7 @@ export class PanelExpansion {
   constructor(
     private readonly panel: HTMLElement,
     private readonly registerRegions: () => Promise<void>,
-    // 閉じた層の場所のクリックを下のウィンドウへ通せるよう、閉じたら領域を送り直してもらう。
+    // 閉じたレイヤーの場所のクリックを下のウィンドウへ通せるよう、閉じたら領域を送り直してもらう。
     private readonly onLayoutChange: () => void,
   ) {}
 
@@ -36,7 +36,7 @@ export class PanelExpansion {
     const now = performance.now();
     const all = Array.from(this.panel.querySelectorAll<HTMLElement>(`[${EXPAND_ATTR}]`));
 
-    // 各段の候補は、一つ上の段で開いている行の層の中にあるもの。深い段の開いている範囲を先に
+    // 各段の候補は、一つ上の段で開いている行のレイヤーの中にあるもの。深い段の開いている範囲を先に
     // 求め、浅い段を開いたままにする判定へ渡す。
     const candidatesAt = (container: HTMLElement | null) =>
       all.filter((el) => nearestLayer(el) === container);

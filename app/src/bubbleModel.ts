@@ -17,20 +17,20 @@ const randomPick: Pick = (lines) => lines[Math.floor(Math.random() * lines.lengt
 
 /**
  * 集約状態の変化から、吹き出しを出す・保つ・消すを決める。DOM に触れないので単体で試せる。
- * 承認待ち、エラー、完了は別の作業から戻ったときに気づくためのものなので、きっかけの状態が
+ * 承認待ち、エラー、完了は別の作業から戻ったときに気づくためのものなので、トリガーの状態が
  * 集約状態として続く間は出したままにする。
  */
 export class BubbleModel {
   private current: BubbleView | null = null;
-  // 時間が来て畳んだきっかけ。見たとは限らないので既読にはせず、きっかけが続く間だけ出さずにおく。
+  // 時間が来て折りたたんだトリガー。見たとは限らないので既読にはせず、トリガーが続く間だけ出さずにおく。
   private expiredKey: string | null = null;
-  // 最後にセリフを選ぼうとしたきっかけ。その分類にセリフが無くても、同じきっかけの間は読み直しを求めない。
+  // 最後にセリフを選ぼうとしたトリガー。その分類にセリフが無くても、同じトリガーの間は読み直しを求めない。
   private triedKey: string | null = null;
 
   constructor(
     private readonly ack: Acknowledged,
     private readonly pick: Pick = randomPick,
-    // 吹き出しを出さない設定の状態では、きっかけがあっても出さない。
+    // 吹き出しを出さない設定の状態では、トリガーがあっても出さない。
     private readonly enabled: (status: Status) => boolean = () => true,
   ) {}
 
@@ -38,7 +38,7 @@ export class BubbleModel {
     return this.current;
   }
 
-  // 新しいきっかけに切り替わるときだけ、呼び出し側がセリフを読み直せばよい。
+  // 新しいトリガーに切り替わるときだけ、呼び出し側がセリフを読み直せばよい。
   needsText(snapshot: Snapshot | null): boolean {
     const next = this.candidate(snapshot);
     return next !== null && triggerKey(next) !== this.triedKey;
@@ -63,7 +63,7 @@ export class BubbleModel {
     return this.current;
   }
 
-  /** 時間が来て吹き出しを畳む。同じきっかけの間は出し直さず、別のきっかけに切り替わったら出す。 */
+  /** 時間が来て吹き出しを折りたたむ。同じトリガーの間は出し直さず、別のトリガーに切り替わったら出す。 */
   expire(key: string): void {
     if (this.current?.key !== key) return;
     this.expiredKey = key;
@@ -75,7 +75,7 @@ export class BubbleModel {
     this.current = null;
   }
 
-  // 出している吹き出しのきっかけが続いていればそれを保つ。同じ状態のセッションが複数あると、
+  // 出している吹き出しのトリガーが続いていればそれを保つ。同じ状態のセッションが複数あると、
   // 更新の新しい順は通知などで入れ替わり、吹き出しが行き来してしまうからである。
   // それ以外は集約で選ばれる順（優先度、同じなら新しい順）に、閉じられていない最初のものを選ぶ。
   private candidate(snapshot: Snapshot | null): SessionState | null {

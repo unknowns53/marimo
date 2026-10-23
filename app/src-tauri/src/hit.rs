@@ -6,20 +6,20 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
 
-// カーソルが窓の上にあるときは、切り替えの遅れが体感に出ないよう短い周期で判定する。
-// 窓の外では判定を急ぐ必要がないので、周期を延ばして常駐の負担を減らす。
+// カーソルがウィンドウの上にあるときは、切り替えの遅れが体感に出ないよう短い周期で判定する。
+// ウィンドウの外では判定を急ぐ必要がないので、周期を延ばして常駐の負担を減らす。
 const INSIDE_INTERVAL: Duration = Duration::from_millis(40);
 const OUTSIDE_INTERVAL: Duration = Duration::from_millis(150);
-// 窓の上でもカーソルが止まっている間は判定が変わらないので、窓の外と同じ周期に延ばす。止まったカーソルの
+// ウィンドウの上でもカーソルが止まっている間は判定が変わらないので、ウィンドウの外と同じ周期に延ばす。止まったカーソルの
 // 下で領域が変わったときは、set が判定のスレッドを起こしてすぐ判定し直させる。
 const STILL_INTERVAL: Duration = OUTSIDE_INTERVAL;
-// 窓を隠している間はカーソルを追う理由が無いので、表示に戻ったことに気づけるだけの周期で待つ。
+// ウィンドウを隠している間はカーソルを追う理由が無いので、表示に戻ったことに気づけるだけの周期で待つ。
 const HIDDEN_INTERVAL: Duration = Duration::from_millis(500);
 
 pub const PORTRAIT_HOVER_EVENT: &str = "portrait-hover";
 pub const WINDOW_CURSOR_EVENT: &str = "window-cursor";
 
-/// 窓の左上からの CSS px で表したカーソルの位置。
+/// ウィンドウの左上からの CSS px で表したカーソルの位置。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct CursorPoint {
     pub x: f64,
@@ -49,7 +49,7 @@ pub struct Mask {
     pub bits: String,
 }
 
-/// フロントエンドが送る、クリックを受け取る領域。座標は窓の左上からの CSS px。
+/// フロントエンドが送る、クリックを受け取る領域。座標はウィンドウの左上からの CSS px。
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct HitRegions {
     pub rects: Vec<Rect>,
@@ -115,7 +115,7 @@ impl HitState {
         }
     }
 
-    // 領域がまだ届いていないうちは、窓全体でクリックを受け取る。操作できない状態を作らないためである。
+    // 領域がまだ届いていないうちは、ウィンドウ全体でクリックを受け取る。操作できない状態を作らないためである。
     fn wants_cursor(&self, x: f64, y: f64) -> bool {
         match self.regions.lock() {
             Ok(r) => r.as_ref().is_none_or(|r| r.hit(x, y)),
@@ -124,8 +124,8 @@ impl HitState {
     }
 }
 
-// 窓がクリックを通す状態になると、カーソルの移動イベントも届かなくなる。そこで、カーソルの
-// 画面上の位置を AppHandle::cursor_position で定期的に読み、窓の位置と大きさはイベントで覚えておき、
+// ウィンドウがクリックを通す状態になると、カーソルの移動イベントも届かなくなる。そこで、カーソルの
+// 画面上の位置を AppHandle::cursor_position で定期的に読み、ウィンドウの位置と大きさはイベントで覚えておき、
 // set_ignore_cursor_events を切り替える。
 pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
     let geometry = Arc::new(Mutex::new(Geometry {
@@ -166,7 +166,7 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
         #[cfg(feature = "cursor-replay")]
         let replay = replay::Script::from_env();
         loop {
-            // 隠した窓は元の場所にカーソルがあっても何も受け取らないので、載っている扱いを解いて待つ。
+            // 隠したウィンドウは元の場所にカーソルがあっても何も受け取らないので、載っている扱いを解いて待つ。
             if state.hidden.load(Ordering::Relaxed) {
                 if hovering && app.emit(PORTRAIT_HOVER_EVENT, false).is_ok() {
                     hovering = false;
@@ -208,13 +208,13 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
                     ignoring = want_ignore;
                 }
             }
-            // 透明な部分では窓にマウスのイベントが届かず、DOM の mouseleave が来ないことがあるので、
+            // 透明な部分ではウィンドウにマウスのイベントが届かず、DOM の mouseleave が来ないことがあるので、
             // 立ち絵の上にいるかどうかもここで判定してフロントエンドへ知らせる。
             let over = inside && state.over_portrait(x, y);
             if over != hovering && app.emit(PORTRAIT_HOVER_EVENT, over).is_ok() {
                 hovering = over;
             }
-            // 畳んだ行を広げるかどうかも、同じ理由で DOM のホバーには頼れない。カーソルの位置を
+            // 折りたたんだ行を広げるかどうかも、同じ理由で DOM のホバーには頼れない。カーソルの位置を
             // そのまま知らせ、開閉の判断はフロントエンドの状態機械に任せる。
             let point = inside.then_some(CursorPoint { x, y });
             let moved = match (point, last_cursor) {
@@ -238,15 +238,15 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
 #[cfg(feature = "cursor-replay")]
 mod replay {
     //! 試験用のビルドだけで使う。実際のマウスを動かさずに開閉の動きを確かめるため、
-    //! MARIMO_CURSOR_REPLAY が指すファイルの「経過ミリ秒 x y」（窓の左上からの CSS px）の列を、
-    //! 本物のカーソル位置の代わりに流し込み、クリックを受け取る領域の変化を stderr へ記録する。
+    //! MARIMO_CURSOR_REPLAY が指すファイルの「経過ミリ秒 x y」（ウィンドウの左上からの CSS px）の系列を、
+    //! 本物のカーソル位置の代わりに入力し、クリックを受け取る領域の変化を stderr へ記録する。
     use std::time::Instant;
 
     use tauri::PhysicalPosition;
 
     use super::HitRegions;
 
-    // 流し込みの時刻と記録の時刻を同じ起点で数え、記録から開閉の時刻を読めるようにする。
+    // 入力の時刻と記録の時刻を同じ起点で数え、記録から開閉の時刻を読めるようにする。
     fn clock() -> u64 {
         static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
         START.get_or_init(Instant::now).elapsed().as_millis() as u64

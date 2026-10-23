@@ -30,7 +30,7 @@ pub fn repo_name(cwd: &Path) -> Option<String> {
 }
 
 // .git ファイルの `gitdir: <path>` 行を読む。相対パスは .git ファイルのあるフォルダから数える。
-// `..` を残すと親のフォルダ名が取れないので、字面の上で畳む。
+// `..` を残すと親のフォルダ名が取れないので、字面の上で折りたたむ。
 fn gitdir(text: &str, dir: &Path) -> Option<PathBuf> {
     let path = text
         .lines()

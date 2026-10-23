@@ -371,7 +371,7 @@ fn minimal_settings_round_trip() {
                 );
             }
         }
-        // 実行ファイルのパスに空白があるので、既存の statusLine は包まず、新しく登録もしない。
+        // 実行ファイルのパスに空白があるので、既存の statusLine はラップせず、新しく登録もしない。
         #[cfg(windows)]
         assert_eq!(installed.get("statusLine"), original.get("statusLine"));
         let out = env.run(&["uninstall"]);

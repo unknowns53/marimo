@@ -20,12 +20,12 @@ const PANEL_DISPLAY_EVENT: &str = "tray-panel-display";
 /// 既読の集合はフロントエンドが持つので、トレイの「すべて既読にする」は押されたことだけを送る。
 const MARK_ALL_READ_EVENT: &str = "tray-mark-all-read";
 
-/// どのセッションを開くかを決めるのに要る既読の集合はフロントエンドが持つので、選ばれた鍵だけを送る。
+/// どのセッションを開くかを決めるのに要る既読の集合はフロントエンドが持つので、選ばれたキーだけを送る。
 const SESSION_EVENT: &str = "tray-session";
 
 // 右クリックメニューの項目もこのアイコンの on_menu_event に届くので、自動で振られる ID と重ならない
 // 接頭辞を付けて見分ける。自動の ID は数字だけなので、どちらの接頭辞とも重ならない。セッションの項目は
-// 鍵が何であっても固定の項目の ID にならないよう、別の接頭辞にする。
+// キーが何であっても固定の項目の ID にならないよう、別の接頭辞にする。
 const SESSION_PREFIX: &str = "tray-session:";
 const TOGGLE: &str = "tray:toggle";
 const SHOW_CHARACTER: &str = "tray:show-character";
@@ -92,7 +92,7 @@ impl Tray {
         }
     }
 
-    /// メニューを作り直すと他の項目の印や使えるかどうかを付け直すことになるので、先頭の項目だけを差し替える。
+    /// メニューを作り直すと他の項目のチェックや使えるかどうかを付け直すことになるので、先頭の項目だけを差し替える。
     pub fn set_sessions(&self, sessions: &[TraySession], more: usize) {
         let mut leading = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(e) = self.replace_sessions(&mut leading, sessions, more) {
@@ -116,7 +116,7 @@ impl Tray {
         let app = self.menu.app_handle();
         let mut next = Vec::new();
         for session in sessions {
-            // muda は & を手前の文字のニーモニックの印として扱うので、題名の & はそのまま見えるよう重ねる。
+            // muda は & を手前の文字のニーモニックの指定として扱うので、タイトルの & はそのまま見えるよう重ねる。
             let label = session.label.replace('&', "&&");
             let id = format!("{SESSION_PREFIX}{}", session.key);
             next.push(MenuItem::with_id(app, id, label, true, None::<&str>)?.kind());
@@ -139,7 +139,7 @@ impl Tray {
         if *current == next {
             return;
         }
-        // set_icon は macOS でテンプレートの印を外してしまうので、画像と印を一度に替える。
+        // set_icon は macOS でテンプレート画像のフラグを外してしまうので、画像とフラグを一度に替える。
         let (image, template) = icon(next);
         match self.icon.set_icon_with_as_template(Some(image), template) {
             Ok(()) => *current = next,
@@ -148,9 +148,9 @@ impl Tray {
     }
 }
 
-/// 窓が隠れている間は webview が止まりうるので、フロントエンドを通さずスナップショットを作った側から呼ぶ。
-/// 窓を隠している間は webview が止まりうるので、アイコンはフロントエンドに頼らず Rust が決める。
-/// 既読の集合はフロントエンドが送ってきたものを AppState が覚えていて、画面で畳んだ完了とエラーを
+/// ウィンドウが隠れている間は webview が止まりうるので、フロントエンドを通さずスナップショットを作った側から呼ぶ。
+/// ウィンドウを隠している間は webview が止まりうるので、アイコンはフロントエンドに頼らず Rust が決める。
+/// 既読の集合はフロントエンドが送ってきたものを AppState が覚えていて、画面で折りたたんだ完了とエラーを
 /// アイコンにも出さない。
 pub fn show_status(app: &AppHandle, snapshot: &Snapshot) {
     if let Some(state) = app.try_state::<AppState>()
@@ -309,7 +309,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
             let Some(next) = chosen_display(id, current) else {
                 return;
             };
-            // 押した印はメニューが自分で反転させるので、保存できたかどうかに合わせて付け直す。
+            // 押した項目のチェックはメニューが自分で反転させるので、保存できたかどうかに合わせて付け直す。
             // 保存できなかったときは、次の選択も今の保存値から作られるよう画面にも反映しない。
             let saved = match scale::save_panel_display(&state.home, next) {
                 Ok(()) => next,

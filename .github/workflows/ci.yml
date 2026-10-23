@@ -31,7 +31,7 @@ concurrency:
 jobs:
   test:
     name: test (${{ matrix.os }})
-    # タグの付いたコミットは main の実行で検査とビルドを終えているので、そのビルドを写すときは検査し直さない。
+    # タグの付いたコミットは main の実行で検査とビルドを終えているので、そのビルドをコピーするときは検査し直さない。
     # pull request では target が走らないので、target を待ったうえで、走らなかったときも検査する。
     needs: target
     if: ${{ !cancelled() && needs.target.outputs.reuse == '' }}
@@ -105,10 +105,10 @@ jobs:
   # それらだけを変えた push では、そのコミットのビルドがすでにあればビルドしない。
   # 同じ push の中でそれらだけのコミットが後に続いたときにも見つかるよう、タグもそのコミットの名前で付ける。
   # この一覧を変えるときは、tools/update.sh と tools/update.ps1 の同じ一覧も直す。
-  # 中身の変わらないコミットへ force push すると push では CI が起動せず、そのコミットのビルドができない。
+  # 内容の変わらないコミットへ force push すると push では CI が起動せず、そのコミットのビルドができない。
   # それを作り直せるよう、main での手動の実行でもビルドと公開を行う。
-  # v で始まるタグでの実行では、タグの付いたコミットの build- のプレリリースがあれば、そのファイルを写して
-  # タグと同じ名前のリリースとして公開する。無いとき（main の実行がまだ終わっていない、古いビルドが片付けられた）
+  # v で始まるタグでの実行では、タグの付いたコミットの build- のプレリリースがあれば、そのファイルをコピーして
+  # タグと同じ名前のリリースとして公開する。無いとき（main の実行がまだ終わっていない、古いビルドが削除された）
   # だけ、検査とビルドをやり直す。
   target:
     name: find the build to publish
@@ -199,7 +199,7 @@ jobs:
           build="build-${app::12}"
           assets="$(gh release view "$build" --json assets --jq '[.assets[].name] | sort | join(" ")' 2>/dev/null || true)"
           if [[ "$assets" == "SHA256SUMS marimo-macos-arm64.tar.gz marimo-windows-x64.zip" ]]; then
-            echo "$build のファイルを写して公開します"
+            echo "$build のファイルをコピーして公開します"
             echo "tag=$build" >> "$GITHUB_OUTPUT"
           else
             echo "$build のファイルがそろっていないので、検査とビルドをやり直します"
@@ -309,14 +309,14 @@ jobs:
   publish:
     name: publish
     needs: [target, build-macos, build-windows]
-    # ビルドを写すときは二つのビルドのジョブが飛ばされるので、そのときだけビルドの成功を求めない。
+    # ビルドをコピーするときは二つのビルドのジョブが飛ばされるので、そのときだけビルドの成功を求めない。
     if: >-
       ${{ !cancelled() && needs.target.result == 'success' && needs.target.outputs.needed == 'true' &&
       (needs.target.outputs.reuse != '' || (needs.build-macos.result == 'success' && needs.build-windows.result == 'success')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # 公開と古いビルドの片付けは途中で止めると半端なリリースが残るので、次の push が来ても最後まで走らせる。
+    # 公開と古いビルドの削除は途中で止めると半端なリリースが残るので、次の push が来ても最後まで走らせる。
     concurrency:
       group: publish-${{ github.ref }}
       cancel-in-progress: false
@@ -352,7 +352,7 @@ jobs:
           cat SHA256SUMS
 
       # 更新用のスクリプトは build-<コミットの先頭 12 文字> のタグからビルドを探す。
-      # 失敗した実行をやり直したときにも通るよう、リリースがあれば中身だけを差し替える。
+      # 失敗した実行をやり直したときにも通るよう、リリースがあれば内容だけを差し替える。
       - name: Publish the prerelease
         if: needs.target.outputs.formal != 'true'
         working-directory: dist

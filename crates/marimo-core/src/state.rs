@@ -87,7 +87,7 @@ pub struct Origin {
 }
 
 /// Windows のウィンドウと、それを持つプロセス。ウィンドウのハンドルとプロセス ID はどちらも使い回されるので、
-/// プロセスの作成時刻と組にして、移動するときに同じものかを確かめる。
+/// プロセスの作成時刻とペアにして、移動するときに同じものかを確かめる。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowRef {
     pub hwnd: u64,
@@ -96,7 +96,7 @@ pub struct WindowRef {
     pub created: u64,
 }
 
-/// フックを起動したプロセス。プロセス ID は使い回されるので、作成時刻と組にして同じものかを確かめる。
+/// フックを起動したプロセス。プロセス ID は使い回されるので、作成時刻とペアにして同じものかを確かめる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostProcess {
     pub pid: u32,
@@ -105,7 +105,7 @@ pub struct HostProcess {
     pub created: u64,
 }
 
-/// Windows のプロセス。プロセス ID は使い回されるので、作成時刻と組にして同じものかを確かめる。
+/// Windows のプロセス。プロセス ID は使い回されるので、作成時刻とペアにして同じものかを確かめる。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessRef {
     pub pid: u32,
@@ -253,7 +253,7 @@ pub struct SessionState {
     /// パネルの行を worktree のフォルダ名ではなくリポジトリで見分けられるようにする。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
-    /// 会話の題名。statusLine の session_name か、会話ログの custom-title の行から取る。
+    /// 会話のタイトル。statusLine の session_name か、会話ログの custom-title の行から取る。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(default)]
@@ -274,7 +274,7 @@ pub struct SessionState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_started_at: Option<u64>,
     /// 今のターンの ID。Hermes だけがフックの入力に持たせてくる。Hermes は応答の後に同じ session_id のまま
-    /// 記憶やスキルの見直しを裏で走らせるので、そのツールの実行で完了の行が作業中へ戻らないよう見分けに使う。
+    /// 記憶やスキルの見直しをバックグラウンドで走らせるので、そのツールの実行で完了の行が作業中へ戻らないよう見分けに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
     /// 行を押したときに開く URL。チャットアプリの中で動く Hermes のセッションだけが持つ。
@@ -300,7 +300,7 @@ pub struct SessionState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<HostProcess>,
     /// Claude Code の会話ログ。会話をバックグラウンドへ移すと、Claude Code は元のセッションに SessionEnd も
-    /// Stop も送らず、プロセスも残ったまま新しい session_id で続けるので、ログに残る印からそれを見分けるのに使う。
+    /// Stop も送らず、プロセスも残ったまま新しい session_id で続けるので、ログに残るマーカーからそれを見分けるのに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcript_path: Option<String>,
     /// 親の会話だけで決まる状態。status、activity、status_reason は、これに動いているサブエージェントを
@@ -391,7 +391,7 @@ pub struct RateLimits {
     pub updated_at: u64,
 }
 
-/// Codex の利用制限の窓。Codex は窓の長さを値として送ってくるので、5 時間や 7 日に決め打ちせず、
+/// Codex の利用制限のウィンドウ。Codex はウィンドウの長さを値として送ってくるので、5 時間や 7 日に決め打ちせず、
 /// 送られてきた長さのまま持つ。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodexRateWindow {
@@ -460,7 +460,7 @@ pub struct HookInput {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub agent_type: Option<String>,
-    /// 形の分からない項目が混ざっても入力全体を捨てないよう、中身は使う時に読む。
+    /// 形の分からない項目が混ざっても入力全体を捨てないよう、内容は使う時に読む。
     #[serde(default)]
     pub background_tasks: Option<Value>,
     /// ターンの ID。Claude Code と Codex の入力には無く、Hermes の入力を読み替えたときだけ入る。
@@ -477,7 +477,7 @@ impl HookInput {
     }
 
     /// 親の会話の Stop の background_tasks から、ターンの後も動き続けるサブエージェントの ID を返す。
-    /// hooks のドキュメントの Stop input によると、この配列は裏で動いている作業の一覧で、サブエージェントは
+    /// hooks のドキュメントの Stop input によると、この配列はバックグラウンドで動いている作業の一覧で、サブエージェントは
     /// type が subagent、エージェントチームの仲間は teammate として載る。配列が無ければ None を返す。
     pub fn running_agents(&self) -> Option<Vec<&str>> {
         let tasks = self.background_tasks.as_ref()?.as_array()?;
@@ -490,7 +490,7 @@ impl HookInput {
         )
     }
 
-    /// Codex の会話の題名を session_index.jsonl から取り直す契機。題名は利用者が付け直すか、
+    /// Codex の会話のタイトルを session_index.jsonl から取り直す契機。タイトルは利用者が付け直すか、
     /// Codex が最初のやりとりの後に付けるので、ターンの始まりと終わりで見れば足りる。
     pub fn wants_codex_title(&self) -> bool {
         self.provider == Provider::Codex
@@ -522,10 +522,10 @@ impl HookInput {
     }
 }
 
-/// 保存する題名の長さの上限。パネルでは一行に切り詰めて見せるので、これを超える部分は使わない。
+/// 保存するタイトルの長さの上限。パネルでは一行に切り詰めて見せるので、これを超える部分は使わない。
 pub const TITLE_MAX_CHARS: usize = 200;
 
-/// 前後の空白を除き、長すぎる題名を文字の境目で切る。空なら None を返す。
+/// 前後の空白を除き、長すぎるタイトルを文字の境界で切る。空なら None を返す。
 pub fn clean_title(raw: &str) -> Option<String> {
     let t = raw.trim();
     (!t.is_empty()).then(|| t.chars().take(TITLE_MAX_CHARS).collect())
@@ -605,7 +605,7 @@ fn main_update(
     };
     let agent_pending = current.is_some_and(|c| c.agents.values().any(|a| a.pending.is_some()));
     // 完了とエラーは、利用者がまだ読んでいないかもしれない結果である。デスクトップアプリはメモリが
-    // 逼迫すると何もしていないセッションの CLI を止め（reason が other の SessionEnd）、会話を裏で
+    // 逼迫すると何もしていないセッションの CLI を止め（reason が other の SessionEnd）、会話をバックグラウンドで
     // 開き直す（source が resume の SessionStart）ので、利用者がその会話の画面で操作したと分かる
     // 理由のときだけ消す。残したファイルは見回りが 24 時間で消す。
     let holds_result = matches!(cur_status, Some(Status::Done | Status::Error));
@@ -656,7 +656,7 @@ fn main_update(
             }
             Some("quota_auto_resume_fired") => (Status::Working, Act::Keep),
             // idle_prompt は応答を終えて 60 秒ほど経ったときに届く。Claude Code はターンを動かしておらず、
-            // 承認や質問の画面も出ておらず、裏で動くサブエージェントも無いときにだけ送る。利用者が Esc で
+            // 承認や質問の画面も出ておらず、バックグラウンドで動くサブエージェントも無いときにだけ送る。利用者が Esc で
             // 止めたり承認を断ったりすると Stop が発火しないので、作業中や承認待ちのまま残った状態をここで
             // 待機へ戻す。止めた前景のサブエージェントも SubagentStop を送らないので、ここで外す。
             // 完了とエラーは、まだ読んでいない結果なのでそのまま残す。
@@ -745,7 +745,7 @@ fn main_update(
             next.agents.clear();
         }
         // 前景のサブエージェントを利用者が止めると SubagentStop が届かないが、前景のものは親のターンが
-        // 終わる前に必ず終わる。そこでターンの終わりに裏で動いている一覧に無いものを外す。一覧の ID が
+        // 終わる前に必ず終わる。そこでターンの終わりにバックグラウンドで動いている一覧に無いものを外す。一覧の ID が
         // agent_id と同じ値だとは文書に書かれていないので、一つも一致しないときは見分けられないとみなして
         // 何も外さず、AGENT_STALE_MS での期限切れに任せる。
         "Notification" if input.notification_type.as_deref() == Some("idle_prompt") => {
@@ -1900,7 +1900,7 @@ mod tests {
 
     #[test]
     fn logs_are_read_only_on_their_events() {
-        // (provider, event, agent_id, rollout か会話ログを読むか, Codex の題名を読むか)
+        // (provider, event, agent_id, rollout か会話ログを読むか, Codex のタイトルを読むか)
         let cases = [
             (Provider::Claude, "PostToolUse", None, true, false),
             (Provider::Claude, "SessionStart", None, false, false),

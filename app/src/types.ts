@@ -72,7 +72,7 @@ export interface RateLimits {
   updated_at: number;
 }
 
-// Codex は窓の長さを分で送ってくるので、5 時間や 7 日に決め打ちしない。
+// Codex はウィンドウの長さを分で送ってくるので、5 時間や 7 日に決め打ちしない。
 export interface CodexRateWindow {
   window_minutes: number | null;
   used_percentage: number;

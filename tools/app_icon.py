@@ -3,9 +3,9 @@
 使い方（リポジトリ直下で実行する）:
     .venv/bin/python tools/app_icon.py
 
-macOS の Dock と Finder は、1024 px 四方の画像の中央 824 px を角の丸い板として描く約束の上に並ぶので、
-icon.icns はその寸法で板を描き、周りを透明にして板の下に薄い影を落とす。Windows と Linux には
-その約束がなく、余白があると他のアプリより小さく見えるので、icon.ico と PNG は同じ絵から板だけを
+macOS の Dock と Finder は、1024 px 四方の画像の中央 824 px を角丸の正方形として描く決まりで並ぶので、
+icon.icns はその寸法で角丸の正方形を描き、周りを透明にしてその下に薄い影を落とす。Windows と Linux には
+その約束がなく、余白があると他のアプリより小さく見えるので、icon.ico と PNG は同じ絵から角丸の正方形だけを
 切り出して画像いっぱいに描く。毛並みは乱数で置いた短い線を数万本重ねて描き、乱数の種を固定して
 何度描いても同じ画像になるようにする。
 """
@@ -20,7 +20,7 @@ from PIL import Image, ImageDraw, ImageFilter
 REPO = Path(__file__).resolve().parents[1]
 ICON_DIR = REPO / "app/src-tauri/icons"
 
-# 細い毛の縁がにじまないよう、2 倍の大きさで描いてから縮める。
+# 細い毛のエッジがにじまないよう、2 倍の大きさで描いてから縮める。
 K = 2
 N = 1024 * K
 PLATE = 824 * K
@@ -33,7 +33,7 @@ LIGHT = np.array([-0.55, -0.65, 0.52]) / np.linalg.norm([-0.55, -0.65, 0.52])
 
 
 def plate_mask():
-    """macOS のアイコンの板の角は円弧でなく辺へ滑らかにつながるので、指数 5 の超楕円で近似する。"""
+    """macOS のアイコンの角丸は円弧でなく辺へ滑らかにつながるので、指数 5 の超楕円で近似する。"""
     c = (N - 1) / 2
     a = PLATE / 2
     y, x = np.mgrid[0:N, 0:N]
@@ -75,13 +75,13 @@ def marimo(layer, cx, cy, r, strands=26000):
         rr = math.sqrt(rnd.random()) ** 0.8
         px, py = rr * math.cos(u), rr * math.sin(u)
         roots.append((math.sqrt(max(0.0, 1 - px * px - py * py)), px, py))
-    # 奥（縁）の毛から手前の毛へ順に重ねる。
+    # 奥（輪郭側）の毛から手前の毛へ順に重ねる。
     roots.sort()
     draw = ImageDraw.Draw(layer)
     width = max(1, int(r * 0.009))
     for pz, px, py in roots:
         tone = min(1.0, max(0.0, brightness(px, py, pz) + rnd.uniform(-0.18, 0.18)))
-        # 縁に近い毛ほど外向きに揃えて、輪郭から毛羽が立つようにする。
+        # 輪郭に近い毛ほど外向きに揃えて、輪郭から毛羽が立つようにする。
         ang = math.atan2(py, px) + rnd.uniform(-1.2, 1.2) * (0.3 + pz)
         length = r * rnd.uniform(0.025, 0.06) * (1.6 - 0.6 * pz)
         sx, sy = cx + px * r, cy + py * r
@@ -120,9 +120,9 @@ def face(layer, cx, cy, r):
 
 
 def artwork():
-    """板の周りの扱いは macOS とほかの OS で違うので、板の外は透明のまま返す。
+    """角丸の正方形の周りの扱いは macOS とほかの OS で違うので、正方形の外は透明のまま返す。
 
-    影を落とすか板だけを切り出すかは、呼ぶ側が OS ごとに決める。
+    影を落とすか正方形だけを切り出すかは、呼ぶ側が OS ごとに決める。
     """
     mask = plate_mask()
     cx, cy, r = N / 2, N / 2 + 20 * K, 285 * K

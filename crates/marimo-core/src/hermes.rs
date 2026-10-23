@@ -76,7 +76,7 @@ pub fn translate(
     let extra = &input.extra;
     let text = |key: &str| extra.get(key).and_then(Value::as_str).map(str::to_owned);
     let flag = |key: &str| extra.get(key).and_then(Value::as_bool).unwrap_or(false);
-    // Hermes は応答の後に、同じ session_id のまま記憶やスキルの見直しを裏で走らせる
+    // Hermes は応答の後に、同じ session_id のまま記憶やスキルの見直しをバックグラウンドで走らせる
     // （agent/background_review.py）。その呼び出しは pre_llm_call を出さないので、今のターンで知らされた
     // turn_id と違うイベントは、完了の行を作業中へ戻さないよう捨てる。どちらかが分からなければ受ける。
     let in_turn = match (
@@ -169,7 +169,7 @@ pub fn translate(
 }
 
 // gateway は HERMES_HOME を作業フォルダにして動くので、その場所は会話の居場所ではない。行の名前が
-// どれも同じフォルダ名にならないよう、HERMES_HOME と同じ cwd は捨てて、会話の題名を名前に使う。
+// どれも同じフォルダ名にならないよう、HERMES_HOME と同じ cwd は捨てて、会話のタイトルを名前に使う。
 fn work_dir(cwd: Option<&str>, hermes_home: Option<&Path>) -> Option<String> {
     let cwd = cwd.filter(|c| !c.is_empty())?;
     let norm = |p: &str| {
@@ -269,8 +269,8 @@ pub struct ChatMeta {
     pub link: Option<String>,
 }
 
-/// gateway が `sessions/sessions.json` に書く、チャットの鍵から今の session_id への対応表を読む。
-/// Hermes はこのファイルを state.db の写し（legacy mirror）と書いており、無くなっても題名とリンクが
+/// gateway が `sessions/sessions.json` に書く、チャットのキーから今の session_id への対応表を読む。
+/// Hermes はこのファイルを state.db のミラー（legacy mirror）と書いており、無くなってもタイトルとリンクが
 /// 出なくなるだけで状態は変わらない。CLI の会話はこの表に載らない。
 pub fn chat_meta(hermes_home: &Path, session_id: &str) -> ChatMeta {
     let path = hermes_home.join("sessions").join("sessions.json");
@@ -297,7 +297,7 @@ fn meta_from_entry(entry: &Value) -> ChatMeta {
     let origin = entry.get("origin").unwrap_or(&Value::Null);
     let chat_type = text(origin, "chat_type").or_else(|| text(entry, "chat_type"));
     let platform = text(origin, "platform").or_else(|| text(entry, "platform"));
-    // DM の display_name は相手の利用者名なので、題名には使わない。
+    // DM の display_name は相手の利用者名なので、タイトルには使わない。
     let title = if chat_type.as_deref() == Some("dm") {
         Some("DM".to_owned())
     } else {
@@ -327,7 +327,7 @@ fn is_snowflake(v: &str) -> bool {
     !v.is_empty() && v.len() <= 20 && v.bytes().all(|b| b.is_ascii_digit())
 }
 
-// DM の origin を持たない古い項目もあるので、DM の ID は会話の鍵
+// DM の origin を持たない古い項目もあるので、DM の ID は会話のキー
 // （agent:main:discord:dm:<チャンネル ID>、gateway/session.py の build_session_key）からも取る。
 fn discord_link(chat_type: Option<&str>, origin: &Value, session_key: &str) -> Option<String> {
     let id = |key: &str| {

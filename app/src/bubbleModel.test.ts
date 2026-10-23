@@ -22,7 +22,7 @@ describe("BubbleModel", () => {
     expect(m.update(snap(session("marimo", "working", 1)), DIALOGUE)).toBeNull();
     const shown = m.update(snap(session("marimo", "waiting", 2)), DIALOGUE);
     expect(shown?.text).toBe("marimo で確認をお願いしたいことがあるの");
-    // 同じきっかけの間は、後から届いた更新でも同じ吹き出しを保つ。
+    // 同じトリガーの間は、後から届いた更新でも同じ吹き出しを保つ。
     expect(m.update(snap(session("marimo", "waiting", 2, 9)), DIALOGUE)).toBe(shown);
     // 承認されて作業中へ戻ったら消える。
     expect(m.update(snap(session("marimo", "working", 10)), DIALOGUE)).toBeNull();
@@ -38,7 +38,7 @@ describe("BubbleModel", () => {
     // 閉じた後に別のセッションが承認待ちになれば、そちらを出す。
     const other = m.update(snap(session("a", "waiting", 2, 5), session("b", "waiting", 3)), DIALOGUE);
     expect(other?.text).toBe("b で確認をお願いしたいことがあるの");
-    // 一度別の状態を経て再び承認待ちになれば、新しいきっかけとして出す。
+    // 一度別の状態を経て再び承認待ちになれば、新しいトリガーとして出す。
     m.update(snap(session("a", "working", 6)), DIALOGUE);
     expect(m.update(snap(session("a", "waiting", 7)), DIALOGUE)?.sessionKey).toBe("a");
   });
@@ -72,7 +72,7 @@ describe("BubbleModel", () => {
     expect(model().update(snap(session("a", "waiting", 1)), { waiting: ["確認してね"] })?.text).toBe("確認してね");
     const silent = model();
     expect(silent.update(snap(session("a", "done", 1)), { waiting: ["x"] })).toBeNull();
-    // セリフが無かったきっかけでは、続く間に読み直しを求めない。
+    // セリフが無かったトリガーでは、続く間に読み直しを求めない。
     expect(silent.needsText(snap(session("a", "done", 1, 9)))).toBe(false);
   });
 });
@@ -83,7 +83,7 @@ describe("BubbleModel settings", () => {
     const m = new BubbleModel(new Acknowledged(), (lines) => lines[0], (status) => status !== "done" || done);
     expect(m.update(snap(session("a", "done", 5)), DIALOGUE)).toBeNull();
     expect(m.needsText(snap(session("a", "done", 5)))).toBe(false);
-    // 出さない種類は既読にもならないので、出す設定へ戻せば同じきっかけで出る。
+    // 出さない種類は既読にもならないので、出す設定へ戻せば同じトリガーで出る。
     done = true;
     expect(m.update(snap(session("a", "done", 5)), DIALOGUE)?.text).toBe("a の作業が終わったわ");
   });
@@ -96,10 +96,10 @@ describe("BubbleModel settings", () => {
     expect(m.view).toBe(shown);
     m.expire(shown!.key);
     expect(m.view).toBeNull();
-    // 同じきっかけの間は出し直さず、既読にもしない。
+    // 同じトリガーの間は出し直さず、既読にもしない。
     expect(m.update(snap(session("a", "waiting", 2, 9)), DIALOGUE)).toBeNull();
     expect(ack.has(session("a", "waiting", 2))).toBe(false);
-    // 別のきっかけになれば出る。
+    // 別のトリガーになれば出る。
     expect(m.update(snap(session("a", "waiting", 2), session("b", "waiting", 3)), DIALOGUE)?.sessionKey).toBe("b");
   });
 });

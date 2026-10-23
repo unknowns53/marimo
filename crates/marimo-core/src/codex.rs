@@ -119,8 +119,8 @@ fn parse_token_count(bytes: &[u8]) -> Option<(Option<u64>, Payload)> {
     Some((timestamp, payload))
 }
 
-// primary が 5 時間の窓とは限らない（プランによっては primary が 7 日で secondary が null になる）ので、
-// primary と secondary の区別は捨てて、値のある窓だけを並べる。
+// primary が 5 時間のウィンドウとは限らない（プランによっては primary が 7 日で secondary が null になる）ので、
+// primary と secondary の区別は捨てて、値のあるウィンドウだけを並べる。
 fn rate_limits(limits: Limits, observed_at: u64, now_ms: u64) -> Option<CodexRateLimits> {
     let windows: Vec<CodexRateWindow> = [limits.primary, limits.secondary]
         .into_iter()
@@ -172,7 +172,7 @@ pub fn started_by_desktop_app(originator: &str) -> bool {
     originator == "Codex Desktop"
 }
 
-/// 利用者が自分で開いたクライアントから始めた会話かを判断する。macOS と Windows の手元の rollout で、
+/// 利用者が自分で開いたクライアントから始めた会話かを判断する。macOS と Windows のローカルの rollout で、
 /// デスクトップアプリが "Codex Desktop" を、端末の Codex CLI が "codex-tui" を、VS Code の拡張機能が
 /// "codex_vscode" を書くことを確かめた。`codex exec`（"codex_exec"）や、Claude Code から作業を任された
 /// codex-async（"codex-async-bridge"）と Codex プラグイン（"Claude Code"）のように、プログラムから始めた
@@ -183,7 +183,7 @@ pub fn started_by_hand(originator: &str) -> bool {
 
 /// `$CODEX_HOME/session_index.jsonl` の末尾から、この会話の最後の thread_name を探す。
 /// 名前を付け直すたびに行が書き足され、最後の行が有効になる（codex-rs/rollout/src/session_index.rs）。
-/// 題名のために大きく読むことはせず、末尾の一回分の範囲に無ければ諦める。
+/// タイトルのために大きく読むことはせず、末尾の一回分の範囲に無ければ諦める。
 pub fn thread_name(codex_home: &Path, session_id: &str) -> Option<String> {
     #[derive(Deserialize)]
     struct Entry {
@@ -278,7 +278,7 @@ mod tests {
         );
         assert_eq!(rl.windows[1].used_percentage, 42.5);
 
-        // 窓がどれも null の利用制限と、timestamp の読めない行の利用制限は使わない。
+        // ウィンドウがどれも null の利用制限と、timestamp の読めない行の利用制限は使わない。
         let lines = vec![
             token_count(
                 "bad",

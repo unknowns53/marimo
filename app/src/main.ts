@@ -91,7 +91,7 @@ const expansion = new PanelExpansion(
 const rowHover = new RowHover(panelElements.panel);
 
 let renderer: CharacterRenderer | undefined;
-// manifest を読めなかったキャラクターは選んでも出せないので、読めたものだけを設定の窓に並べる。
+// manifest を読めなかったキャラクターは選んでも出せないので、読めたものだけを設定のウィンドウに並べる。
 let characters: { info: CharacterInfo; manifest: Manifest }[] = [];
 let characterId: string | undefined;
 // 立ち絵の画像を読む間に別のキャラクターが選ばれることがあるので、最後に頼んだものだけを出す。
@@ -106,10 +106,10 @@ let defaultDialogue: Dialogue = {};
 let panelDisplay: PanelDisplay = DEFAULT_PANEL_DISPLAY;
 let appIcons: AppIcons = { claude: null, codex: null, hermes: null, opencode: null };
 let scale: ScaleControl | undefined;
-// ログイン項目の状態はアプリの外（システム設定など）でも変わるので、設定の窓が開くたびに読み直す。
+// ログイン項目の状態はアプリの外（システム設定など）でも変わるので、設定のウィンドウが開くたびに読み直す。
 // 読めなかったときは undefined にする。
 let autostart: boolean | undefined;
-// Rust から届く、窓の中のカーソル位置。窓の外では null になる。
+// Rust から届く、ウィンドウの中のカーソル位置。ウィンドウの外では null になる。
 let cursor: Point | null = null;
 // マウスがパネルの上にある間に既読にした完了とエラーの triggerKey。マウスがパネルを離れるまで、その行をその場所に残す。
 const keptRead = new Set<string>();
@@ -129,14 +129,14 @@ async function applySnapshot(next: Snapshot): Promise<void> {
   syncAnyUnread();
   syncTraySessions();
   renderer?.update(rendererInput(shown));
-  // セリフの JSON はユーザーが編集するものなので、新しいきっかけのたびに読み直して再起動なしで反映する。
+  // セリフの JSON はユーザーが編集するものなので、新しいトリガーのたびに読み直して再起動なしで反映する。
   if (bubbleModel.needsText(shown)) await reloadDialogue();
   bubbleModel.update(shown, dialogue);
   showSpeech();
   redrawPanel();
 }
 
-// 見たと示したきっかけが増えたら、集約をやり直して表情、吹き出し、パネルへ反映する。
+// 見たと示したトリガーが増えたら、集約をやり直して表情、吹き出し、パネルへ反映する。
 function refreshAcknowledged(): void {
   if (snapshot) {
     shown = withAcknowledged(snapshot, acknowledged);
@@ -164,7 +164,7 @@ async function reloadDialogue(): Promise<void> {
   dialogue = mergeDialogue(defaultDialogue, user);
 }
 
-// 立ち絵を隠している間は吹き出しを出さない。知らせの吹き出しはきっかけが続く間 bubbleModel に残るので、
+// 立ち絵を隠している間は吹き出しを出さない。知らせの吹き出しはトリガーが続く間 bubbleModel に残るので、
 // 立ち絵を戻したときにまだ続いていれば、そのとき出る。
 function showSpeech(): void {
   const view = panelDisplay.show_character ? bubbleModel.view : null;
@@ -195,7 +195,7 @@ function scheduleExpiry(view: BubbleView | null): void {
 }
 
 // 頭の上に出した吹き出しは、立ち絵の外側の端に揃えてパネルの側へ伸びるので、背の低い立ち絵や上の隅では
-// パネルやタブに重なることがある。重なるときだけその上端より上へ持ち上げ、窓の上端からははみ出させない。
+// パネルやタブに重なることがある。重なるときだけその上端より上へ持ち上げ、ウィンドウの上端からははみ出させない。
 // 吹き出しには動きの transform が掛かるので、大きさは transform の影響を受けない offset の値で測る。
 function placeBubble(): void {
   const box = stage.getBoundingClientRect();
@@ -212,7 +212,7 @@ function placeBubble(): void {
 function collectHitRegions(): HitRegions {
   // 切り替えと並べ方のボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
   const rects = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)];
-  // 広げた層はパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
+  // 広げたレイヤーはパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
   if (!panelDisplay.show_character) return hitRegions(rects, null);
@@ -246,14 +246,14 @@ function toggleToday(): void {
   redrawPanel();
 }
 
-// 窓は透明な部分でマウスのイベントを受け取らないので、DOM の mouseleave ではなく Rust から届く位置で見る。
+// ウィンドウは透明な部分でマウスのイベントを受け取らないので、DOM の mouseleave ではなく Rust から届く位置で見る。
 // 件数の行に重ねた詳細はパネルの外へ伸びるが、DOM ではパネルの中にあるので、その上もパネルの上として扱う。
 function pointerOverPanel(): boolean {
   const hit = cursor ? document.elementFromPoint(cursor.x, cursor.y) : null;
   return !!hit && panelElements.panel.contains(hit);
 }
 
-// 既読にした完了とエラーの行は畳むが、マウスがパネルの上にあればその場所に薄く残し、離れたときに畳む。
+// 既読にした完了とエラーの行は折りたたむが、マウスがパネルの上にあればその場所に薄く残し、離れたときに折りたたむ。
 // 既に既読のもの（今日の既読の一覧の行）を押したときは、一覧から上へ戻さない。
 function acknowledge(session: SessionState): void {
   const key = triggerKey(session);
@@ -267,7 +267,7 @@ function releaseKeptRead(): void {
   redrawPanel();
 }
 
-// 行のきっかけを見たものとして扱い、同じきっかけの吹き出しも閉じる。承認待ちの行は、解決するまで残す。
+// 行のトリガーを見たものとして扱い、同じトリガーの吹き出しも閉じる。承認待ちの行は、解決するまで残す。
 function markRead(session: SessionState): void {
   acknowledge(session);
   if (bubbleModel.view?.key === triggerKey(session)) bubbleModel.dismiss();
@@ -342,7 +342,7 @@ async function loadCharacters(): Promise<unknown> {
 // 読んでいる間に次の依頼が来ていたら、読み終えたものを捨てて何も変えない。
 // セリフは立ち絵より先に読む。mount は読み終えた最後に立ち絵を DOM へ加えるので、その後で待たずに
 // 古いものを外せば、新旧の立ち絵が重なって描かれることがない。
-// 枠の高さは素材の縦横比で決まり、窓の大きさも合わせるよう Rust に知らせる。
+// 立ち絵の領域の高さは素材の縦横比で決まり、ウィンドウの大きさも合わせるよう Rust に知らせる。
 async function showCharacter(id: string): Promise<"shown" | "failed" | "superseded"> {
   const request = ++characterRequest;
   requestedCharacter = id;
@@ -460,7 +460,7 @@ function applyPanelOpacity(opacity: number): void {
   document.documentElement.style.setProperty("--panel-alpha", String(opacity));
 }
 
-// 設定の窓から頼まれた変更は、メニューやパネルのボタンと同じ経路で反映して保存し、反映したあとの状態を
+// 設定のウィンドウから頼まれた変更は、メニューやパネルのボタンと同じ経路で反映して保存し、反映したあとの状態を
 // 送り返す。トレイで変えたときも同じように送る。
 function settingsState(): SettingsState {
   return {
@@ -636,10 +636,10 @@ async function start(): Promise<void> {
   for (const id of characterCandidates(saved, index)) {
     if ((await showCharacter(id)) !== "failed") break;
   }
-  // 読み込みの途中で設定の窓が開かれていたら、キャラクターの一覧を送り直す。
+  // 読み込みの途中で設定のウィンドウが開かれていたら、キャラクターの一覧を送り直す。
   publishSettings();
   // マウスが立ち絵の上にあるかは Rust 側がクリックを通す判定のついでに調べて知らせる。透明な部分では
-  // 窓がマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
+  // ウィンドウがマウスのイベントを受け取らないので、DOM の mouseleave は当てにできない。
   await listen<boolean>("portrait-hover", (e) => renderer?.setHover(e.payload));
   await listen<Point | null>("window-cursor", (e) => {
     cursor = e.payload;

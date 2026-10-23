@@ -156,7 +156,7 @@ fn opencode(mode: &Mode, opts: &Options, exe: &Path) -> Result<(), String> {
                     .map_err(|e| format!("書き込んだプラグインを読み直せません: {e}"))?;
                 if reread != text.as_bytes() {
                     return Err(format!(
-                        "{} の中身が書き込んだものと違います",
+                        "{} の内容が書き込んだものと違います",
                         target.display()
                     ));
                 }
@@ -311,7 +311,7 @@ fn uninstall(opts: &Options, marimo: &Marimo) -> Result<(), String> {
     Ok(())
 }
 
-// original は読み込んだときのファイルの中身で、ファイルがなかったときは None になる。
+// original は読み込んだときのファイルの内容で、ファイルがなかったときは None になる。
 fn commit(
     path: &Path,
     dry_run: bool,
@@ -512,7 +512,9 @@ fn describe_status_line(change: &StatusLineChange) -> String {
             format!("statusLine: 未設定だったので登録します\n  変更後: {after}\n")
         }
         StatusLineChange::Wrapped { before, after } => {
-            format!("statusLine: 元のコマンドを包みます\n  変更前: {before}\n  変更後: {after}\n")
+            format!(
+                "statusLine: 元のコマンドをラップします\n  変更前: {before}\n  変更後: {after}\n"
+            )
         }
         StatusLineChange::AlreadyMarimo { current } => {
             format!("statusLine: すでに marimo を通っています\n  現在: {current}\n")

@@ -17,7 +17,7 @@ pub enum Target {
     ItermSession {
         tty: String,
     },
-    /// Ghostty の AppleScript はターミナルの tty を返さないので、題名と作業フォルダで探す。
+    /// Ghostty の AppleScript はターミナルの tty を返さないので、タイトルと作業フォルダで探す。
     /// open_app は、見つからなかったときに Ghostty を前面に出すかどうか。
     GhosttyTerminal {
         title: Option<String>,
@@ -31,7 +31,7 @@ pub enum Target {
     App {
         bundle_id: String,
     },
-    /// Windows で記録した手がかり。editor はエディタの実行ファイルと作業フォルダの組で、
+    /// Windows で記録した手がかり。editor はエディタの実行ファイルと作業フォルダのペアで、
     /// 試す順は editor、window、ancestors の近い順である。
     Windows {
         window: Option<WindowRef>,
@@ -72,7 +72,7 @@ const WINDOWS_SHELL: [&str; 7] = [
 // __CFBundleIdentifier=com.mitchellh.ghostty は実機で確かめた。VS Code の TERM_PROGRAM=vscode は
 // https://code.visualstudio.com/docs/terminal/shell-integration に記載がある。
 pub fn plan(session: &SessionState) -> Target {
-    // Hermes は gateway の裏で動き、会話はチャットアプリの中にあるので、そのチャンネルを開く。
+    // Hermes は gateway のバックグラウンドで動き、会話はチャットアプリの中にあるので、そのチャンネルを開く。
     // 状態ファイルの値を OS に渡すので、marimo が組み立てる形の URL だけを通す。
     if session.provider == Provider::Hermes {
         return match session.link.clone().filter(|l| hermes::is_discord_link(l)) {
@@ -81,7 +81,7 @@ pub fn plan(session: &SessionState) -> Target {
         };
     }
     // OpenCode の会話は端末とは別のサービスの中で動き、どの端末から始めたかは記録されない。OpenCode の
-    // 端末の画面はターミナルの題名を「OC | 題名」にするので、その題名と作業フォルダで Ghostty の
+    // 端末の画面はターミナルのタイトルを「OC | タイトル」にするので、そのタイトルと作業フォルダで Ghostty の
     // ターミナルを探す。ほかの端末の AppleScript は tty でしか探せないので扱わない。見つからなければ、
     // 会話のない Ghostty を前面に出しても意味がないので何もしない。
     if session.provider == Provider::Opencode {
@@ -131,8 +131,8 @@ pub fn plan(session: &SessionState) -> Target {
     }
 }
 
-// OpenCode の端末の画面がターミナルに付ける題名。40 文字（JavaScript の文字列の長さで、UTF-16 の
-// 単位で数える）を超える題名は、37 文字に切って省略の記号を足す。
+// OpenCode の端末の画面がターミナルに付けるタイトル。40 文字（JavaScript の文字列の長さで、UTF-16 の
+// 単位で数える）を超えるタイトルは、37 文字に切って省略の記号を足す。
 fn opencode_terminal_title(title: &str) -> String {
     let units: Vec<u16> = title.encode_utf16().collect();
     if units.len() <= 40 {
@@ -314,9 +314,9 @@ end run
 "#;
 
 // Ghostty の辞書（Ghostty.app の Ghostty.sdef）で、terminal は name と working directory を持ち、
-// focus はそのターミナルのウィンドウを前面に出す。Claude Code は端末の題名を、状態を表す一文字と
-// 空白に続けて会話の題名にするので、先頭の一語を除いた残りが題名と一致するものを先に探す。
-// 題名で見つからなければ、作業フォルダが一致するターミナルが一つだけのときにそれを選ぶ。
+// focus はそのターミナルのウィンドウを前面に出す。Claude Code は端末のタイトルを、状態を表す一文字と
+// 空白に続けて会話のタイトルにするので、先頭の一語を除いた残りがタイトルと一致するものを先に探す。
+// タイトルで見つからなければ、作業フォルダが一致するターミナルが一つだけのときにそれを選ぶ。
 const GHOSTTY_SCRIPT: &str = r#"
 on run argv
   set wanted to item 1 of argv

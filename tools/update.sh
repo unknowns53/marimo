@@ -10,11 +10,11 @@ usage() {
 
   --pre      プレリリースも含めて、最も新しく公開された v で始まるリリースを取ってきます。
 
-  --main     main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
-  --no-pull  ブランチが main であることの確認と取り込みを省き、今チェックアウトしているコミットを使います。
+  --main     main の最新を pull し、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
+  --no-pull  ブランチが main であることの確認と pull を省き、今チェックアウトしているコミットを使います。
              --build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
   --wait     --main か --no-pull と一緒に使います。CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
-  --build    取ってくる代わりに手元でビルドします。--no-pull が無ければ、main の最新を取り込んでからビルドします。
+  --build    取ってくる代わりにローカルでビルドします。--no-pull が無ければ、main の最新を pull してからビルドします。
              ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
 EOF
 }
@@ -85,7 +85,7 @@ if [[ $no_pull -eq 0 && ($main -eq 1 || $build -eq 1) ]]; then
     echo "$dirty" >&2
     fail "上のファイルにコミットしていない変更があります。コミットするか、git checkout -- <ファイル> で取り消してから実行してください。"
   fi
-  echo "最新の main を取り込んでいます"
+  echo "最新の main を pull しています"
   git pull --ff-only
 elif [[ $no_pull -eq 1 && $build -eq 1 ]]; then
   echo "--no-pull が指定されたので、今のチェックアウト（$(git branch --show-current || true)）をそのままビルドします"
@@ -110,7 +110,7 @@ repo_slug() {
 fetch() {
   local url="$1" dest="$2" code
   code="$(curl -sSL --retry 3 --connect-timeout 20 -o "$dest" -w '%{http_code}' "$url")" ||
-    fail "$url を取得できませんでした。ネットワークにつながっているかを確かめてください。つながらないときは --build で手元でビルドできます。"
+    fail "$url を取得できませんでした。ネットワークにつながっているかを確かめてください。つながらないときは --build でローカルでビルドできます。"
   case "$code" in
     200) return 0 ;;
     404) return 1 ;;
@@ -120,7 +120,7 @@ fetch() {
 
 prepare_download() {
   # CI がビルドするのは arm64 だけで、Intel の Mac では動かない。
-  [[ "$(uname -m)" == "arm64" ]] || fail "CI のビルドは arm64 の Mac 用だけです。この Mac では --build を付けて手元でビルドしてください。"
+  [[ "$(uname -m)" == "arm64" ]] || fail "CI のビルドは arm64 の Mac 用だけです。この Mac では --build を付けてローカルでビルドしてください。"
   work="$(mktemp -d "${TMPDIR:-/tmp}/marimo-update.XXXXXX")"
   trap 'rm -rf "$work"' EXIT
 }

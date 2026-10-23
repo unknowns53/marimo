@@ -61,7 +61,7 @@ describe("limitLine", () => {
     ]);
     expect(both?.updatedAt).toBe(NOW);
 
-    // Codex の窓がどれも出せなくても、Codex の値がある以上は印を付けたまま Claude Code の組だけを出す。
+    // Codex のウィンドウがどれも出せなくても、Codex の値がある以上はマークを付けたまま Claude Code のグループだけを出す。
     const expired = codex([{ window_minutes: 300, used_percentage: 50, resets_at: past }]);
     const onlyClaude = limitLine(claude(), expired, NOW);
     expect([onlyClaude?.marked, onlyClaude?.groups.map((g) => g.provider)]).toEqual([true, ["claude"]]);

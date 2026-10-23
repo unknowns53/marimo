@@ -45,7 +45,7 @@ const BUNDLED_ICON: Partial<Record<Provider, string>> = {
   opencode: new URL("./assets/providers/opencode.png", import.meta.url).href,
 };
 
-/** 行を押したときの操作。markRead は移動せずに、そのきっかけを見たものとして扱う。 */
+/** 行を押したときの操作。markRead は移動せずに、そのトリガーを見たものとして扱う。 */
 export interface RowActions {
   select: (session: SessionState) => void;
   markRead: (session: SessionState) => void;
@@ -86,8 +86,8 @@ export function renderPanel(
   else children = detailChildren(view.plan, icons, now, actions, todayOpen);
   const kept = keepScroll(rows);
   rows.replaceChildren(...children);
-  // 件数の行の層は #rows の外へ伸びるので、件数だけの表示では #rows をスクロールの枠にしない。
-  // スクロールの枠は中身を枠の外へはみ出させず、層が切れてしまうからである。
+  // 件数の行のレイヤーは #rows の外へ伸びるので、件数だけの表示では #rows をスクロールコンテナにしない。
+  // スクロールコンテナは内容をコンテナの外へはみ出させず、レイヤーが切れてしまうからである。
   rows.classList.toggle("row-scroll", view.style === "detail");
   limits.hidden = line === null;
   panel.hidden = false;
@@ -107,7 +107,7 @@ function markActive(group: HTMLElement, key: string, value: string): void {
 
 interface KeptScroll {
   top: number;
-  /** 開いていた件数の行の印ごとに、その層の中のスクロールの位置を持つ。 */
+  /** 開いていた件数の行のキーごとに、そのレイヤーの中のスクロールの位置を持つ。 */
   layers: Map<string, number>;
 }
 
@@ -121,8 +121,8 @@ function keepScroll(rows: HTMLElement): KeptScroll {
   return { top: rows.scrollTop, layers };
 }
 
-// 開いていた層は、登録を待たずにそのまま開いて見せる。描き直すたびに測り直すと層がちらつき、行の増減で
-// 大きさが変わった分は、描き直しの後に送り直す領域で追いつくからである。見えていない層にはスクロールの
+// 開いていたレイヤーは、登録を待たずにそのまま開いて見せる。描き直すたびに測り直すとレイヤーがちらつき、行の増減で
+// 大きさが変わった分は、描き直しの後に送り直す領域で追いつくからである。見えていないレイヤーにはスクロールの
 // 位置を戻せないので、先に開いてから戻す。
 function restoreScroll(rows: HTMLElement, kept: KeptScroll): void {
   rows.scrollTop = kept.top;
@@ -135,9 +135,9 @@ function restoreScroll(rows: HTMLElement, kept: KeptScroll): void {
   }
 }
 
-// 層は件数の行の下端から上へ、上の隅では上端から下へ伸びるので、窓の端までに収め、収まらない行は層の中で
-// スクロールさせる。窓の高さが変わっても、パネルは立ち絵の側の端を固定しているので、件数の行からその側の
-// 窓の端までの距離は変わらない。その距離を CSS へ渡し、窓の高さからの計算は CSS に任せる。
+// レイヤーは件数の行の下端から上へ、上の隅では上端から下へ伸びるので、ウィンドウの端までに収め、収まらない行はレイヤーの中で
+// スクロールさせる。ウィンドウの高さが変わっても、パネルは立ち絵の側の端を固定しているので、件数の行からその側の
+// ウィンドウの端までの距離は変わらない。その距離を CSS へ渡し、ウィンドウの高さからの計算は CSS に任せる。
 function fitLayers(rows: HTMLElement): void {
   for (const layer of rows.querySelectorAll<HTMLElement>(".hover-layer")) {
     const anchor = layer.parentElement?.getBoundingClientRect();
@@ -147,7 +147,7 @@ function fitLayers(rows: HTMLElement): void {
   }
 }
 
-/** スクロールバーの操作を、行を押したことや窓のドラッグと取り違えないために見分ける。 */
+/** スクロールバーの操作を、行を押したことやウィンドウのドラッグと取り違えないために見分ける。 */
 export function onScrollbar(e: MouseEvent): boolean {
   const target = e.target;
   return target instanceof HTMLElement && target.classList.contains("row-scroll") && e.offsetX >= target.clientWidth;
@@ -166,7 +166,7 @@ function detailChildren(
   ];
 }
 
-// 畳んだ既読の完了とエラーは 1 行の件数にまとめ、押すとその下に既読の行と同じ薄さで並べる。もう既読なので
+// 折りたたんだ既読の完了とエラーは 1 行の件数にまとめ、押すとその下に既読の行と同じ薄さで並べる。もう既読なので
 // 既読にするボタンは出さない。
 function todayChildren(
   plan: PanelPlan,
@@ -195,7 +195,7 @@ function countItem(className: string, status: Status, text: string): HTMLElement
   return item;
 }
 
-// 件数だけの表示は 1 行に畳み、マウスを載せたときに詳細の表示を上へ重ねて見せる。
+// 件数だけの表示は 1 行に折りたたみ、マウスを載せたときに詳細の表示を上へ重ねて見せる。
 // 押したときは、最も優先度の高い要対応のセッションへ移動する。
 function renderCounts(
   view: PanelView,
@@ -218,7 +218,7 @@ function renderCounts(
   const wrap = el("div", "counts-group");
   wrap.dataset.expandId = "counts";
   const layer = el("div", "counts-detail hover-layer");
-  // 件数の行まで一緒に流れないよう、スクロールの枠はその上の行だけにする。
+  // 件数の行まで一緒に流れないよう、スクロールコンテナはその上の行だけにする。
   const list = el("div", "layer-rows row-scroll");
   list.append(...detailChildren(view.plan, icons, now, actions, todayOpen));
   layer.append(list, line());
@@ -233,11 +233,11 @@ function renderCounts(
   return wrap;
 }
 
-// 行は 2 段に詰めたまま広げない。広げる層を重ねると、押したときに層の開閉とクリックが競り、
+// 行は 2 段に詰めたまま広げない。広げるレイヤーを重ねると、押したときにレイヤーの開閉とクリックが競り、
 // 1 回で移動できないことがある。要約の全文とコマンドは title のツールチップで読める。
-// どのツールのセッションかの印は、2 段目の左の空いている場所に状態の点と縦に並べ、行の高さを変えない。
+// どのツールのセッションかを示すマークは、2 段目の左の空いている場所に状態の点と縦に並べ、行の高さを変えない。
 // 最後にフックが届いてからの時間は、2 段目の右のコンテキスト使用率の下に置く。
-// まだ見ていない完了とエラーの行は、マウスを載せている間だけ時間の場所に既読にするボタンを出し、アプリを開かずに畳めるようにする。
+// まだ見ていない完了とエラーの行は、マウスを載せている間だけ時間の場所に既読にするボタンを出し、アプリを開かずに折りたためるようにする。
 function renderRow(
   s: SessionState,
   read: boolean,
@@ -342,7 +342,7 @@ export function renderContext(s: SessionState): HTMLElement {
   return el("span", "ctx-none");
 }
 
-// 古さは組ごとに示す。全部の組が古いときは、以前のバージョンと同じく行全体を薄くする。
+// 古さはグループごとに示す。全部のグループが古いときは、以前のバージョンと同じく行全体を薄くする。
 function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons): void {
   const allStale = line.groups.every((g) => g.stale);
   let values: HTMLElement;

@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { emit, mockTauri } from "./tauriMock";
 
 // 背の低い clawd を使う。立ち絵の上端が上の隅と下の隅で違う位置になり、配置の取り違えが見える。
-// 窓は scale.rs の window_size と同じ大きさにする（倍率 1、縦横比 0.5）。
+// ウィンドウは scale.rs の window_size と同じ大きさにする（倍率 1、縦横比 0.5）。
 const WIDTH = 516;
 const HEIGHT = 380;
 const MARGIN = 8;
@@ -89,7 +89,7 @@ test("each corner places the stage, panel and bubble", async ({ page }, info) =>
     expect(panel.left, name).toBeCloseTo(panelLeft, 0);
     if (corner.top) expect(panel.top, name).toBeCloseTo(BUBBLE_ROOM, 0);
     else expect(panel.bottom, name).toBeCloseTo(HEIGHT - MARGIN, 0);
-    // 吹き出しは立ち絵の外側の端に揃え、窓の上端からはみ出さない。
+    // 吹き出しは立ち絵の外側の端に揃え、ウィンドウの上端からはみ出さない。
     if (corner.left) expect(bubble.left, name).toBeCloseTo(stage.left, 0);
     else expect(bubble.right, name).toBeCloseTo(stage.right, 0);
     expect(bubble.top, name).toBeGreaterThanOrEqual(0);

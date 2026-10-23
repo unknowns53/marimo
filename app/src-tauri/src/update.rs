@@ -1,5 +1,5 @@
 //! アプリの中から、最新の正式なリリースへ更新する。手順は tools/update.sh と tools/update.ps1 が
-//! 引数なしで行うものを写しているので、片方の手順を変えるときはもう片方も揃える。
+//! 引数なしで行うものと同じ手順にしているので、片方の手順を変えるときはもう片方も揃える。
 //!
 //! 動いているアプリは自分自身を差し替えられないので、取ってきて照合し展開するところまでをアプリで行い、
 //! 差し替えと起動し直しは書き出した補助のスクリプトに任せてアプリは終了する。
@@ -341,7 +341,7 @@ fn extract_mac(archive: &Path, extract: &Path) -> Result<(), String> {
 
 /// 展開したフォルダの中のインストーラと marimo-hook.exe を返す。
 fn extract_windows(archive: &Path, extract: &Path) -> Result<(PathBuf, PathBuf), String> {
-    // インターネットから来た印（Zone.Identifier）が付いていると、Windows が実行の前に確認を出して /S の実行が止まるので、念のため外す。
+    // インターネットから来たことを示す Mark of the Web（Zone.Identifier）が付いていると、Windows が実行の前に確認を出して /S の実行が止まるので、念のため外す。
     let command = format!(
         "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; \
          Expand-Archive -LiteralPath {archive} -DestinationPath {extract}; \
@@ -455,7 +455,7 @@ fn detach(command: &mut Command) {
     command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
 }
 
-// リリースビルドのアプリはコンソールを持たないので、子のコンソール アプリを呼ぶたびに窓が開くのを止める。
+// リリースビルドのアプリはコンソールを持たないので、コンソール アプリを子プロセスとして呼ぶたびにウィンドウが開くのを止める。
 #[cfg(windows)]
 fn hide_console(command: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -466,7 +466,7 @@ fn hide_console(command: &mut Command) {
 #[cfg(not(windows))]
 fn hide_console(_: &mut Command) {}
 
-/// 終了コードが 0 でなければ failure を返す。子の stderr は利用者に見せる文に向かないので、端末にだけ書く。
+/// 終了コードが 0 でなければ failure を返す。子プロセスの stderr は利用者に見せる文に向かないので、端末にだけ書く。
 fn run(command: &mut Command, failure: &str) -> Result<Vec<u8>, String> {
     command.stdin(Stdio::null());
     hide_console(command);
@@ -855,7 +855,7 @@ try {
                 Write-Log "marimo（PID $($p.Id)）を終了できませんでした: $($_.Exception.Message)"
             }
         }
-        # 終了させたプロセスは、一覧を取り直すと片付く前の姿がまだ見えることがあるので、同じオブジェクトの終了を待つ。
+        # 終了させたプロセスは、一覧を取り直すと、終了処理が済む前のプロセスがまだ見えることがあるので、同じオブジェクトの終了を待つ。
         # それでも残るときは、動いているアプリを自分で閉じるインストーラに任せて先へ進む。
         $left = @($running | Where-Object { -not $_.WaitForExit(10000) })
         if ($left.Count -gt 0) {

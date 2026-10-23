@@ -182,7 +182,7 @@ fn host(event: &str, current: Option<&SessionState>) -> Option<HostProcess> {
 }
 
 // Hermes の入力は Claude Code の入力に読み替えてから、同じ規則で状態を決める。Hermes は gateway の
-// 裏で動き、フックの祖先のプロセスは会話のウィンドウではないので、起動元の手がかりは取らない。
+// バックグラウンドで動き、フックの祖先のプロセスは会話のウィンドウではないので、起動元の手がかりは取らない。
 fn hermes_hook() -> Result<(), String> {
     let input = read_stdin();
     let raw: hermes::HermesInput =
@@ -196,7 +196,7 @@ fn hermes_hook() -> Result<(), String> {
                 parsed.hook_event_name.as_str(),
                 "SessionStart" | "UserPromptSubmit"
             );
-            // 題名とリンクはターンの始まりに読み直す。会話の一覧はターンの前に gateway が書く。
+            // タイトルとリンクはターンの始まりに読み直す。会話の一覧はターンの前に gateway が書く。
             let meta = hermes_home
                 .as_deref()
                 .filter(|_| starts)

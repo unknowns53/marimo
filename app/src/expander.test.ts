@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { Expander, type ExpandTarget, type Point } from "./expander";
 
-// 件数の行（y 300〜320）と、開いたときにその上へ伸びる層（y 200〜316）。層の下端と行の間に
-// 隙間はないが、層の左右は行より 4 px 狭い。
+// 件数の行（y 300〜320）と、開いたときにその上へ伸びるレイヤー（y 200〜316）。レイヤーの下端と行の間に
+// 隙間はないが、レイヤーの左右は行より 4 px 狭い。
 const counts: ExpandTarget = {
   id: "counts",
   anchor: { x: 10, y: 300, w: 260, h: 20 },
   layer: { x: 14, y: 200, w: 252, h: 116 },
 };
-// 隙間のある作業中の要約（層が行から 8 px 離れて上にある）。
+// 隙間のある作業中の要約（レイヤーが行から 8 px 離れて上にある）。
 const working: ExpandTarget = {
   id: "working",
   anchor: { x: 10, y: 330, w: 260, h: 20 },

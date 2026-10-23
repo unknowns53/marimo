@@ -22,7 +22,7 @@ export interface HitRegions {
 // 素材を横 40 マスに縮めると、1 マスは倍率 1.0 で 4.5 px 四方になる。指先ほどの精度があれば
 // 足り、Rust 側へ送る量と判定の手間も小さく済む。縦のマス数は素材の縦横比から決め、マスを正方形に保つ。
 export const MASK_COLS = 40;
-// 縮小した画素のアルファがこれを超えるマスを不透明とみなす。髪の毛先のような薄い縁は拾わない。
+// 縮小した画素のアルファがこれを超えるマスを不透明とみなす。髪の毛先のような半透明のエッジは拾わない。
 const ALPHA_THRESHOLD = 24;
 
 export function maskFromAlpha(alpha: ArrayLike<number>, cols: number, rows: number): HitMask {
@@ -30,7 +30,7 @@ export function maskFromAlpha(alpha: ArrayLike<number>, cols: number, rows: numb
   return { cols, rows, bits: dilate(solid, cols, rows).map((b) => (b ? "1" : "0")).join("") };
 }
 
-// 縁ぎりぎりを狙ったクリックが下のウィンドウへ抜けないよう、1 マスぶん広げる。
+// エッジぎりぎりを狙ったクリックが下のウィンドウへ抜けないよう、1 マスぶん広げる。
 export function dilate(solid: boolean[], cols: number, rows: number): boolean[] {
   return solid.map((_, i) => {
     const cx = i % cols;
@@ -87,7 +87,7 @@ export function hitRegions(rects: (Rect | null)[], portrait: Portrait | null): H
 }
 
 /**
- * クリックを受け取る領域を Rust へ知らせる。窓は透明な部分のクリックを下のウィンドウへ通すので、
+ * クリックを受け取る領域を Rust へ知らせる。ウィンドウは透明な部分のクリックを下のウィンドウへ通すので、
  * 見た目が変わるたびに領域を送り直す。同じ内容なら送らない。
  */
 export class HitReporter {
@@ -96,7 +96,7 @@ export class HitReporter {
 
   constructor(private readonly collect: () => HitRegions) {}
 
-  /** 次の描画を待たずにすぐ送る。層を見せる前に、その領域を登録し終えておくために使う。 */
+  /** 次の描画を待たずにすぐ送る。レイヤーを見せる前に、その領域を登録し終えておくために使う。 */
   async flush(): Promise<void> {
     await this.send(this.collect());
   }

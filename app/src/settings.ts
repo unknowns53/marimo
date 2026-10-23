@@ -72,7 +72,7 @@ function render(next: SettingsState): void {
   showRangeValues();
 }
 
-// 選択肢を作り直すと開いている一覧が閉じるので、中身が変わったときだけ作り直す。
+// 選択肢を作り直すと開いている一覧が閉じるので、内容が変わったときだけ作り直す。
 function fillSelect(select: HTMLSelectElement, options: [string, string][]): void {
   const current = [...select.options].map((o) => [o.value, o.text]);
   if (JSON.stringify(current) === JSON.stringify(options)) return;

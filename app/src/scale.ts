@@ -12,7 +12,7 @@ export class ScaleControl {
   private applied: number;
   private lastWheel = 0;
 
-  /** onApplied は、Rust が範囲に収めて窓の大きさを変えたあとの倍率で呼ぶ。 */
+  /** onApplied は、Rust が範囲に収めてウィンドウの大きさを変えたあとの倍率で呼ぶ。 */
   constructor(
     initial: number,
     private readonly onApplied: (scale: number) => void = () => {},

@@ -13,16 +13,16 @@ marimo を新しいバージョンへ更新します。
 プレリリースも含めて、最も新しく公開された v で始まるリリースを取ってきます。
 
 .PARAMETER Main
-main の最新を取り込み、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
+main の最新を pull し、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
 
 .PARAMETER NoPull
-ブランチが main であることの確認と取り込みを省き、今チェックアウトしているコミットを使います。-Build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
+ブランチが main であることの確認と pull を省き、今チェックアウトしているコミットを使います。-Build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
 
 .PARAMETER Wait
 -Main か -NoPull と一緒に使います。CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
 
 .PARAMETER Build
-取ってくる代わりに手元でビルドします。-NoPull が無ければ、main の最新を取り込んでからビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
+取ってくる代わりにローカルでビルドします。-NoPull が無ければ、main の最新を pull してからビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
 #>
 [CmdletBinding()]
 param(
@@ -109,7 +109,7 @@ function Save-Url([string]$Url, [string]$Path) {
             $response = $_.Exception.Response
             if ($response) { return [int]$response.StatusCode }
             if ($attempt -gt 3) {
-                Fail "$Url を取得できませんでした。ネットワークにつながっているかを確かめてください。つながらないときは -Build で手元でビルドできます。（$($_.Exception.Message)）"
+                Fail "$Url を取得できませんでした。ネットワークにつながっているかを確かめてください。つながらないときは -Build でローカルでビルドできます。（$($_.Exception.Message)）"
             }
             Write-Host "取得できなかったので、5 秒後にやり直します（$attempt / 3 回目、$($_.Exception.Message)）"
             Start-Sleep -Seconds 5
@@ -153,7 +153,7 @@ function Save-Build([string]$Work, [string]$Base, [string]$NotReady, [string]$Wa
 
     $extract = Join-Path $Work 'extract'
     Expand-Archive -LiteralPath $archivePath -DestinationPath $extract
-    # インターネットから来た印（Zone.Identifier）が付いていると、Windows が実行の前に確認を出して /S の実行が止まるので、念のため外す。
+    # インターネットから来たことを示す Mark of the Web（Zone.Identifier）が付いていると、Windows が実行の前に確認を出して /S の実行が止まるので、念のため外す。
     Get-ChildItem -LiteralPath $extract -File | Unblock-File
     $extract
 }
@@ -210,7 +210,7 @@ function Get-ReleaseBuild([string]$Work) {
 
 $installDir = Join-Path $env:LOCALAPPDATA 'marimo'
 $installedExe = Join-Path $installDir 'marimo.exe'
-# 呼び出し元のセッションにある同じ名前の変数を、最後の片付けで消してしまわないよう空にしておく。
+# 呼び出し元のセッションにある同じ名前の変数を、終了時のクリーンアップで消してしまわないよう空にしておく。
 $work = $null
 
 Push-Location -LiteralPath $root
@@ -228,7 +228,7 @@ try {
             $dirty | ForEach-Object { Write-Host $_ }
             Fail '上のファイルにコミットしていない変更があります。コミットするか、git checkout -- <ファイル> で取り消してから実行してください。'
         }
-        Write-Host '最新の main を取り込んでいます'
+        Write-Host '最新の main を pull しています'
         Invoke-Native 'git' @('pull', '--ff-only')
     } elseif ($Build) {
         $branch = git branch --show-current
@@ -292,7 +292,7 @@ try {
                 Write-Host "marimo（PID $($p.Id)）を終了できませんでした: $($_.Exception.Message)"
             }
         }
-        # 終了させたプロセスは、一覧を取り直すと片付く前の姿がまだ見えることがあるので、同じオブジェクトの終了を待つ。
+        # 終了させたプロセスは、一覧を取り直すと、終了処理が済む前のプロセスがまだ見えることがあるので、同じオブジェクトの終了を待つ。
         # それでも残るときは、動いているアプリを自分で閉じるインストーラに任せて先へ進む。
         $left = @($running | Where-Object { -not $_.WaitForExit(10000) })
         if ($left.Count -gt 0) {

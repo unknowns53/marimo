@@ -4,20 +4,20 @@ import type { SessionState, Snapshot, Status } from "./types";
 export const STATUS_PRIORITY: readonly Status[] = ["waiting", "error", "working", "done", "idle"];
 
 // ツールごとに session_id を別々に振るので、同じ id が複数のツールにありうる。Claude Code の
-// セッションは以前のバージョンと同じ鍵のままにして、保存してある既読の記録をそのまま使えるようにする。
+// セッションは以前のバージョンと同じキーのままにして、保存してある既読の記録をそのまま使えるようにする。
 export function sessionKey(s: Pick<SessionState, "session_id" | "provider">): string {
   return s.provider && s.provider !== "claude" ? `${s.provider}:${s.session_id}` : s.session_id;
 }
 
-// きっかけは「どのセッションが、いつから、どの状態か」で見分ける。status_since を含めるので、
-// 同じセッションが一度別の状態を経て同じ状態へ戻れば、新しいきっかけになる。
+// トリガーは「どのセッションが、いつから、どの状態か」で見分ける。status_since を含めるので、
+// 同じセッションが一度別の状態を経て同じ状態へ戻れば、新しいトリガーになる。
 export function triggerKey(s: SessionState): string {
   return `${sessionKey(s)}:${s.status}:${s.status_since}`;
 }
 
 /**
- * 利用者が「見た」と示したきっかけの集まり。吹き出しを押して閉じたときと、行を押してセッションへ
- * 移動したときに加える。吹き出しはこれに含まれるきっかけを再び出さず、パネルは完了とエラーの行を畳む。
+ * 利用者が「見た」と示したトリガーの集まり。吹き出しを押して閉じたときと、行を押してセッションへ
+ * 移動したときに加える。吹き出しはこれに含まれるトリガーを再び出さず、パネルは完了とエラーの行を折りたたむ。
  * 再起動のたびに同じ完了やエラーをまた知らせないよう、変わるたびに onChange で保存してもらう。
  */
 export class Acknowledged {
@@ -40,7 +40,7 @@ export class Acknowledged {
     return this.keys.has(triggerKey(session));
   }
 
-  // 記録は、そのきっかけが続いている間だけ要る。
+  // 記録は、そのトリガーが続いている間だけ要る。
   prune(snapshot: Snapshot | null): void {
     const live = new Set((snapshot?.sessions ?? []).map(triggerKey));
     let changed = false;
@@ -55,8 +55,8 @@ export class Acknowledged {
 }
 
 /**
- * 見たと示せば既読として畳む状態。完了とエラーはターンが終わった後の状態で、次のプロンプトを送るまで
- * 続く。承認待ちは利用者が応じるまでエージェントが止まっているので、見ただけでは畳まない。
+ * 見たと示せば既読として折りたたむ状態。完了とエラーはターンが終わった後の状態で、次のプロンプトを送るまで
+ * 続く。承認待ちは利用者が応じるまでエージェントが止まっているので、見ただけでは折りたたまない。
  */
 export const MARKABLE: ReadonlySet<Status> = new Set(["done", "error"]);
 

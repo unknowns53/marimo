@@ -64,7 +64,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     write_atomic_with(path, bytes, false)
 }
 
-/// 作り直せないユーザーの設定に使う。中身をディスクへ書き切ってから置き換えるので、電源が落ちても
+/// 作り直せないユーザーの設定に使う。内容をディスクへ書き切ってから置き換えるので、電源が落ちても
 /// 古い内容か新しい内容のどちらかが残り、空のファイルにはならない。
 pub fn write_json_durable<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     let bytes = serde_json::to_vec_pretty(value).map_err(io::Error::other)?;
@@ -197,7 +197,7 @@ pub struct HookExtras {
     pub origin: Option<Origin>,
     pub transcript: Option<TranscriptTail>,
     pub rollout: Option<RolloutTail>,
-    /// Codex の session_index.jsonl か、Hermes のセッションの一覧から読んだ題名。
+    /// Codex の session_index.jsonl か、Hermes のセッションの一覧から読んだタイトル。
     pub title: Option<String>,
     /// Hermes のセッションの一覧から組み立てた、行を押したときに開く URL。
     pub link: Option<String>,
@@ -291,7 +291,7 @@ pub fn apply_context(
     update_existing(home, provider, session_id, |s| s.context = Some(context))
 }
 
-/// 状態を変えずに、題名だけを書き換える。apply_context と同じく、まだ無いセッションには書かない。
+/// 状態を変えずに、タイトルだけを書き換える。apply_context と同じく、まだ無いセッションには書かない。
 pub fn apply_title(
     home: &MarimoHome,
     provider: Provider,
@@ -394,7 +394,7 @@ struct LastResponse {
     seen_at: u64,
 }
 
-/// statusLine は応答が届いたときのほかに、prompt cache が期限を迎えたときや利用制限の窓が
+/// statusLine は応答が届いたときのほかに、prompt cache が期限を迎えたときや利用制限のウィンドウが
 /// 戻ったときにも呼ばれる（statusline のドキュメントの When it updates の節）。そのときも入力の
 /// rate_limits はそのセッションが最後の応答で受け取った値のままなので、放置しているセッションが
 /// 古い値を送ってくる。そこで、セッションごとに cost.total_api_duration_ms を覚えておき、前回より
@@ -604,7 +604,7 @@ fn release_orphan(session: &SessionState, now_ms: u64) -> Option<SessionState> {
     interrupt(session, |_| false, now_ms)
 }
 
-// Claude Code が裏で用意しておく予備のプロセス（claude bg-spare）は、自分の session_id で SessionStart を
+// Claude Code がバックグラウンドで用意しておく予備のプロセス（claude bg-spare）は、自分の session_id で SessionStart を
 // 送るので待機の行を作り、使われないまま終わっても SessionEnd を送らない。待機の行はパネルに出ないので、
 // まだ動いているセッションのものを消しても、次のフックで作り直されるまで見え方は変わらない。
 fn abandoned(session: &SessionState) -> bool {
@@ -613,7 +613,7 @@ fn abandoned(session: &SessionState) -> bool {
 
 // 利用者が応答を止めると Stop は発火せず、デスクトップアプリは待機の通知（idle_prompt）も送らない。
 // 止めた後に次のプロンプトを送っていれば、会話ログがまだ追いついていないだけなので触らない。
-// 裏で動くサブエージェントは止めた後も動き続けてフックを送るので、止めた後に動きのあったものは残す。
+// バックグラウンドで動くサブエージェントは止めた後も動き続けてフックを送るので、止めた後に動きのあったものは残す。
 fn release_interrupted(
     session: &SessionState,
     turn: LastTurn,
@@ -968,13 +968,13 @@ mod tests {
             }),
             ..HookExtras::default()
         };
-        apply_hook(&home, &stop, &with_title(Some("デスクトップの題名"))).unwrap();
+        apply_hook(&home, &stop, &with_title(Some("デスクトップのタイトル"))).unwrap();
         assert_eq!(
             read_session(&home, Provider::Claude, "s1")
                 .unwrap()
                 .title
                 .as_deref(),
-            Some("デスクトップの題名")
+            Some("デスクトップのタイトル")
         );
         apply_hook(&home, &stop, &with_title(None)).unwrap();
         assert_eq!(
@@ -982,7 +982,7 @@ mod tests {
                 .unwrap()
                 .title
                 .as_deref(),
-            Some("デスクトップの題名")
+            Some("デスクトップのタイトル")
         );
     }
 
@@ -1089,7 +1089,7 @@ mod tests {
                 }),
                 rate_limits: Some(codex_limits(10, 5.0)),
             }),
-            title: Some("Codex の題名".to_owned()),
+            title: Some("Codex のタイトル".to_owned()),
             ..HookExtras::default()
         };
         codex(
@@ -1100,7 +1100,7 @@ mod tests {
         assert!(home.sessions_dir().join("codex-s1.json").exists());
         let c = read_session(&home, Provider::Codex, "s1").unwrap();
         assert_eq!((c.provider, c.status), (Provider::Codex, Status::Done));
-        assert_eq!(c.title.as_deref(), Some("Codex の題名"));
+        assert_eq!(c.title.as_deref(), Some("Codex のタイトル"));
         let ctx = c.context.unwrap();
         assert_eq!(ctx.used_percentage, Some(50.0));
         assert_eq!(ctx.source.as_deref(), Some("codex-rollout"));

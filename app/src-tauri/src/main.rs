@@ -1,4 +1,4 @@
-// リリースビルドの Windows でコンソール窓を開かないようにする。
+// リリースビルドの Windows でコンソールウィンドウを開かないようにする。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod acknowledged;
@@ -29,9 +29,9 @@ struct AppState {
     // 知らされるまでは前回保存した比を使う。
     aspect: Mutex<f64>,
     tray: OnceLock<tray::Tray>,
-    // フロントエンドが既読にしたきっかけ。メニューバーのアイコンを決めるのに使う。
+    // フロントエンドが既読にしたトリガー。メニューバーのアイコンを決めるのに使う。
     acknowledged: Mutex<HashSet<String>>,
-    // 立ち絵を置いている窓の隅。窓を置いた場所で Rust が決め、フロントエンドは配置を合わせる。
+    // 立ち絵を置いているウィンドウの隅。ウィンドウを置いた場所で Rust が決め、フロントエンドは配置を合わせる。
     corner: Mutex<window_pos::Corner>,
 }
 
@@ -47,7 +47,7 @@ impl AppState {
 
 const LAYOUT_EVENT: &str = "layout";
 
-// 大きさを変えるのはいつも立ち絵の窓なので、呼び出し元の窓ではなくラベルで取る。
+// 大きさを変えるのはいつも立ち絵のウィンドウなので、呼び出し元のウィンドウではなくラベルで取る。
 fn resize(app: &AppHandle, scale: f64, aspect: f64) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -57,7 +57,7 @@ fn resize(app: &AppHandle, scale: f64, aspect: f64) {
     window_pos::resize_keeping_corner(&window, (w, h), corner);
 }
 
-// 窓を置き終えた位置に合わせて立ち絵の隅を選び直し、変わったらフロントエンドに配置を切り替えさせる。
+// ウィンドウを置き終えた位置に合わせて立ち絵の隅を選び直し、変わったらフロントエンドに配置を切り替えさせる。
 fn relayout(app: &AppHandle, pos: (i32, i32)) -> ((i32, i32), window_pos::Corner) {
     let state = app.state::<AppState>();
     let current = state.corner();
@@ -98,7 +98,7 @@ fn get_scale(state: State<'_, AppState>) -> f64 {
 }
 
 // 同期コマンドは Tauri のメインスレッドで順に実行されるので、ホイールで続けて
-// 呼ばれても窓の大きさの変更が入れ違うことはない。
+// 呼ばれてもウィンドウの大きさの変更が入れ違うことはない。
 #[tauri::command]
 fn set_scale(app: AppHandle, state: State<'_, AppState>, scale: f64) -> f64 {
     let scale = scale::clamp(scale);
@@ -120,8 +120,8 @@ fn set_panel_display(
     display: scale::PanelDisplay,
 ) -> Result<(), String> {
     scale::save_panel_display(&state.home, display).map_err(|e| e.to_string())?;
-    // 右クリックメニューやパネルの切り替えや設定の窓で変えた表示を、トレイのメニューの印にも揃える。
-    // トレイで選んだ表示はトレイ自身が保存して印を付けるので、ここは通らない。
+    // 右クリックメニューやパネルの切り替えや設定のウィンドウで変えた表示を、トレイのメニューのチェックにも揃える。
+    // トレイで選んだ表示はトレイ自身が保存してチェックを付けるので、ここは通らない。
     if let Some(tray) = state.tray.get() {
         tray.reflect(display);
     }
@@ -260,7 +260,7 @@ fn main() {
 
     tauri::Builder::default()
         // 二つ目の起動は、他のプラグインが動き出す前に止める必要があるので最初に登録する。
-        // 二つ目のプロセスはそのまま終わり、一つ目はトレイから隠していた窓を出し直す。
+        // 二つ目のプロセスはそのまま終わり、一つ目はトレイから隠していたウィンドウを出し直す。
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::set_visible(app, true);
         }))
@@ -333,7 +333,7 @@ fn main() {
         .expect("error while building marimo")
         .run(|_app, _event| {
             // 起動している .app を Finder などから開き直すと、macOS は二つ目のプロセスを作らずに
-            // 一つ目へ再度開く要求を送るので、single-instance の代わりにここで窓を出し直す。
+            // 一つ目へ再度開く要求を送るので、single-instance の代わりにここでウィンドウを出し直す。
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
                 tray::set_visible(_app, true);

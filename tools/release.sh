@@ -39,7 +39,7 @@ if [[ -n "$dirty" ]]; then
   fail "上のファイルにコミットしていない変更があります。コミットするか取り消してから実行してください。"
 fi
 
-echo "最新の main を取り込んでいます"
+echo "最新の main を pull しています"
 git pull --ff-only
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null || [[ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]]; then
   fail "タグ $tag はすでにあります。別のバージョンを指定してください。"

@@ -1,4 +1,4 @@
-"""立ち絵の素材一式を、生成した基準画像と表情差分から作る。
+"""立ち絵の素材のセットを、生成した基準画像と表情差分から作る。
 
 使い方（リポジトリ直下で実行する）:
     .venv/bin/python tools/character/build.py tools/character/koharu.json
@@ -57,9 +57,9 @@ def face_mask(ellipse, a_base):
 
 
 def matte(rgb, a_model, keep=None):
-    """rembg の透明度から trimap を作り、縁の帯だけを closed-form matting で解き直す。
+    """rembg の透明度から trimap を作り、エッジの帯状の領域だけを closed-form matting で解き直す。
 
-    rembg の透明度は髪の縁で不透明寄りに出て、縁の画素に背景のグレーが残る。そのまま
+    rembg の透明度は髪のエッジで不透明寄りに出て、エッジの画素に背景のグレーが残る。そのまま
     暗い壁紙へ重ねると輪郭が白く浮くので、帯の中の透明度と前景色を pymatting で推定し直す。
     """
     rgb01 = rgb / 255
@@ -75,7 +75,7 @@ def matte(rgb, a_model, keep=None):
     trimap[bg] = 0
     if keep is not None:
         # rembg は人物から離れた小さな記号を背景とみなして消すので、指定の矩形の中だけは
-        # 背景の色との差で前景と背景を決め、境目は matting に任せる
+        # 背景の色との差で前景と背景を決め、境界は matting に任せる
         dist = np.linalg.norm(rgb01 - bg_color, axis=2)
         trimap[keep] = np.where(dist[keep] > 60 / 255, 1, np.where(dist[keep] < 12 / 255, 0, 0.5))
     alpha = np.clip(estimate_alpha_cf(rgb01, trimap), 0, 1)
@@ -133,8 +133,8 @@ def compose(config, session):
 
 
 def render(rgb, alpha, fore, canvas):
-    # 不透明な画素は各差分の色を使い、半透明の縁は matting で推定した前景色を使う。
-    # 顔の差分は輪郭の帯より内側にしか及ばないので、基準から推定した縁を共有できる
+    # 不透明な画素は各差分の色を使い、半透明のエッジは matting で推定した前景色を使う。
+    # 顔の差分は輪郭の帯より内側にしか及ばないので、基準から推定したエッジを共有できる
     color = np.where((alpha > 0.999)[..., None], rgb / 255, fore)
     rgba = (np.dstack([color, alpha]) * 255 + 0.5).astype(np.uint8)
     # 縮小時に透明な画素の色が輪郭へ滲まないよう、乗算済みアルファの状態で縮小する
@@ -143,7 +143,7 @@ def render(rgb, alpha, fore, canvas):
 
 
 def preview(images, path):
-    # 暗い壁紙と明るい壁紙の両方に重ね、縁に背景のグレーが残っていないかを目で確かめるための一覧
+    # 暗い壁紙と明るい壁紙の両方に重ね、エッジに背景のグレーが残っていないかを目で確かめるための一覧
     tw, th = 240, 360
     sheet = Image.new("RGB", (tw * len(images), th * 2))
     for row, bg in enumerate([(40, 44, 52), (250, 248, 244)]):

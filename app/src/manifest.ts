@@ -62,14 +62,14 @@ export interface Character {
 
 /** index.json を読めないときにも、この名前の素材を試す。 */
 export const DEFAULT_CHARACTER = "koharu";
-// 縦横比の書かれていない素材の枠は、既定のキャラクターと同じにする。scale.rs の DEFAULT_ASPECT と揃える。
+// 縦横比の書かれていない素材の領域は、既定のキャラクターと同じにする。scale.rs の DEFAULT_ASPECT と揃える。
 export const DEFAULT_ASPECT = 1.5;
 
 export interface CharacterInfo {
   id: string;
   displayName: string;
   pixelated: boolean;
-  /** 縦横比は高さ ÷ 幅で持つ。枠の幅は固定なので、高さをこれで決める。 */
+  /** 縦横比は高さ ÷ 幅で持つ。立ち絵の領域の幅は固定なので、高さをこれで決める。 */
   aspect: number;
 }
 

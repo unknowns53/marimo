@@ -4,7 +4,7 @@
 //! `ctx.event.subscribe` で受けたものから選んで送ってくる。形は OpenCode の本体の定義
 //! （Session.Event、Permission、Form の各イベント）に従い、どのイベントも
 //! `{id, created, type, location?, data}` を持つ。プラグインは、イベントだけでは分からない値
-//! （ツールの名前、最後の応答の文章、モデルのコンテキストの上限、途中から見たセッションの題名と場所、
+//! （ツールの名前、最後の応答の文章、モデルのコンテキストの上限、途中から見たセッションのタイトルと場所、
 //! サブエージェントのイベントを書く親の行）を同じ JSON の最上位に足して送る。状態の決め方は Claude Code と
 //! 同じ規則を使うので、ここではイベント名とツールの名前と引数を Claude Code のものに置き換えるだけにする。
 
@@ -32,7 +32,7 @@ pub struct OpencodeInput {
     #[serde(default)]
     pub context_window: Option<u64>,
     /// プラグインが足す値。作成のイベントを見ていないセッションを初めて見たときに、OpenCode から
-    /// 引いた題名と作業フォルダを入れてくる。
+    /// 引いたタイトルと作業フォルダを入れてくる。
     #[serde(default)]
     pub session: Option<SessionMeta>,
     /// プラグインが足す値。サブエージェントのセッションのイベントに、親をたどった先の親を持たない
@@ -59,7 +59,7 @@ pub struct SessionMeta {
 pub enum Event {
     /// Claude Code のフックの入力に読み替えたもの。状態の遷移はこれで決める。
     Hook(Box<HookInput>),
-    /// 状態は変えず、題名だけを書き換える。
+    /// 状態は変えず、タイトルだけを書き換える。
     Title(String),
     /// 状態は変えず、コンテキストの使用量だけを書き換える。
     Context(ContextUsage),
@@ -93,7 +93,7 @@ impl OpencodeInput {
             .unwrap_or("")
     }
 
-    /// 行の題名。作成と改名のイベントが持つ題名か、プラグインが引いた題名を使う。
+    /// 行のタイトル。作成と改名のイベントが持つタイトルか、プラグインが引いたタイトルを使う。
     pub fn title(&self) -> Option<String> {
         let from_event = matches!(self.kind.as_str(), "session.created" | "session.renamed")
             .then(|| self.data.get("title").and_then(Value::as_str))
@@ -284,8 +284,8 @@ fn permission_tool(data: &Value) -> (String, Value) {
     (claude.to_owned(), input)
 }
 
-// フォームの各欄を質問として並べる。質問のツールは、問いの文を欄の説明（description）に、短い見出しを
-// 題（title）に入れ、選択肢を value と label の組にする。ほかのフォームは説明を持たないこともある。
+// フォームの各フィールドを質問として並べる。質問のツールは、問いの文をフィールドの説明（description）に、短い見出しを
+// 題（title）に入れ、選択肢を value と label のペアにする。ほかのフォームは説明を持たないこともある。
 fn questions(form: Option<&Value>) -> Value {
     let fields = form
         .and_then(|f| f.get("fields"))
@@ -318,7 +318,7 @@ fn questions(form: Option<&Value>) -> Value {
 }
 
 // ステップの終わりのトークン数は、そのステップでモデルに渡した入力と、次のステップでも会話に残る
-// 出力の和で、OpenCode の端末の画面がコンテキストの使用量として出す値と同じ数え方にする。
+// 出力の合計で、OpenCode の端末の画面がコンテキストの使用量として出す値と同じ数え方にする。
 // session.usage.updated はセッションの累計なので使わない。
 fn context(data: &Value, window: Option<u64>, now_ms: u64) -> Option<ContextUsage> {
     let tokens = data.get("tokens")?;
@@ -754,7 +754,7 @@ mod tests {
         };
         assert_eq!(looked_up.title().as_deref(), Some("引いた題"));
         assert_eq!(run(&[looked_up]).unwrap().cwd.as_deref(), Some("/w/b"));
-        // 題名は作成と改名のイベントか、プラグインが引いた値からだけ取る。
+        // タイトルは作成と改名のイベントか、プラグインが引いた値からだけ取る。
         assert_eq!(
             ev("session.execution.started", json!({ "title": "x" })).title(),
             None

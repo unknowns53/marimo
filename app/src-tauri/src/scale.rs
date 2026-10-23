@@ -11,23 +11,23 @@ pub const MAX: f64 = 2.5;
 pub const DEFAULT: f64 = 1.0;
 
 // style.css の配置と揃えておく必要があり、window_follows_stage_aspect が照合する。立ち絵（倍率 1.0 で
-// 幅 180、高さは幅に素材の縦横比を掛けたもの）を窓の隅の一つに固定し、パネル（幅 312）をその横に置く。
-// 倍率 1.0 で既定のキャラクターのときの窓の大きさは tauri.conf.json にも書く。
+// 幅 180、高さは幅に素材の縦横比を掛けたもの）をウィンドウの隅の一つに固定し、パネル（幅 312）をその横に置く。
+// 倍率 1.0 で既定のキャラクターのときのウィンドウの大きさは tauri.conf.json にも書く。
 const STAGE_W: f64 = 180.0;
-/// 立ち絵の縦横比（高さ ÷ 幅）。既定のキャラクターの素材 800×1200 の比で、比がまだ保存されていないときに窓を開くのに使う。
+/// 立ち絵の縦横比（高さ ÷ 幅）。既定のキャラクターの素材 800×1200 の比で、比がまだ保存されていないときにウィンドウを開くのに使う。
 pub const DEFAULT_ASPECT: f64 = 1.5;
-// 手で書き換えた manifest の極端な縦横比で、窓が画面を覆うほど大きくならないようにする。
+// 手で書き換えた manifest の極端な縦横比で、ウィンドウが画面を覆うほど大きくならないようにする。
 const MIN_ASPECT: f64 = 0.25;
 const MAX_ASPECT: f64 = 4.0;
 const PANEL_W: f64 = 312.0;
 const MARGIN: f64 = 8.0;
 // 吹き出しは立ち絵の頭の上に出すので、その分を立ち絵の上に空けておく。上の隅に置くときも、立ち絵の上端は
-// 窓の上端からこれだけ下にする。
+// ウィンドウの上端からこれだけ下にする。
 const BUBBLE_ROOM: f64 = 120.0;
 // パネルは行の増減や、件数の行に詳細を重ねたときに上へ伸びる。その最大の高さ。
 const PANEL_COLUMN_H: f64 = 380.0;
 
-/// パネルの地の不透明度。文字や点は薄くしないので、下限は地が見分けられるだけの濃さにする。
+/// パネルの背景の不透明度。文字や点は薄くしないので、下限は背景が見分けられるだけの濃さにする。
 pub const OPACITY_MIN: f64 = 0.2;
 pub const OPACITY_MAX: f64 = 1.0;
 pub const DEFAULT_OPACITY: f64 = 0.8;
@@ -84,7 +84,7 @@ impl RowOrder {
 pub const MAX_BUBBLE_SECONDS: u32 = 3600;
 
 /// 知らせの吹き出しは、承認待ち、完了、エラーの種類ごとに出すかどうかを選べる。
-/// 秒数が 0 のときは、押して閉じるか、きっかけが終わるまで出し続ける。
+/// 秒数が 0 のときは、押して閉じるか、トリガーが終わるまで出し続ける。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BubbleSettings {
     pub bubble_waiting: bool,
@@ -151,7 +151,7 @@ fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
     })
 }
 
-// 組み込みのキャラクターの一覧。フロントエンドもビルド時に写された同じファイルをメニューに使うので、
+// 組み込みのキャラクターの一覧。フロントエンドもビルド時にコピーされた同じファイルをメニューに使うので、
 // ここへ埋め込めば、保存してよい名前の一覧が両者でずれない。先頭が既定のキャラクターになる。
 const CHARACTER_INDEX: &str = include_str!("../../../assets/character/index.json");
 const FALLBACK_CHARACTER: &str = "koharu";
@@ -198,7 +198,7 @@ fn read_display(home: &MarimoHome) -> Display {
         .unwrap_or_default()
 }
 
-// 手で編集されたり壊れたりした値で窓が極端な大きさにならないよう、範囲外は既定値へ戻す。
+// 手で編集されたり壊れたりした値でウィンドウが極端な大きさにならないよう、範囲外は既定値へ戻す。
 pub fn load(home: &MarimoHome) -> f64 {
     read_display(home)
         .scale
@@ -212,8 +212,8 @@ pub fn save(home: &MarimoHome, scale: f64) -> io::Result<()> {
     store::write_json_durable(&home.display_file(), &d)
 }
 
-/// 新しい鍵も以前の panel_mode も保存されていなければ None を返し、フロントエンドに既定を決めさせる。
-/// 新しい鍵が一部だけのときは、残りを panel_mode の読み替えか既定で補う。並べ方と不透明度は
+/// 新しいキーも以前の panel_mode も保存されていなければ None を返し、フロントエンドに既定を決めさせる。
+/// 新しいキーが一部だけのときは、残りを panel_mode の読み替えか既定で補う。並べ方と不透明度は
 /// panel_mode の頃には無かったので、無いか解釈できない値なら既定にする。
 pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
     let d = read_display(home);
@@ -328,8 +328,8 @@ pub fn save_character(home: &MarimoHome, id: &str) -> io::Result<()> {
 }
 
 // 縦横比は選んだキャラクターの manifest にあり、読めるのはフロントエンドだけである。起動のたびに
-// 既定の比で窓を開いてから右下を保って縮めると、保存した左上がその差だけずれていくので、前回知らされた比を
-// 残しておき、窓を最初からその大きさで開く。
+// 既定の比でウィンドウを開いてから右下を保って縮めると、保存した左上がその差だけずれていくので、前回知らされた比を
+// 残しておき、ウィンドウを最初からその大きさで開く。
 pub fn load_aspect(home: &MarimoHome) -> f64 {
     read_display(home)
         .stage_aspect
@@ -367,14 +367,14 @@ pub fn clamp(scale: f64) -> f64 {
     (scale.clamp(MIN, MAX) * 100.0).round() / 100.0
 }
 
-// 行と吹き出しの文字は倍率で変えないので、窓は立ち絵が大きくなった分だけ広げる。
+// 行と吹き出しの文字は倍率で変えないので、ウィンドウは立ち絵が大きくなった分だけ広げる。
 pub fn window_size(scale: f64, aspect: f64) -> (f64, f64) {
     let width = MARGIN + PANEL_W + MARGIN + STAGE_W * scale + MARGIN;
     let height = PANEL_COLUMN_H.max(MARGIN + STAGE_W * aspect * scale + BUBBLE_ROOM);
     (width.round(), height.round())
 }
 
-/// style.css の #stage と同じ置き方で、窓の中の立ち絵の枠を返す。
+/// style.css の #stage と同じ置き方で、ウィンドウの中の立ち絵の領域を返す。
 pub fn stage_rect(scale: f64, aspect: f64, corner: Corner) -> StageRect {
     let (width, height) = window_size(scale, aspect);
     let (w, h) = (STAGE_W * scale, STAGE_W * aspect * scale);
@@ -493,7 +493,7 @@ mod tests {
             (r#"{"scale": 1.7}"#, None),
             (r#"{"panel_style": "bogus"}"#, None),
             (r#"{"row_order": "bogus"}"#, None),
-            // 新しい鍵は panel_mode より優先し、無い方だけを panel_mode の読み替えで補う。
+            // 新しいキーは panel_mode より優先し、無い方だけを panel_mode の読み替えで補う。
             (
                 r#"{"panel_mode": "list", "show_character": true, "panel_style": "counts"}"#,
                 Some((true, Counts, Started)),
@@ -704,7 +704,7 @@ mod tests {
         assert_eq!(load_character(&home), "koharu");
         for (content, expected) in [
             (r#"{"character": "koharu"}"#, "koharu"),
-            // Display が知らない鍵を含むファイルでも、ほかの鍵は読める。
+            // Display が知らないキーを含むファイルでも、ほかのキーは読める。
             (
                 r#"{"character": "clawd", "scale": 0.6, "usage_api": true}"#,
                 "clawd",
@@ -729,7 +729,7 @@ mod tests {
 
     #[test]
     fn window_follows_stage_aspect() {
-        // 倍率 1.0 の既定のキャラクターの大きさは tauri.conf.json の窓の大きさと同じになる。
+        // 倍率 1.0 の既定のキャラクターの大きさは tauri.conf.json のウィンドウの大きさと同じになる。
         let conf: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let declared = &conf["app"]["windows"][0];
@@ -740,7 +740,7 @@ mod tests {
                 declared["height"].as_f64().unwrap()
             )
         );
-        // 窓の中の配置は style.css が決めるので、同じ寸法を使っていることも確かめる。
+        // ウィンドウの中の配置は style.css が決めるので、同じ寸法を使っていることも確かめる。
         let css = include_str!("../../src/style.css");
         for (var, value) in [
             ("--stage-w", STAGE_W),

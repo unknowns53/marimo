@@ -20,7 +20,7 @@ serde.workspace = true
 serde_json.workspace = true
 # アプリの中からの更新で、取ってきたアーカイブを SHA256SUMS と照合する。
 sha2 = "0.10"
-# 透過した窓を macOS で出すには macos-private-api が要る。メニューバーと通知領域のアイコンに tray-icon を使う。
+# 透過したウィンドウを macOS で出すには macos-private-api が要る。メニューバーと通知領域のアイコンに tray-icon を使う。
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
@@ -48,7 +48,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 ] }
 
 [features]
-# 試験用のビルドで、カーソル位置の列を流し込んで開閉の動きを確かめるときだけ有効にする。
+# 試験用のビルドで、カーソル位置の系列を入力して開閉の動きを確かめるときだけ有効にする。
 cursor-replay = []
 
 [dev-dependencies]

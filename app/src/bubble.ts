@@ -55,8 +55,8 @@ function renderPhrases(node: HTMLElement, text: string): void {
 }
 
 /**
- * 折り返した文章の枠は CSS だけでは最大の幅のまま残り、行が短いと右に大きな余白ができる。
- * 描いた行の幅を測り、いちばん長い行に枠を合わせる。
+ * 折り返した文章のボックスは CSS だけでは最大の幅のまま残り、行が短いと右に大きな余白ができる。
+ * 描いた行の幅を測り、いちばん長い行にボックスの幅を合わせる。
  */
 export function fitToLines(node: HTMLElement): void {
   node.style.width = "";

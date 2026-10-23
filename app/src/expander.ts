@@ -7,9 +7,9 @@ export interface Point {
 
 export interface ExpandTarget {
   id: string;
-  /** 畳んだ状態の行（件数の行）。ここにとどまると開く。 */
+  /** 折りたたんだ状態の行（件数の行）。ここにとどまると開く。 */
   anchor: Rect;
-  /** 開いたときの層。開いている間、anchor と合わせた範囲にカーソルがあれば開いたままにする。 */
+  /** 開いたときのレイヤー。開いている間、anchor と合わせた範囲にカーソルがあれば開いたままにする。 */
   layer: Rect | null;
 }
 
@@ -24,7 +24,7 @@ export function contains(r: Rect, p: Point): boolean {
   return p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h;
 }
 
-// 行と層の間に隙間があっても、そこを通る間に閉じないよう、両方を囲む矩形で判定する。
+// 行とレイヤーの間に隙間があっても、そこを通る間に閉じないよう、両方を囲む矩形で判定する。
 export function union(a: Rect, b: Rect | null): Rect {
   if (!b) return a;
   const x = Math.min(a.x, b.x);
@@ -33,8 +33,8 @@ export function union(a: Rect, b: Rect | null): Rect {
 }
 
 /**
- * 畳んだ行を広げるかどうかを、時刻とカーソル位置と領域から決める。DOM のホバーには頼らない。
- * 窓は透明な部分でマウスのイベントを受け取らないので、層が広がった直後や層へ移る途中に DOM が
+ * 折りたたんだ行を広げるかどうかを、時刻とカーソル位置と領域から決める。DOM のホバーには頼らない。
+ * ウィンドウは透明な部分でマウスのイベントを受け取らないので、レイヤーが広がった直後やレイヤーへ移る途中に DOM が
  * mouseleave と判断してしまい、開閉を繰り返すからである。
  * 横切っただけで開かないよう、行に openDelayMs とどまってから開き、開いた範囲を出ても
  * closeDelayMs たつまでは閉じない。
@@ -50,14 +50,14 @@ export class Expander {
     return this.open?.id ?? null;
   }
 
-  /** 開いている層の範囲（行と層を囲む矩形）。親の層を開いたままにする判定にも使う。 */
+  /** 開いているレイヤーの範囲（行とレイヤーを囲む矩形）。親のレイヤーを開いたままにする判定にも使う。 */
   keepRegion(targets: ExpandTarget[]): Rect | null {
     const t = this.open && targets.find((x) => x.id === this.open?.id);
     return t ? union(t.anchor, t.layer) : null;
   }
 
   /**
-   * extraKeep は、この層の中でさらに開いている子の層の範囲。子の層が親の外へ伸びても、
+   * extraKeep は、このレイヤーの中でさらに開いている子のレイヤーの範囲。子のレイヤーが親の外へ伸びても、
    * その上にカーソルがある間は親を閉じない。
    */
   update(now: number, cursor: Point | null, targets: ExpandTarget[], extraKeep: Rect | null = null): string | null {

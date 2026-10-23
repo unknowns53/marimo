@@ -24,7 +24,7 @@ pub struct TranscriptUsage {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TranscriptTail {
     pub usage: Option<TranscriptUsage>,
-    /// 読んだ範囲で最後の custom-title の行の題名。範囲を広げてまでは探さない。
+    /// 読んだ範囲で最後の custom-title の行のタイトル。範囲を広げてまでは探さない。
     pub title: Option<String>,
 }
 
@@ -219,7 +219,7 @@ fn scan(buf: &[u8], starts_at_file_head: bool) -> TranscriptTail {
 }
 
 // custom-title の行は Claude Code のドキュメントに載っていない形式で、デスクトップアプリの会話ログに
-// 同じ題名が何度も書き足される。形が変わったら題名が出なくなるだけで済むよう、読めない行は捨てる。
+// 同じタイトルが何度も書き足される。形が変わったらタイトルが出なくなるだけで済むよう、読めない行は捨てる。
 fn parse_title(bytes: &[u8]) -> Option<String> {
     #[derive(Deserialize)]
     struct TitleLine {
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     fn takes_the_last_title_in_the_window() {
         let lines = vec![
-            title("最初の題名"),
+            title("最初のタイトル"),
             json!({"type": "agent-name", "agentName": "x"}).to_string(),
             assistant(usage(1, 2, 3), false),
             title(&format!("  {}  ", "長".repeat(300))),
@@ -425,7 +425,10 @@ mod tests {
         assert_eq!(t.chars().count(), crate::state::TITLE_MAX_CHARS);
         assert!(t.starts_with('長'));
 
-        let got = read_tail(write(&[title("題名だけ")], "").path()).unwrap();
-        assert_eq!((got.usage, got.title.as_deref()), (None, Some("題名だけ")));
+        let got = read_tail(write(&[title("タイトルだけ")], "").path()).unwrap();
+        assert_eq!(
+            (got.usage, got.title.as_deref()),
+            (None, Some("タイトルだけ"))
+        );
     }
 }

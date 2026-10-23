@@ -42,7 +42,7 @@ pub const CODEX_EVENTS: [&str; 10] = [
 /// Codex のフックに登録するコマンドの文字列。Codex のハンドラには args が無く、command は常に
 /// シェルを通して実行される（codex-rs/hooks/src/engine/command_runner.rs の build_command）。
 /// Unix では sh 系のシェルなので単一引用符で引用する。Windows では PowerShell か cmd のどちらに
-/// 渡るかが利用者の設定で変わり、cmd /C には全体を二重引用符で包んで渡されるので、どちらでも
+/// 渡るかが利用者の設定で変わり、cmd /C には全体を二重引用符で囲んで渡されるので、どちらでも
 /// 同じ一つのパスとして読まれる一語のパスだけを使い、そう書けなければ None を返す。
 pub fn codex_hook_command(exe_path: &str, windows: bool) -> Option<String> {
     let exe = if windows {
@@ -78,7 +78,7 @@ enum StatusLinePolicy {
     // 両者で引用の規則が違うので、どちらのシェルでも同じように読める引用なしの語だけで書く。
     // plain は marimo-hook のパスをそう書いた一語で、そう書けないときは None になる。
     // 既存のコマンドも、同じように読める語を空白一つずつで並べたものに限って、sh -c を介さず
-    // そのまま -- の後ろに続けて包む。
+    // そのまま -- の後ろに続けてラップする。
     ShellAgnostic { plain: Option<String> },
 }
 
@@ -176,8 +176,8 @@ impl Marimo {
         }
     }
 
-    // wrapped_statusline が包む前の元のコマンドを返す。Windows でも、以前のバージョンは sh -c の形で
-    // 包んでいたので、その形も読む。
+    // wrapped_statusline がラップする前の元のコマンドを返す。Windows でも、以前のバージョンは sh -c の形で
+    // ラップしていたので、その形も読む。
     fn unwrapped_statusline(&self, rest: &str) -> Option<String> {
         let tail = rest.strip_prefix(" -- ")?;
         if matches!(self.status_line, StatusLinePolicy::ShellAgnostic { .. }) && plain_words(tail) {
@@ -573,7 +573,7 @@ fn uninstall_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> Stat
             }
         }
         None => StatusLineChange::Untouched {
-            reason: "statusLine は marimo が包んだ形として読み取れないので、そのままにしました"
+            reason: "statusLine は marimo がラップした形として読み取れないので、そのままにしました"
                 .to_owned(),
         },
     }
@@ -635,7 +635,7 @@ fn quote_always(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
-// quote_always の逆。marimo が包んだ形だけを読めればよいので、単一引用符の区間と
+// quote_always の逆。marimo がラップした形だけを読めればよいので、単一引用符の区間と
 // \ で逃がした文字だけからなる一語を受け付け、それ以外は None にする。
 fn unquote_single_word(word: &str) -> Option<String> {
     let mut out = String::new();
@@ -916,7 +916,7 @@ mod tests {
         uninstall(&mut settings, &outside).unwrap();
         assert_eq!(settings, json!({}));
 
-        // 既存の statusLine は、どちらのシェルでも同じ語に分かれる場合だけ -- の後ろへそのまま続けて包み、
+        // 既存の statusLine は、どちらのシェルでも同じ語に分かれる場合だけ -- の後ろへそのまま続けてラップし、
         // uninstall で元に戻す。sh -c で始まっていても、引用符が無ければ元のコマンドの一部として扱う。
         let exe = "~/.marimo/bin/marimo-hook.exe";
         let cases = [
@@ -980,7 +980,7 @@ mod tests {
             assert_eq!(settings, original, "{command:?}");
         }
 
-        // 以前のバージョンが Windows でも sh -c の形で包んでいたものは、その形のまま元に戻す。
+        // 以前のバージョンが Windows でも sh -c の形でラップしていたものは、その形のまま元に戻す。
         let legacy = "C:/Users/user/.marimo/bin/marimo-hook.exe statusline -- sh -c 'bash ~/.claude/statusline.sh'";
         let mut settings = json!({"statusLine": {"type": "command", "command": legacy}});
         let report = install(&mut settings, &m).unwrap();
@@ -1007,7 +1007,7 @@ mod tests {
             settings["hooks"]["Stop"][0]["hooks"][0]["command"],
             r"D:\My Tools\marimo-hook.exe"
         );
-        // 既存の statusLine も包めない。
+        // 既存の statusLine もラップできない。
         let original =
             json!({"statusLine": {"type": "command", "command": "bash C:/statusline.sh"}});
         let mut settings = original.clone();

@@ -2,14 +2,14 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const LABEL: &str = "settings";
 
-/// 設定の状態はメインの窓が持つので、この窓は中身を出すだけで、何を表示するかは settings.ts が
-/// メインの窓に問い合わせて決める。
+/// 設定の状態はメインのウィンドウが持つので、このウィンドウは内容を出すだけで、何を表示するかは settings.ts が
+/// メインのウィンドウに問い合わせて決める。
 #[tauri::command]
 pub fn open_settings(app: AppHandle) {
     open(&app);
 }
 
-/// Windows の WebView2 は窓を作るときにメインスレッドのメッセージループを要するので、メインスレッドで
+/// Windows の WebView2 はウィンドウを作るときにメインスレッドのメッセージループを要するので、メインスレッドで
 /// 待つ同期コマンドやメニューのイベントからは作らず、非同期の実行環境へ回す。
 pub fn open(app: &AppHandle) {
     let app = app.clone();
@@ -35,7 +35,7 @@ fn show(app: &AppHandle) -> tauri::Result<()> {
             .center()
             .build()?,
     };
-    // macOS では Accessory のアプリは前面のアプリにならないので、窓を出しただけでは使っているアプリの
-    // 後ろに開く。set_focus はアプリを activate してから窓をキーボードの入力先にする。
+    // macOS では Accessory のアプリは前面のアプリにならないので、ウィンドウを出しただけでは使っているアプリの
+    // 後ろに開く。set_focus はアプリを activate してからウィンドウをキーボードの入力先にする。
     window.set_focus()
 }

@@ -5,7 +5,7 @@ use std::io;
 use marimo_core::{MarimoHome, SessionState, Snapshot, Status, aggregate, store};
 use serde::Serialize;
 
-// フロントエンドは続いているきっかけの分しか残さないので、ふつうは数件で済む。壊れた値や
+// フロントエンドは続いているトリガーの分しか残さないので、ふつうは数件で済む。壊れた値や
 // 手で書き換えた値で読み込みが重くならないよう、上限を超えた分は捨てる。
 const MAX_KEYS: usize = 1000;
 
@@ -24,7 +24,7 @@ pub fn save(home: &MarimoHome, keys: &[String]) -> io::Result<()> {
     store::write_json_durable(&home.acknowledged_file(), &kept)
 }
 
-/// フロントエンドの triggerKey（app/src/acknowledged.ts）と同じ形の鍵。既読の集合はフロントエンドが
+/// フロントエンドの triggerKey（app/src/acknowledged.ts）と同じ形のキー。既読の集合はフロントエンドが
 /// この形で作って送ってくるので、一文字でも違うと既読を見落とす。両方のテストで同じ文字列を確かめている。
 pub fn trigger_key(s: &SessionState) -> String {
     let id = if s.provider == marimo_core::Provider::Claude {
@@ -44,7 +44,7 @@ fn serde_name<T: Serialize>(value: T) -> String {
 }
 
 /// 既読にした完了とエラーを待機とみなした集約。フロントエンドの withAcknowledged と同じ規則で、
-/// メニューバーのアイコンが、画面では畳んだエラーを出し続けないようにする。
+/// メニューバーのアイコンが、画面では折りたたんだエラーを出し続けないようにする。
 pub fn effective_aggregate(snapshot: &Snapshot, read: &HashSet<String>) -> Status {
     aggregate(snapshot.sessions.iter().map(|s| {
         let markable = matches!(s.status, Status::Done | Status::Error);
@@ -123,7 +123,7 @@ mod tests {
                 read.clone(),
                 Status::Idle,
             ),
-            // 承認待ちは見ただけでは畳まないので、既読の集合にあっても下げない。
+            // 承認待ちは見ただけでは折りたたまないので、既読の集合にあっても下げない。
             (
                 vec![error.clone(), waiting.clone()],
                 read.clone(),
