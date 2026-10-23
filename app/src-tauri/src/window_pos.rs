@@ -182,11 +182,14 @@ fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> (Corner
     let saved = fs::read(home.window_file())
         .ok()
         .and_then(|b| serde_json::from_slice::<SavedPosition>(&b).ok())
-        // モニタの構成が変わって保存した位置が画面外になった場合は、既定の位置へ戻す。
+        // モニタの構成が変わって保存した位置が画面外になった場合は、既定の位置へ戻す。macOS は画面がスリープしている
+        // 間のモニタを CGGetActiveDisplayList に含めず、一覧が空になる。そのときは画面外かどうか分からないので、
+        // 保存した位置をそのまま使う。
         .filter(|p| {
-            displays
-                .iter()
-                .any(|d| d.bounds.contains(p.x + 16, p.y + 16))
+            displays.is_empty()
+                || displays
+                    .iter()
+                    .any(|d| d.bounds.contains(p.x + 16, p.y + 16))
         });
     let Some(p) = saved else {
         let (x, y) = match default_position(screen, w, h) {
@@ -538,11 +541,24 @@ mod tests {
     }
 
     // 画面を持たないウィンドウ。モニタは一つで、上端 50 物理 px をメニューバーが使う。macOS と同じく、大きさと位置の
-    // 変更は outer() に返らず、読み返すといつも開いたときの矩形が返る。
+    // 変更は outer() に返らず、読み返すといつも開いたときの矩形が返る。`asleep` は画面がスリープしている間で、
+    // macOS と同じくモニタの一覧が空になり、主モニタだけが取れる。
     struct FakeScreen {
         outer: Rect,
         placed: Cell<Rect>,
+        asleep: bool,
     }
+
+    const DISPLAY: Display = Display {
+        bounds: Rect {
+            x: 0,
+            y: 0,
+            w: 3000,
+            h: 1950,
+        },
+        work: SCREEN,
+        factor: 2.0,
+    };
 
     impl Screen for FakeScreen {
         fn factor(&self) -> f64 {
@@ -552,18 +568,10 @@ mod tests {
             Some(self.outer)
         }
         fn displays(&self) -> Vec<Display> {
-            vec![Display {
-                bounds: Rect {
-                    y: 0,
-                    h: 1950,
-                    ..SCREEN
-                },
-                work: SCREEN,
-                factor: 2.0,
-            }]
+            if self.asleep { vec![] } else { vec![DISPLAY] }
         }
         fn primary(&self) -> Option<Display> {
-            self.displays().pop()
+            Some(DISPLAY)
         }
         fn current(&self) -> Option<Display> {
             self.primary()
@@ -606,10 +614,11 @@ mod tests {
         // 既定の位置は作業領域の右下から 24 論理 px 内側。
         let default = (3000 - 1000 - 48, 1950 - 800 - 48);
         let cases = [
-            ("first start", None, BR, default, None),
+            ("first start", None, false, BR, default, None),
             (
                 "old file at the top left",
                 Some(r#"{"x":100,"y":100}"#),
+                false,
                 tl,
                 (708, 104),
                 Some(saved(708, 104, tl)),
@@ -617,6 +626,7 @@ mod tests {
             (
                 "saved corner",
                 Some(r#"{"x":708,"y":104,"left":true,"top":true}"#),
+                false,
                 tl,
                 (708, 104),
                 Some(saved(708, 104, tl)),
@@ -624,12 +634,21 @@ mod tests {
             (
                 "off screen",
                 Some(r#"{"x":9000,"y":9000}"#),
+                false,
                 BR,
                 default,
                 Some(saved(9000, 9000, BR)),
             ),
+            (
+                "display asleep",
+                Some(r#"{"x":1900,"y":1000}"#),
+                true,
+                BR,
+                (1900, 1000),
+                Some(saved(1900, 1000, BR)),
+            ),
         ];
-        for (label, file, corner, (x, y), after) in cases {
+        for (label, file, asleep, corner, (x, y), after) in cases {
             let dir = tempfile::tempdir().unwrap();
             let home = MarimoHome::at(dir.path());
             if let Some(json) = file {
@@ -645,6 +664,7 @@ mod tests {
             let screen = FakeScreen {
                 outer: opened,
                 placed: Cell::new(opened),
+                asleep,
             };
             assert_eq!(
                 start(&screen, &home, (500.0, 400.0), stage),
