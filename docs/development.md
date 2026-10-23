@@ -275,6 +275,10 @@ npm test
 npm run build
 ```
 
+立ち絵、パネル、吹き出しの配置は、`npm run test:visual` で確かめます。Playwright（ブラウザを操作するテストツール）が headless の Chromium（画面に窓を出さないブラウザ）で `index.html` を開き、Tauri の `invoke` と `listen` を `@tauri-apps/api/mocks` の偽物に差し替えて、四つの隅の配置と、立ち絵を押したときの詳細と件数の切り替えを確かめます。画面には何も出ないので、作業中の画面の邪魔をしません。各隅の画面写真は `app/test-results/` に残ります。初めて使うときは、`npx playwright install chromium` でブラウザを取得しておきます。CI ではこのテストを実行していません。
+
+窓を置く位置と隅の選び直し（`app/src-tauri/src/window_pos.rs`）は、窓の操作を `Screen` という trait（Rust で操作の口だけを決める仕組み）の後ろに置いているので、`cargo test` の中で画面を持たない偽物の窓を使って、起動から保存までの流れを確かめています。
+
 GitHub Actions の CI（`.github/workflows/ci.yml`）は、main への push と pull request のたびに、macOS と Windows の両方で上の検査を走らせます。画面部分のビルドとテスト、clippy、`cargo test --workspace` を実行し、`cargo fmt --check` は macOS だけで実行します。clippy は警告も失敗として扱います。Windows 向けのコードも Windows の上でビルドしてテストするので、上の型検査だけでは分からない食い違いもここで見つかります。
 
 main への push では、両方の OS で検査が通ったあとに、更新用のスクリプトが取ってくるビルドを作って公開します。macOS では GitHub が用意する arm64 の Mac の上で `marimo.app` と `marimo-hook` をビルドし、シンボリックリンクと実行の権限が保たれるよう tar で `marimo-macos-arm64.tar.gz` にまとめます。Windows では x64 の Windows の上で NSIS（Windows 向けのインストーラを作る仕組み）のインストーラと `marimo-hook.exe` をビルドし、`marimo-windows-x64.zip` にまとめます。両方のビルドが成功したときだけ、二つのファイルとそのチェックサムを書いた `SHA256SUMS` を、GitHub のプレリリースとして公開します。プレリリースには、そのコミットを指す `build-<コミットのハッシュの先頭 12 文字>` という名前のタグを付けます。更新用のスクリプトは、`--main` や `--no-pull` を付けたときに、この名前でビルドを探します（[更新する](usage.md#更新する)を参照）。失敗した実行をやり直したときは、同じプレリリースのファイルを差し替えます。

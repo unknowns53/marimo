@@ -8,6 +8,10 @@ target/
 node_modules/
 app/dist/
 
+# Playwright の結果と画面写真
+app/test-results/
+app/playwright-report/
+
 # Tauri が生成するスキーマ
 app/src-tauri/gen/
 

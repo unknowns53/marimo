@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use marimo_core::{MarimoHome, store};
 use serde::{Deserialize, Serialize};
-use tauri::{LogicalSize, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
+use tauri::{Monitor, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
 
 // ドラッグ中は Moved が連続して届くので、止まってから一度だけ書く。
 const SAVE_AFTER: Duration = Duration::from_millis(400);
@@ -29,7 +29,7 @@ pub struct StageRect {
 }
 
 // 隅を持たない以前の window.json は、右下に置いていた窓の位置である。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct SavedPosition {
     x: i32,
     y: i32,
@@ -47,60 +47,181 @@ pub struct Rect {
     pub h: i32,
 }
 
-/// 保存した位置と隅を戻し、戻した隅を返す。
-pub fn restore(window: &WebviewWindow, home: &MarimoHome, size: LogicalSize<f64>) -> Corner {
-    let physical: PhysicalSize<u32> = size.to_physical(window.scale_factor().unwrap_or(1.0));
-    let _ = window.set_size(physical);
-    let (w, h) = (physical.width as i32, physical.height as i32);
+impl Rect {
+    fn contains(&self, x: i32, y: i32) -> bool {
+        let (x, y) = (i64::from(x), i64::from(y));
+        x >= i64::from(self.x)
+            && y >= i64::from(self.y)
+            && x < i64::from(self.x) + i64::from(self.w)
+            && y < i64::from(self.y) + i64::from(self.h)
+    }
+}
 
-    let monitors = window.available_monitors().unwrap_or_default();
+/// モニタの全体と、メニューバーやタスクバーを除いた作業領域。どちらも物理 px。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Display {
+    pub bounds: Rect,
+    pub work: Rect,
+    pub factor: f64,
+}
+
+/// 窓の位置と大きさを読み書きする口。本物は WebviewWindow で、テストでは画面を持たない偽物を渡し、
+/// 起動、移動、大きさの変更の流れを画面に何も出さずに確かめる。
+pub trait Screen {
+    fn factor(&self) -> f64;
+    /// 窓の外枠。物理 px。
+    fn outer(&self) -> Option<Rect>;
+    fn displays(&self) -> Vec<Display>;
+    fn primary(&self) -> Option<Display>;
+    /// 窓が今いるモニタ。どのモニタにも入らない位置のときに使う。
+    fn current(&self) -> Option<Display>;
+    fn set_size(&self, w: i32, h: i32);
+    fn set_position(&self, x: i32, y: i32) -> bool;
+}
+
+fn display(monitor: Monitor) -> Display {
+    let (origin, size, area) = (monitor.position(), monitor.size(), monitor.work_area());
+    Display {
+        bounds: Rect {
+            x: origin.x,
+            y: origin.y,
+            w: size.width as i32,
+            h: size.height as i32,
+        },
+        work: Rect {
+            x: area.position.x,
+            y: area.position.y,
+            w: area.size.width as i32,
+            h: area.size.height as i32,
+        },
+        factor: monitor.scale_factor(),
+    }
+}
+
+impl Screen for WebviewWindow {
+    fn factor(&self) -> f64 {
+        self.scale_factor().unwrap_or(1.0)
+    }
+
+    fn outer(&self) -> Option<Rect> {
+        let (pos, size) = (self.outer_position().ok()?, self.outer_size().ok()?);
+        Some(Rect {
+            x: pos.x,
+            y: pos.y,
+            w: size.width as i32,
+            h: size.height as i32,
+        })
+    }
+
+    fn displays(&self) -> Vec<Display> {
+        self.available_monitors()
+            .unwrap_or_default()
+            .into_iter()
+            .map(display)
+            .collect()
+    }
+
+    fn primary(&self) -> Option<Display> {
+        self.primary_monitor().ok().flatten().map(display)
+    }
+
+    fn current(&self) -> Option<Display> {
+        self.current_monitor().ok().flatten().map(display)
+    }
+
+    fn set_size(&self, w: i32, h: i32) {
+        let _ = WebviewWindow::set_size(self, PhysicalSize::new(w.max(1) as u32, h.max(1) as u32));
+    }
+
+    fn set_position(&self, x: i32, y: i32) -> bool {
+        WebviewWindow::set_position(self, PhysicalPosition::new(x, y)).is_ok()
+    }
+}
+
+fn to_physical(size: (f64, f64), factor: f64) -> (i32, i32) {
+    (
+        (size.0 * factor).round() as i32,
+        (size.1 * factor).round() as i32,
+    )
+}
+
+fn work_at(screen: &impl Screen, x: i32, y: i32) -> Option<Rect> {
+    screen
+        .displays()
+        .into_iter()
+        .find(|d| d.bounds.contains(x, y))
+        .or_else(|| screen.current())
+        .map(|d| d.work)
+}
+
+/// 窓を開くときに、保存した位置と隅を戻してから、置き場所に合う隅を選び直す。選び直して窓を動かしたら
+/// 保存する。窓を出す前の移動は Moved として track に届かないので、ここで保存しないと残らない。
+/// 以前の版が保存した位置には隅が無いので、そのときもここで選び直す。`size` は論理 px。
+pub fn start(
+    screen: &impl Screen,
+    home: &MarimoHome,
+    size: (f64, f64),
+    stage: impl Fn(Corner) -> StageRect,
+) -> Corner {
+    let corner = restore(screen, home, size);
+    let Some(rect) = screen.outer() else {
+        return corner;
+    };
+    match settle(screen, (rect.x, rect.y), corner, stage) {
+        Some((next, pos)) => {
+            save(home, pos, next);
+            next
+        }
+        None => corner,
+    }
+}
+
+fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> Corner {
+    let (w, h) = to_physical(size, screen.factor());
+    screen.set_size(w, h);
+    let displays = screen.displays();
     let saved = fs::read(home.window_file())
         .ok()
         .and_then(|b| serde_json::from_slice::<SavedPosition>(&b).ok())
         // モニタの構成が変わって保存した位置が画面外になった場合は、既定の位置へ戻す。
-        .filter(|p| monitors.iter().any(|m| m_contains(m, p.x + 16, p.y + 16)));
-    let corner = saved.map_or(Corner::default(), |p| Corner {
+        .filter(|p| {
+            displays
+                .iter()
+                .any(|d| d.bounds.contains(p.x + 16, p.y + 16))
+        });
+    let Some(p) = saved else {
+        if let Some((x, y)) = default_position(screen, w, h) {
+            screen.set_position(x, y);
+        }
+        return Corner::default();
+    };
+    let area = displays
+        .iter()
+        .find(|d| d.bounds.contains(p.x + 16, p.y + 16))
+        .map(|d| d.work);
+    let (x, y) = fit(
+        Rect {
+            x: p.x,
+            y: p.y,
+            w,
+            h,
+        },
+        area,
+    );
+    screen.set_position(x, y);
+    Corner {
         left: p.left,
         top: p.top,
-    });
-    let pos = match saved {
-        Some(p) => {
-            let area = monitor_at(&monitors, p.x + 16, p.y + 16).map(|m| work_area(&m));
-            Some(fit(
-                Rect {
-                    x: p.x,
-                    y: p.y,
-                    w,
-                    h,
-                },
-                area,
-            ))
-        }
-        None => default_position(window, w, h),
-    };
-    if let Some((x, y)) = pos {
-        let _ = window.set_position(PhysicalPosition::new(x, y));
     }
-    corner
 }
 
 // 立ち絵のある隅の角を動かさずに大きさを変え、立ち絵が画面上で動かないようにする。
-// そのうえで、はみ出した分は画面内へ押し戻す。
-pub fn resize_keeping_corner(
-    window: &WebviewWindow,
-    size: LogicalSize<f64>,
-    corner: Corner,
-) -> tauri::Result<()> {
-    let pos = window.outer_position()?;
-    let old = window.outer_size()?;
-    let new: PhysicalSize<u32> = size.to_physical(window.scale_factor()?);
-    let current = Rect {
-        x: pos.x,
-        y: pos.y,
-        w: old.width as i32,
-        h: old.height as i32,
+// そのうえで、はみ出した分は画面内へ押し戻す。`size` は論理 px。
+pub fn resize_keeping_corner(screen: &impl Screen, size: (f64, f64), corner: Corner) {
+    let Some(current) = screen.outer() else {
+        return;
     };
-    let monitors = window.available_monitors().unwrap_or_default();
+    let (w, h) = to_physical(size, screen.factor());
     let fixed_x = if corner.left {
         current.x
     } else {
@@ -111,12 +232,10 @@ pub fn resize_keeping_corner(
     } else {
         current.y + current.h - 1
     };
-    let area = monitor_at(&monitors, fixed_x, fixed_y)
-        .or_else(|| window.current_monitor().ok().flatten())
-        .map(|m| work_area(&m));
-    let (x, y) = anchor(current, new.width as i32, new.height as i32, corner, area);
-    window.set_size(new)?;
-    window.set_position(PhysicalPosition::new(x, y))
+    let area = work_at(screen, fixed_x, fixed_y);
+    let (x, y) = anchor(current, w, h, corner, area);
+    screen.set_size(w, h);
+    screen.set_position(x, y);
 }
 
 pub fn anchor(current: Rect, w: i32, h: i32, corner: Corner, area: Option<Rect>) -> (i32, i32) {
@@ -136,27 +255,22 @@ pub fn anchor(current: Rect, w: i32, h: i32, corner: Corner, area: Option<Rect>)
 /// 窓を置き終えた位置で、立ち絵のある画面の半分に合う隅を選び直す。隅が変わったら、立ち絵が画面上で
 /// 動かないよう窓をずらして、新しい隅と位置を返す。`stage` は隅ごとの窓の中の立ち絵の枠を返す。
 pub fn settle(
-    window: &WebviewWindow,
-    pos: PhysicalPosition<i32>,
+    screen: &impl Screen,
+    pos: (i32, i32),
     current: Corner,
     stage: impl Fn(Corner) -> StageRect,
-) -> Option<(Corner, PhysicalPosition<i32>)> {
-    let factor = window.scale_factor().ok()?;
-    let size = window.outer_size().ok()?;
-    let window_rect = Rect {
-        x: pos.x,
-        y: pos.y,
-        w: size.width as i32,
-        h: size.height as i32,
+) -> Option<(Corner, (i32, i32))> {
+    let size = screen.outer()?;
+    let window = Rect {
+        x: pos.0,
+        y: pos.1,
+        ..size
     };
-    let (cx, cy) = stage_center(window_rect, stage(current), factor);
-    let monitors = window.available_monitors().unwrap_or_default();
-    let area = monitor_at(&monitors, cx, cy)
-        .or_else(|| window.current_monitor().ok().flatten())
-        .map(|m| work_area(&m))?;
-    let (next, (x, y)) = relocate(window_rect, current, &stage, factor, area)?;
-    window.set_position(PhysicalPosition::new(x, y)).ok()?;
-    Some((next, PhysicalPosition::new(x, y)))
+    let factor = screen.factor();
+    let (cx, cy) = stage_center(window, stage(current), factor);
+    let area = work_at(screen, cx, cy)?;
+    let (next, (x, y)) = relocate(window, current, &stage, factor, area)?;
+    screen.set_position(x, y).then_some((next, (x, y)))
 }
 
 fn stage_center(window: Rect, stage: StageRect, factor: f64) -> (i32, i32) {
@@ -212,9 +326,9 @@ fn fit(rect: Rect, area: Option<Rect>) -> (i32, i32) {
 pub fn track(
     window: &WebviewWindow,
     home: MarimoHome,
-    settled: impl Fn(PhysicalPosition<i32>) -> (PhysicalPosition<i32>, Corner) + Send + 'static,
+    settled: impl Fn((i32, i32)) -> ((i32, i32), Corner) + Send + 'static,
 ) {
-    let (tx, rx) = mpsc::channel::<PhysicalPosition<i32>>();
+    let (tx, rx) = mpsc::channel::<(i32, i32)>();
     thread::spawn(move || {
         while let Ok(mut pos) = rx.recv() {
             while let Ok(next) = rx.recv_timeout(SAVE_AFTER) {
@@ -230,15 +344,15 @@ pub fn track(
         if let WindowEvent::Moved(pos) = event
             && tracked.is_visible().unwrap_or(true)
         {
-            let _ = tx.send(*pos);
+            let _ = tx.send((pos.x, pos.y));
         }
     });
 }
 
-pub fn save(home: &MarimoHome, pos: PhysicalPosition<i32>, corner: Corner) {
+fn save(home: &MarimoHome, pos: (i32, i32), corner: Corner) {
     let saved = SavedPosition {
-        x: pos.x,
-        y: pos.y,
+        x: pos.0,
+        y: pos.1,
         left: corner.left,
         top: corner.top,
     };
@@ -247,34 +361,10 @@ pub fn save(home: &MarimoHome, pos: PhysicalPosition<i32>, corner: Corner) {
     }
 }
 
-fn m_contains(monitor: &Monitor, x: i32, y: i32) -> bool {
-    let origin = monitor.position();
-    let size = monitor.size();
-    let (x, y) = (i64::from(x), i64::from(y));
-    x >= i64::from(origin.x)
-        && y >= i64::from(origin.y)
-        && x < i64::from(origin.x) + i64::from(size.width)
-        && y < i64::from(origin.y) + i64::from(size.height)
-}
-
-fn monitor_at(monitors: &[Monitor], x: i32, y: i32) -> Option<Monitor> {
-    monitors.iter().find(|m| m_contains(m, x, y)).cloned()
-}
-
-fn work_area(monitor: &Monitor) -> Rect {
-    let area = monitor.work_area();
-    Rect {
-        x: area.position.x,
-        y: area.position.y,
-        w: area.size.width as i32,
-        h: area.size.height as i32,
-    }
-}
-
-fn default_position(window: &WebviewWindow, w: i32, h: i32) -> Option<(i32, i32)> {
-    let monitor = window.primary_monitor().ok().flatten()?;
-    let area = work_area(&monitor);
-    let margin = (EDGE_MARGIN * monitor.scale_factor()) as i32;
+fn default_position(screen: &impl Screen, w: i32, h: i32) -> Option<(i32, i32)> {
+    let display = screen.primary()?;
+    let area = display.work;
+    let margin = (EDGE_MARGIN * display.factor) as i32;
     let rect = Rect {
         x: area.x + area.w - w - margin,
         y: area.y + area.h - h - margin,
@@ -286,6 +376,8 @@ fn default_position(window: &WebviewWindow, w: i32, h: i32) -> Option<(i32, i32)
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
 
     const SCREEN: Rect = Rect {
@@ -443,5 +535,131 @@ mod tests {
         // 移した窓で判定し直しても、隅は変わらない。
         let (corner, (x, y)) = relocate(at(100, 100), BR, stage, 2.0, SCREEN).unwrap();
         assert_eq!(relocate(at(x, y), corner, stage, 2.0, SCREEN), None);
+    }
+
+    // 画面を持たない窓。モニタは一つで、上端 50 物理 px をメニューバーが使う。
+    struct FakeScreen {
+        outer: Cell<Rect>,
+    }
+
+    impl Screen for FakeScreen {
+        fn factor(&self) -> f64 {
+            2.0
+        }
+        fn outer(&self) -> Option<Rect> {
+            Some(self.outer.get())
+        }
+        fn displays(&self) -> Vec<Display> {
+            vec![Display {
+                bounds: Rect {
+                    y: 0,
+                    h: 1950,
+                    ..SCREEN
+                },
+                work: SCREEN,
+                factor: 2.0,
+            }]
+        }
+        fn primary(&self) -> Option<Display> {
+            self.displays().pop()
+        }
+        fn current(&self) -> Option<Display> {
+            self.primary()
+        }
+        fn set_size(&self, w: i32, h: i32) {
+            self.outer.set(Rect {
+                w,
+                h,
+                ..self.outer.get()
+            });
+        }
+        fn set_position(&self, x: i32, y: i32) -> bool {
+            self.outer.set(Rect {
+                x,
+                y,
+                ..self.outer.get()
+            });
+            true
+        }
+    }
+
+    #[test]
+    fn start_restores_and_saves_the_corner() {
+        let stage = |c: Corner| StageRect {
+            x: if c.left { 8.0 } else { 312.0 },
+            y: if c.top { 120.0 } else { 122.0 },
+            w: 180.0,
+            h: 270.0,
+        };
+        let tl = Corner {
+            left: true,
+            top: true,
+        };
+        let saved = |x, y, c: Corner| SavedPosition {
+            x,
+            y,
+            left: c.left,
+            top: c.top,
+        };
+        // 既定の位置は作業領域の右下から 24 論理 px 内側。
+        let default = (3000 - 1000 - 48, 1950 - 800 - 48);
+        let cases = [
+            ("first start", None, BR, default, None),
+            (
+                "old file at the top left",
+                Some(r#"{"x":100,"y":100}"#),
+                tl,
+                (708, 104),
+                Some(saved(708, 104, tl)),
+            ),
+            (
+                "saved corner",
+                Some(r#"{"x":708,"y":104,"left":true,"top":true}"#),
+                tl,
+                (708, 104),
+                Some(saved(708, 104, tl)),
+            ),
+            (
+                "off screen",
+                Some(r#"{"x":9000,"y":9000}"#),
+                BR,
+                default,
+                Some(saved(9000, 9000, BR)),
+            ),
+        ];
+        for (label, file, corner, (x, y), after) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let home = MarimoHome::at(dir.path());
+            if let Some(json) = file {
+                fs::write(home.window_file(), json).unwrap();
+            }
+            let screen = FakeScreen {
+                outer: Cell::new(Rect {
+                    x: 0,
+                    y: 0,
+                    w: 10,
+                    h: 10,
+                }),
+            };
+            assert_eq!(
+                start(&screen, &home, (500.0, 400.0), stage),
+                corner,
+                "{label}"
+            );
+            assert_eq!(
+                screen.outer.get(),
+                Rect {
+                    x,
+                    y,
+                    w: 1000,
+                    h: 800
+                },
+                "{label}"
+            );
+            let written = fs::read(home.window_file())
+                .ok()
+                .map(|b| serde_json::from_slice::<SavedPosition>(&b).unwrap());
+            assert_eq!(written, after, "{label}");
+        }
     }
 }

@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use marimo_core::{MarimoHome, Provider, Snapshot, store};
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 struct AppState {
     home: MarimoHome,
@@ -54,16 +54,11 @@ fn resize(app: &AppHandle, scale: f64, aspect: f64) {
     };
     let (w, h) = scale::window_size(scale, aspect);
     let corner = app.state::<AppState>().corner();
-    if let Err(e) = window_pos::resize_keeping_corner(&window, LogicalSize::new(w, h), corner) {
-        eprintln!("marimo: cannot resize window: {e}");
-    }
+    window_pos::resize_keeping_corner(&window, (w, h), corner);
 }
 
 // 窓を置き終えた位置に合わせて立ち絵の隅を選び直し、変わったらフロントエンドに配置を切り替えさせる。
-fn relayout(
-    app: &AppHandle,
-    pos: PhysicalPosition<i32>,
-) -> (PhysicalPosition<i32>, window_pos::Corner) {
+fn relayout(app: &AppHandle, pos: (i32, i32)) -> ((i32, i32), window_pos::Corner) {
     let state = app.state::<AppState>();
     let current = state.corner();
     let Some(window) = app.get_webview_window("main") else {
@@ -314,19 +309,13 @@ fn main() {
                 .get_webview_window("main")
                 .expect("main window is declared in tauri.conf.json");
             let (w, h) = scale::window_size(scale::load(&home), aspect);
-            let corner = window_pos::restore(&window, &home, LogicalSize::new(w, h));
+            let corner = window_pos::start(&window, &home, (w, h), |c| {
+                scale::stage_rect(scale::load(&home), aspect, c)
+            });
             *app.state::<AppState>()
                 .corner
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = corner;
-            // 以前の版が保存した位置には隅が無いので、起動したときにも置き場所に合う隅を選び直す。
-            // 窓を出す前の移動は Moved として track に届かないので、選び直したらここで保存する。
-            if let Ok(pos) = window.outer_position() {
-                let (moved, next) = relayout(app.handle(), pos);
-                if (moved, next) != (pos, corner) {
-                    window_pos::save(&home, moved, next);
-                }
-            }
             window.show()?;
             let handle = app.handle().clone();
             window_pos::track(&window, home.clone(), move |pos| relayout(&handle, pos));
