@@ -8,6 +8,8 @@ const TERMINAL: &str = "com.apple.Terminal";
 const ITERM: &str = "com.googlecode.iterm2";
 const GHOSTTY: &str = "com.mitchellh.ghostty";
 const VSCODE: &str = "com.microsoft.VSCode";
+// ChatGPT のデスクトップアプリ。Codex の会話もこのアプリの中で動く。
+const CODEX_DESKTOP: &str = "com.openai.codex";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
@@ -38,7 +40,7 @@ pub enum Target {
         editor: Option<(String, String)>,
         ancestors: Vec<ProcessRef>,
     },
-    /// Hermes の会話が行われているチャットを開く URL。
+    /// Hermes の会話が行われているチャットや、デスクトップアプリの中の会話を開く URL。
     Link {
         url: String,
     },
@@ -92,6 +94,29 @@ pub fn plan(session: &SessionState) -> Target {
         };
     }
     let origin = session.origin.clone().unwrap_or_default();
+    // デスクトップアプリの中の会話は、アプリの URL の scheme で開く。どちらの URL も公開の仕様ではなく、
+    // アプリの中のコードにある経路である。Claude は Code タブの会話の id を claude://code/continue で、
+    // ChatGPT は Codex の会話の id を codex://threads/ で受け付ける。開けない会話では、どちらのアプリも
+    // 前面に出るだけになる。Code タブの中で動かした Codex も同じ環境変数を受け継ぐので、Claude Code の会話に限る。
+    if session.provider == Provider::Claude
+        && let Some(id) = origin
+            .desktop_session
+            .as_deref()
+            .filter(|id| is_desktop_session(id))
+    {
+        return Target::Link {
+            url: format!("claude://code/continue?session={id}"),
+        };
+    }
+    if session.provider == Provider::Codex
+        && origin.bundle_id.as_deref() == Some(CODEX_DESKTOP)
+        && origin.term_program.is_none()
+        && is_plain_id(&session.session_id)
+    {
+        return Target::Link {
+            url: format!("codex://threads/{}", session.session_id),
+        };
+    }
     if origin.window.is_some() || !origin.ancestors.is_empty() {
         return windows_target(origin, session.cwd.as_deref());
     }
@@ -129,6 +154,16 @@ pub fn plan(session: &SessionState) -> Target {
         },
         None => Target::Nothing,
     }
+}
+
+// URL に埋めて OS に渡すので、アプリが受け付ける形（Claude のアプリの /^local_[A-Za-z0-9-]{1,64}$/）
+// だけを通す。
+fn is_desktop_session(id: &str) -> bool {
+    id.strip_prefix("local_").is_some_and(is_plain_id)
+}
+
+fn is_plain_id(id: &str) -> bool {
+    (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
 // OpenCode の端末の画面がターミナルに付ける題名。40 文字（JavaScript の文字列の長さで、UTF-16 の
@@ -407,6 +442,13 @@ fn open(args: &[&str]) {
 mod tests {
     use super::*;
 
+    fn session_with(id: &str, bundle: Option<&str>, term: Option<&str>) -> SessionState {
+        SessionState {
+            session_id: id.into(),
+            ..session(bundle, term, None)
+        }
+    }
+
     fn session(bundle: Option<&str>, term: Option<&str>, tty: Option<&str>) -> SessionState {
         session_in("/w/proj", bundle, term, tty)
     }
@@ -659,6 +701,62 @@ mod tests {
             "1:\\x",
         ] {
             assert!(!is_windows_absolute(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn desktop_app_conversations_open_by_url() {
+        let claude = |id: &str| SessionState {
+            origin: Some(Origin {
+                bundle_id: Some("com.anthropic.claudefordesktop".into()),
+                desktop_session: Some(id.into()),
+                ..Origin::default()
+            }),
+            ..SessionState::new("s1")
+        };
+        let codex = |id: &str, term: Option<&str>| SessionState {
+            provider: Provider::Codex,
+            ..session_with(id, Some(CODEX_DESKTOP), term)
+        };
+        let app = |bundle_id: &str| Target::App {
+            bundle_id: bundle_id.into(),
+        };
+        let link = |url: &str| Target::Link { url: url.into() };
+        let cases = [
+            (
+                "claude",
+                claude("local_6fa11d70-b35c"),
+                link("claude://code/continue?session=local_6fa11d70-b35c"),
+            ),
+            (
+                "claude bad id",
+                claude("local_a&b"),
+                app("com.anthropic.claudefordesktop"),
+            ),
+            (
+                "claude no prefix",
+                claude("6fa11d70"),
+                app("com.anthropic.claudefordesktop"),
+            ),
+            (
+                "codex",
+                codex("019a-77b2", None),
+                link("codex://threads/019a-77b2"),
+            ),
+            ("codex bad id", codex("../x", None), app(CODEX_DESKTOP)),
+            // 端末の手がかりがあるのは、ChatGPT のアプリの中ではなく端末で動く Codex である。
+            (
+                "codex in a terminal",
+                codex("019a-77b2", Some("ghostty")),
+                Target::GhosttyTerminal {
+                    title: None,
+                    cwd: Some("/w/proj".into()),
+                    open_app: true,
+                },
+            ),
+        ];
+        for (label, session, expected) in cases {
+            assert_eq!(plan(&session), expected, "{label}");
         }
     }
 

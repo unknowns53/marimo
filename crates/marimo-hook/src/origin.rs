@@ -6,11 +6,14 @@ use marimo_core::Origin;
 // OS と端末が設定するものだけを使う。Terminal.app では TERM_PROGRAM=Apple_Terminal と
 // __CFBundleIdentifier=com.apple.Terminal、デスクトップアプリの Code タブでは
 // __CFBundleIdentifier=com.anthropic.claudefordesktop が、フックの環境に入ることを確かめてある。
+// Code タブの CLI の環境にある CLAUDE_CODE_HOST_SESSION_ID は、アプリの会話の記録
+// （claude-code-sessions の local_<id>.json）の sessionId と同じ値であることを確かめてある。
 pub fn detect(event: &str, codex_originator: Option<&str>) -> Origin {
     let mut origin = Origin {
         bundle_id: var("__CFBundleIdentifier"),
         term_program: var("TERM_PROGRAM"),
         tty: ancestor_tty(),
+        desktop_session: var("CLAUDE_CODE_HOST_SESSION_ID"),
         ..Origin::default()
     };
     if origin.bundle_id.is_none() && origin.term_program.is_none() {

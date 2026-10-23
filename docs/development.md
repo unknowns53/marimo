@@ -213,7 +213,7 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 ### marimo が読むもの
 
 - **フックの入力** セッションの ID、作業フォルダ、イベント名、ツール名とその引数、応答の最後の文章、通知の種類、エラーの種類、会話ログのパスなどです。
-- **フックの環境** どのアプリから起動されたかを知るための環境変数 `__CFBundleIdentifier` と `TERM_PROGRAM`、そして祖先のプロセスの端末の装置名です。macOS で `__CFBundleIdentifier` が無いときは、セッションの開始時とプロンプトを送ったときに、祖先のプロセスの実行ファイルのパスと、それを収めたアプリの `Info.plist` も読みます。Windows では、これに加えて、Claude Code か Codex が動いているコンソールのウィンドウのハンドルと、祖先のプロセスのプロセス ID、起動した時刻、実行ファイルのパスを状態ファイルに記録します。どれも行を押してセッションへ移動するときに使います。Hermes と OpenCode のセッションでは、フックの祖先が会話のウィンドウではないので、これらを読みません。
+- **フックの環境** どのアプリから起動されたかを知るための環境変数 `__CFBundleIdentifier` と `TERM_PROGRAM`、デスクトップアプリの Code タブの会話の id を表す `CLAUDE_CODE_HOST_SESSION_ID`、そして祖先のプロセスの端末の装置名です。macOS で `__CFBundleIdentifier` が無いときは、セッションの開始時とプロンプトを送ったときに、祖先のプロセスの実行ファイルのパスと、それを収めたアプリの `Info.plist` も読みます。Windows では、これに加えて、Claude Code か Codex が動いているコンソールのウィンドウのハンドルと、祖先のプロセスのプロセス ID、起動した時刻、実行ファイルのパスを状態ファイルに記録します。どれも行を押してセッションへ移動するときに使います。Hermes と OpenCode のセッションでは、フックの祖先が会話のウィンドウではないので、これらを読みません。
 - **作業フォルダの `.git`** 作業フォルダから上へたどって `.git` を探し、リポジトリの名前を決めます。`.git` がファイルのとき（git worktree など）は、その中の `gitdir:` の行だけを読みます。git のコマンドは実行しません。作業フォルダが変わったときと、まだリポジトリ名が分かっていないときだけ調べます。
 - **会話ログ** PostToolUse と Stop のときに、会話ログの末尾から最大 4 MB を読み、最後の応答のトークン数と、読んだ範囲にあるチャットの題名だけを取り出します。コンテキスト使用率と題名を出すためです。
 - **Codex の rollout と session_index.jsonl** Codex のセッションでは、rollout の末尾から最大 4 MB を読んで最後の `token_count` のトークン数と利用制限だけを取り出し、`session_index.jsonl` の末尾から最大 512 KB を読んでそのセッションの題名だけを取り出します。利用者が自分で始めた会話かを見分けるために、フックが届くたびに rollout の先頭から最大 64 KB を読み、最初の行の `originator` だけを取り出します。Codex の `auth.json` と `config.toml` は読みません。
@@ -446,6 +446,8 @@ OpenCode v2 のプラグイン（`install` が OpenCode の設定のフォルダ
 ### 起動元のアプリの見分け方
 
 macOS のフックは、どのアプリから起動されたかを環境変数 `__CFBundleIdentifier` で知ります。Codex のデスクトップアプリから動くセッションのように、この変数が無いときは、セッションの開始時とプロンプトを送ったときに、フックの祖先のプロセスを近い順にたどります。アプリの中にある実行ファイルが見つかれば、それを収めた一番外側のアプリの `Info.plist` から bundle id を読んで記録します。Claude Code の CLI を収めた claude.app のように、前面に出せないアプリ（`Info.plist` に `LSBackgroundOnly` を持つもの）は飛ばして、その先の祖先を探します。それでもアプリが分からない Codex のセッションでは、rollout の先頭の `session_meta` にある `originator` が `Codex Desktop` なら、Codex のデスクトップアプリ（`com.openai.codex`）から始めた会話として記録します。この値は Codex の文書には無く、手元の rollout で確かめたものです。
+
+デスクトップアプリの Code タブから動く Claude Code の CLI の環境には、`CLAUDE_CODE_HOST_SESSION_ID` が入っています。値は `local_` で始まるアプリの中の会話の id で、アプリが `~/Library/Application Support/Claude/claude-code-sessions` に置く会話の記録の `sessionId` と同じであることを確かめています。フックはこれを `desktop_session` として記録し、行を押したときに `claude://code/continue?session=` に渡します。この変数も Claude Code の文書には無いので、値が無いか形が違うとき（`local_` に英数字とハイフンが 64 文字までのもの以外）は、アプリを前面に出すだけにします。
 
 ### クリックの透過
 
