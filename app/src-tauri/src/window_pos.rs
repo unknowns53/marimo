@@ -163,11 +163,8 @@ pub fn start(
     size: (f64, f64),
     stage: impl Fn(Corner) -> StageRect,
 ) -> Corner {
-    let corner = restore(screen, home, size);
-    let Some(rect) = screen.outer() else {
-        return corner;
-    };
-    match settle(screen, (rect.x, rect.y), corner, stage) {
+    let (corner, rect) = restore(screen, home, size);
+    match settle(screen, rect, corner, stage) {
         Some((next, pos)) => {
             save(home, pos, next);
             next
@@ -176,7 +173,9 @@ pub fn start(
     }
 }
 
-fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> Corner {
+// macOS はウィンドウの大きさと位置の変更をあとで適用するので、直後に outer() で読み返すと変更前の値が返る。
+// そのため読み返さず、置いた矩形を返す。
+fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> (Corner, Rect) {
     let (w, h) = to_physical(size, screen.factor());
     screen.set_size(w, h);
     let displays = screen.displays();
@@ -190,10 +189,14 @@ fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> Corner 
                 .any(|d| d.bounds.contains(p.x + 16, p.y + 16))
         });
     let Some(p) = saved else {
-        if let Some((x, y)) = default_position(screen, w, h) {
-            screen.set_position(x, y);
-        }
-        return Corner::default();
+        let (x, y) = match default_position(screen, w, h) {
+            Some((x, y)) => {
+                screen.set_position(x, y);
+                (x, y)
+            }
+            None => screen.outer().map_or((0, 0), |r| (r.x, r.y)),
+        };
+        return (Corner::default(), Rect { x, y, w, h });
     };
     let area = displays
         .iter()
@@ -209,10 +212,13 @@ fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> Corner 
         area,
     );
     screen.set_position(x, y);
-    Corner {
-        left: p.left,
-        top: p.top,
-    }
+    (
+        Corner {
+            left: p.left,
+            top: p.top,
+        },
+        Rect { x, y, w, h },
+    )
 }
 
 // 立ち絵のある隅の角を動かさずに大きさを変え、立ち絵が画面上で動かないようにする。
@@ -256,16 +262,10 @@ pub fn anchor(current: Rect, w: i32, h: i32, corner: Corner, area: Option<Rect>)
 /// 動かないようウィンドウをずらして、新しい隅と位置を返す。`stage` は隅ごとのウィンドウの中の立ち絵の領域を返す。
 pub fn settle(
     screen: &impl Screen,
-    pos: (i32, i32),
+    window: Rect,
     current: Corner,
     stage: impl Fn(Corner) -> StageRect,
 ) -> Option<(Corner, (i32, i32))> {
-    let size = screen.outer()?;
-    let window = Rect {
-        x: pos.0,
-        y: pos.1,
-        ..size
-    };
     let factor = screen.factor();
     let (cx, cy) = stage_center(window, stage(current), factor);
     let area = work_at(screen, cx, cy)?;
@@ -537,9 +537,11 @@ mod tests {
         assert_eq!(relocate(at(x, y), corner, stage, 2.0, SCREEN), None);
     }
 
-    // 画面を持たないウィンドウ。モニタは一つで、上端 50 物理 px をメニューバーが使う。
+    // 画面を持たないウィンドウ。モニタは一つで、上端 50 物理 px をメニューバーが使う。macOS と同じく、大きさと位置の
+    // 変更は outer() に返らず、読み返すといつも開いたときの矩形が返る。
     struct FakeScreen {
-        outer: Cell<Rect>,
+        outer: Rect,
+        placed: Cell<Rect>,
     }
 
     impl Screen for FakeScreen {
@@ -547,7 +549,7 @@ mod tests {
             2.0
         }
         fn outer(&self) -> Option<Rect> {
-            Some(self.outer.get())
+            Some(self.outer)
         }
         fn displays(&self) -> Vec<Display> {
             vec![Display {
@@ -567,17 +569,17 @@ mod tests {
             self.primary()
         }
         fn set_size(&self, w: i32, h: i32) {
-            self.outer.set(Rect {
+            self.placed.set(Rect {
                 w,
                 h,
-                ..self.outer.get()
+                ..self.placed.get()
             });
         }
         fn set_position(&self, x: i32, y: i32) -> bool {
-            self.outer.set(Rect {
+            self.placed.set(Rect {
                 x,
                 y,
-                ..self.outer.get()
+                ..self.placed.get()
             });
             true
         }
@@ -633,13 +635,16 @@ mod tests {
             if let Some(json) = file {
                 fs::write(home.window_file(), json).unwrap();
             }
+            // tauri.conf の大きさで画面の中央に開いたウィンドウ。
+            let opened = Rect {
+                x: 984,
+                y: 577,
+                w: 1032,
+                h: 796,
+            };
             let screen = FakeScreen {
-                outer: Cell::new(Rect {
-                    x: 0,
-                    y: 0,
-                    w: 10,
-                    h: 10,
-                }),
+                outer: opened,
+                placed: Cell::new(opened),
             };
             assert_eq!(
                 start(&screen, &home, (500.0, 400.0), stage),
@@ -647,7 +652,7 @@ mod tests {
                 "{label}"
             );
             assert_eq!(
-                screen.outer.get(),
+                screen.placed.get(),
                 Rect {
                     x,
                     y,

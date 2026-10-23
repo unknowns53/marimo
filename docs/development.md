@@ -277,7 +277,7 @@ npm run build
 
 立ち絵、パネル、吹き出しの配置は、`npm run test:visual` で確かめます。Playwright（ブラウザを操作するテストツール）が headless の Chromium（画面にウィンドウを出さないブラウザ）で `index.html` を開き、Tauri の `invoke` と `listen` を `@tauri-apps/api/mocks` の mock に差し替えて、四つの隅の配置と、立ち絵を押したときの詳細と件数の切り替えを確かめます。画面には何も出ないので、作業中の画面の邪魔をしません。各隅の画面写真は `app/test-results/` に残ります。初めて使うときは、`npx playwright install chromium` でブラウザを取得しておきます。CI ではこのテストを実行していません。
 
-ウィンドウを置く位置と隅の選び直し（`app/src-tauri/src/window_pos.rs`）は、ウィンドウの操作を `Screen` という trait（Rust の interface にあたる仕組み）の後ろに置いているので、`cargo test` の中で画面を持たない fake のウィンドウを使って、起動から保存までの流れを確かめています。
+ウィンドウを置く位置と隅の選び直し（`app/src-tauri/src/window_pos.rs`）は、ウィンドウの操作を `Screen` という trait（Rust の interface にあたる仕組み）の後ろに置いているので、`cargo test` の中で画面を持たない fake のウィンドウを使って、起動から保存までの流れを確かめています。macOS はウィンドウの大きさと位置の変更をあとで適用し、直後に読み返すと変更前の値が返るので、fake も同じように振る舞います。
 
 GitHub Actions の CI（`.github/workflows/ci.yml`）は、main への push と pull request のたびに、macOS と Windows の両方で上の検査を走らせます。画面部分のビルドとテスト、clippy、`cargo test --workspace` を実行し、`cargo fmt --check` は macOS だけで実行します。clippy は警告も失敗として扱います。Windows 向けのコードも Windows の上でビルドしてテストするので、上の型検査だけでは分からない食い違いもここで見つかります。
 

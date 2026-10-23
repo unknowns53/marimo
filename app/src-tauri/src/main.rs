@@ -65,7 +65,15 @@ fn relayout(app: &AppHandle, pos: (i32, i32)) -> ((i32, i32), window_pos::Corner
         return (pos, current);
     };
     let (scale, aspect) = (scale::load(&state.home), state.aspect());
-    let Some((next, moved)) = window_pos::settle(&window, pos, current, |c| {
+    let Some(size) = window_pos::Screen::outer(&window) else {
+        return (pos, current);
+    };
+    let rect = window_pos::Rect {
+        x: pos.0,
+        y: pos.1,
+        ..size
+    };
+    let Some((next, moved)) = window_pos::settle(&window, rect, current, |c| {
         scale::stage_rect(scale, aspect, c)
     }) else {
         return (pos, current);
