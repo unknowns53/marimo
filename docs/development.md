@@ -418,7 +418,7 @@ Hermes のフックの入力は、どのイベントでも `hook_event_name`、`
 
 ### OpenCode のプラグインから記録するもの
 
-OpenCode v2 のプラグイン（`install` が OpenCode の設定のフォルダの `plugins/marimo.js` に置くもの）は、次のイベントを選んで `marimo-hook opencode-hook` に渡します。`marimo-hook` は、これを Claude Code の入力に読み替えてから状態を決めます。親を持つセッション（サブエージェント）のイベントは、実行許可と質問とターンの終わりのものだけを親の行へ渡し、ほかはプラグインが捨てます。
+OpenCode v2 のプラグイン（`install` が OpenCode の設定のフォルダの `plugins/marimo.js` に置くもの）は、次のイベントを選んで `marimo-hook opencode-hook` に渡します。`marimo-hook` は、これを Claude Code の入力に読み替えてから状態を決めます。親を持つセッション（サブエージェント）のイベントは、ターンの始まりと終わり、実行許可と質問のものだけを親の行へ渡し、ほかはプラグインが捨てます。
 
 | OpenCode のイベント | 読み替え先 | 状態 |
 | --- | --- | --- |
@@ -438,7 +438,7 @@ OpenCode v2 のプラグイン（`install` が OpenCode の設定のフォルダ
 | `session.step.ended` | なし | コンテキスト使用率だけを書き換える。トークン数はそのステップの入力、出力、推論、キャッシュの合計で、上限はモデルの一覧から引けたときだけ使う |
 
 - **対象** プラグインは OpenCode v2 のプラグインの仕組み（`setup` で受け取る `ctx` の `ctx.event.subscribe`）でイベントを購読します。プラグインは、端末の画面（TUI）ではなく、会話を動かすサービスの中で読み込まれます。対象にしているのは、端末の画面がつなぐバックグラウンドのサービス、`--standalone` で起動した専用のサーバー、`opencode serve` のサーバーです。v1 のデスクトップアプリには対応しません。
-- **サブエージェント** 親を持つセッションは、プラグインが作成のイベントで親を覚えて、自分の行を作らせません。作成のイベントを見ていないセッションは、OpenCode に親を尋ねてから決めます。`opencode-hook` も、親を持つ `session.created` を無視します。親の行は、サブエージェントを動かすツール（`subagent`）を使っている作業中として出ます。サブエージェントの `permission.asked`、`permission.replied`、`form.created`、`form.replied`、`form.cancelled` と、ターンの終わりの `session.execution.succeeded`、`session.execution.failed`、`session.execution.interrupted` だけは、親をたどった先の親を持たないセッションの ID を `parent` に足して渡し、ほかのイベントは渡しません。`opencode-hook` はこれを、その行の中で動く Claude Code のサブエージェントのイベントと同じに扱います。実行許可や質問の答えを待つ間は承認待ちとして出し、答えが済んだらサブエージェントが動いている作業中として出し、サブエージェントのターンが終わったら（`reason` が `superseded` の中断を除きます）親の会話の状態に戻します。バックグラウンドで動かしたサブエージェントが、親の応答が終わった後に答えを求めたときも同じです。
+- **サブエージェント** 親を持つセッションは、プラグインが作成のイベントで親を覚えて、自分の行を作らせません。作成のイベントを見ていないセッションは、OpenCode に親を尋ねてから決めます。`opencode-hook` も、親を持つ `session.created` を無視します。親の行は、サブエージェントを動かすツール（`subagent`）を使っている作業中として出ます。サブエージェントのターンの始まりの `session.execution.started` と、`permission.asked`、`permission.replied`、`form.created`、`form.replied`、`form.cancelled` と、ターンの終わりの `session.execution.succeeded`、`session.execution.failed`、`session.execution.interrupted` だけは、親をたどった先の親を持たないセッションの ID を `parent` に足して渡し、ほかのイベントは渡しません。`opencode-hook` はこれを、その行の中で動く Claude Code のサブエージェントのイベントと同じに扱います。ターンの始まりは SubagentStart として、動いているサブエージェントに数えます。実行許可や質問の答えを待つ間は承認待ちとして出し、答えが済んだらサブエージェントが動いている作業中として出し、サブエージェントのターンが終わったら（`reason` が `superseded` の中断を除きます）親の会話の状態に戻します。バックグラウンドで動かしたサブエージェントが、親の応答が終わった後に答えを求めたときも同じです。
 - **途中から見たセッション** プラグインを読み込む前から続いているセッションのように、作成のイベントを見ていないセッションを初めて見たときは、OpenCode にそのセッションのタイトルと作業フォルダも尋ねて、イベントに足して渡します。
 - **作業の要約** OpenCode のツールを、要約の作り方が同じ Claude Code のツールに置き換えます。`shell` は Bash、`read`、`write`、`edit` はそれぞれ Read、Write、Edit、`patch` は書式が同じ Codex の `apply_patch`、`glob` と `grep` は Glob と Grep、`webfetch` と `websearch` は WebFetch と WebSearch、`subagent` は Agent として扱います。v1 の名前の `bash` と `task` も同じように扱います。それ以外のツールは、ツール名と引数をそのまま短く出します。ツールの実行のイベントはツールの名前を持たないので、プラグインが入力の始まりのイベント（`session.tool.input.started`）で覚えた名前を足して渡します。実行許可の要求はツールの名前ではなく操作の種類（`action`）と対象（`resources`）で届くので、同じ対応でツールに置き換えます。質問のフォームは、各フィールドの説明を問いの文として、選択肢の見出しと一緒に出します。
 - **コンテキスト使用率** ステップの終わりのトークン数は、そのステップの入力、出力、推論、キャッシュの読み書きの合計で、OpenCode の端末の画面がコンテキストの使用量として出す値と同じ数え方です。セッションの累計を知らせる `session.usage.updated` は使いません。上限は、プラグインが読み込みのときに OpenCode のモデルの一覧から引いておき、一覧に無いモデルに切り替えたときだけ引き直します。それでも引けなければ上限を渡さず、パネルにはトークン数が出ます。

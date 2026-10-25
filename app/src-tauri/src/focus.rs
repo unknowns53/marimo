@@ -262,14 +262,14 @@ pub fn run(target: Target) {
 #[cfg(windows)]
 const DISCORD_EXES: [&str; 3] = ["Discord.exe", "DiscordPTB.exe", "DiscordCanary.exe"];
 
-// URL の scheme に結び付いたアプリ（Discord）が開く。シェルを通さないので、URL の文字が命令として
-// 読まれることはない。Windows の Discord は、動いている本体へリンクを渡して画面を切り替えるだけで、
+// URL の scheme に結び付いたアプリ（Discord、Claude）が開く。シェルを通さないので、URL の文字が命令として
+// 読まれることはない。Discord を前面に出すのは Discord のリンクのときだけにする。Windows の Discord は、動いている本体へリンクを渡して画面を切り替えるだけで、
 // 前面には出てこない（実機で確かめた）。行を押した直後の marimo は前面に出す権利を持っているので、
 // 画面が切り替わるのを少し待ってから、Discord のウィンドウをこちらから前面に出す。
 #[cfg(windows)]
 fn open_link(url: &str) {
     use marimo_core::winfocus;
-    if winfocus::open_url(url) {
+    if winfocus::open_url(url) && url.starts_with("discord://") {
         std::thread::sleep(std::time::Duration::from_millis(300));
         let _ = winfocus::focus_app(&DISCORD_EXES);
     }

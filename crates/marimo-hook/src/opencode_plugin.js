@@ -26,9 +26,10 @@ const FORWARD = new Set([
   "form.cancelled",
 ])
 
-// サブエージェントのセッションからは、利用者の答えを待つイベントと、その答えのイベントと、ターンの終わりだけを
-// 親の行へ渡す。
+// サブエージェントのセッションからは、ターンの始まりと終わり、利用者の答えを待つイベントと、その答えのイベントだけを
+// 親の行へ渡す。始まりと終わりで、親の行が動いているサブエージェントを数える。
 const FROM_CHILD = new Set([
+  "session.execution.started",
   "permission.asked",
   "permission.replied",
   "form.created",

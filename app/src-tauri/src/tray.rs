@@ -152,15 +152,23 @@ impl Tray {
 /// ウィンドウを隠している間は webview が止まりうるので、アイコンはフロントエンドに頼らず Rust が決める。
 /// 既読の集合はフロントエンドが送ってきたものを AppState が覚えていて、画面で折りたたんだ完了とエラーを
 /// アイコンにも出さない。
+///
+/// アイコンの差し替えはメインスレッドで動き、ほかのスレッドから呼ぶと終わるまで待つ。watcher のスレッドが既読の集合の
+/// ロックを持ったまま待つと、同じロックを取る set_acknowledged（同期コマンドはメインスレッドで動く）と互いに待って
+/// 止まるので、ロックを取るところからメインスレッドで行う。
 pub fn show_status(app: &AppHandle, snapshot: &Snapshot) {
-    if let Some(state) = app.try_state::<AppState>()
-        && let Some(tray) = state.tray.get()
-    {
-        let read = state.acknowledged.lock().unwrap_or_else(|e| e.into_inner());
-        tray.show_attention(attention(acknowledged::effective_aggregate(
-            snapshot, &read,
-        )));
-    }
+    let handle = app.clone();
+    let snapshot = snapshot.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(state) = handle.try_state::<AppState>()
+            && let Some(tray) = state.tray.get()
+        {
+            let read = state.acknowledged.lock().unwrap_or_else(|e| e.into_inner());
+            tray.show_attention(attention(acknowledged::effective_aggregate(
+                &snapshot, &read,
+            )));
+        }
+    });
 }
 
 fn toggle_label(visible: bool) -> &'static str {

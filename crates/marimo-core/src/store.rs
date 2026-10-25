@@ -524,15 +524,6 @@ pub fn prune_stale_sessions(
     now_ms: u64,
     max_age: Duration,
 ) -> io::Result<usize> {
-    // ロックなしで消すと、判定と削除のあいだにフックが書いた新しい状態まで消しうる。
-    // 急ぐ処理ではないので、ロックが取れなければ次の機会に回す。
-    let lock = lock_home(home);
-    if !lock.is_held() {
-        return Err(io::Error::new(
-            io::ErrorKind::WouldBlock,
-            "the marimo home is locked",
-        ));
-    }
     let entries = match fs::read_dir(home.sessions_dir()) {
         Ok(entries) => entries,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
@@ -546,10 +537,15 @@ pub fn prune_stale_sessions(
         let name = entry.file_name();
         let name = name.to_string_lossy();
         let path = entry.path();
-        let stale = if is_session_file_name(&name) {
-            let session = read_file(&path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<SessionState>(&bytes).ok());
+        // 会話ログとプロセスを調べる間はロックを持たない。フックはロックを 300 ミリ秒しか待たずに書くので、
+        // 持ったまま時間をかけると、その間にフックが書いた新しい状態を古い判定で消しうる。判定のあとでロックを取り、
+        // ファイルが読んだときのままであることを確かめてから書き直すか消す。
+        let session_file = is_session_file_name(&name);
+        let (read, stale, next) = if session_file {
+            let read = read_file(&path).ok();
+            let session = read
+                .as_deref()
+                .and_then(|bytes| serde_json::from_slice::<SessionState>(bytes).ok());
             // updated_at が 0 のファイルは、この項目を持たない古い形式で書かれたものなので、
             // 更新時刻が分からないものとして読めないファイルと同じく mtime で判定する。
             let turn = session.as_ref().map_or(LastTurn::Other, last_turn);
@@ -558,21 +554,28 @@ pub fn prune_stale_sessions(
                 None => modified_before(&path, now, max_age),
             } || turn == LastTurn::Moved
                 || session.as_ref().is_some_and(abandoned);
-            if !stale
-                && let Some(next) = session.and_then(|s| {
-                    release_orphan(&s, now_ms)
-                        .or_else(|| release_interrupted(&s, turn, now_ms))
-                        .or_else(|| expire_agents(&s, now_ms))
-                })
-                && let Err(e) = write_json_atomic(&path, &next)
-            {
+            let next = session.filter(|_| !stale).and_then(|s| {
+                release_orphan(&s, now_ms)
+                    .or_else(|| release_interrupted(&s, turn, now_ms))
+                    .or_else(|| expire_agents(&s, now_ms))
+            });
+            (read, stale, next)
+        } else {
+            let stale = is_temp_file_name(&name) && modified_before(&path, now, max_age);
+            (None, stale, None)
+        };
+        if !stale && next.is_none() {
+            continue;
+        }
+        // 急ぐ処理ではないので、ロックが取れなければ次の機会に回す。
+        let lock = lock_home(home);
+        if !lock.is_held() || (session_file && read_file(&path).ok() != read) {
+            continue;
+        }
+        if let Some(next) = next {
+            if let Err(e) = write_json_atomic(&path, &next) {
                 first_err.get_or_insert(e);
             }
-            stale
-        } else {
-            is_temp_file_name(&name) && modified_before(&path, now, max_age)
-        };
-        if !stale {
             continue;
         }
         match fs::remove_file(&path) {
