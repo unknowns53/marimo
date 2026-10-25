@@ -553,6 +553,14 @@ body {
   margin-top: 2px;
 }
 
+/* 上の隅ではレイヤーが元の行の上端から下へ伸びるので、件数の行を先頭に置いて元の行と同じ位置に保つ。
+   詳細の行が件数の行の位置に来ると、件数の行を押したつもりで別のセッションへ移動してしまう。 */
+#app.top .counts-detail .counts-line {
+  order: -1;
+  margin-top: 0;
+  margin-bottom: 2px;
+}
+
 .ctx {
   display: flex;
   align-items: center;
