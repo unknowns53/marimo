@@ -164,6 +164,11 @@ pub fn start(
     stage: impl Fn(Corner) -> StageRect,
 ) -> Corner {
     let (corner, rect) = restore(screen, home, size);
+    // モニタの一覧が空のとき、選び直しは current() のモニタで判定するが、それが保存した位置のモニタとは限らない。
+    // 隅を誤って選び直して保存すると、保存した位置を失うので、隅は次にウィンドウが動いたときに選び直す。
+    if screen.displays().is_empty() {
+        return corner;
+    }
     match settle(screen, rect, corner, stage) {
         Some((next, pos)) => {
             save(home, pos, next);
@@ -639,13 +644,14 @@ mod tests {
                 default,
                 Some(saved(9000, 9000, BR)),
             ),
+            // current() の主モニタでは左上の半分に入る位置でも、隅を選び直さずに保存したものを残す。
             (
                 "display asleep",
-                Some(r#"{"x":1900,"y":1000}"#),
+                Some(r#"{"x":100,"y":100}"#),
                 true,
                 BR,
-                (1900, 1000),
-                Some(saved(1900, 1000, BR)),
+                (100, 100),
+                Some(saved(100, 100, BR)),
             ),
         ];
         for (label, file, asleep, corner, (x, y), after) in cases {
