@@ -131,11 +131,12 @@ pub fn translate(input: &OpencodeInput, now_ms: u64) -> Event {
         ..HookInput::default()
     };
     if agent.is_some() {
-        // プラグインがサブエージェントから渡すのは、利用者の答えを待つイベントとその答えと、ターンの終わりだけ。
-        // 答えを待つ間は親の行の承認待ちとして出し、ターンが終わったら親の行の作業から外す。
+        // プラグインがサブエージェントから渡すのは、ターンの始まりと終わり、利用者の答えを待つイベントとその答えだけ。
+        // ターンが始まったら親の行の作業に加え、答えを待つ間は親の行の承認待ちとして出し、ターンが終わったら外す。
         match input.kind.as_str() {
             "permission.asked" | "permission.replied" | "form.created" | "form.replied"
             | "form.cancelled" => {}
+            "session.execution.started" => return Event::Hook(Box::new(hook("SubagentStart"))),
             "session.execution.interrupted" if text("/reason") == Some("superseded") => {
                 return Event::Ignore;
             }
@@ -640,6 +641,11 @@ mod tests {
             events
         };
         let cases: Vec<(&str, Vec<OpencodeInput>, Status)> = vec![
+            (
+                "child running",
+                with(done(), vec![child("session.execution.started", json!({}))]),
+                Status::Working,
+            ),
             ("asked", with(done(), vec![asked()]), Status::Waiting),
             (
                 "granted while still running",
