@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 // 範囲と丸めは Rust 側の scale.rs と揃える（範囲は sharedConstants.test.ts が照合する）。最終的な値は set_scale の戻り値を正とする。
 export const SCALE_MIN = 0.6;
-export const SCALE_MAX = 2.5;
+export const SCALE_MAX = 4.0;
 const WHEEL_STEP = 0.1;
 // トラックパッドは一度のスワイプで wheel を数十回送るので、刻みの間隔に下限を置く。
 const WHEEL_INTERVAL_MS = 60;

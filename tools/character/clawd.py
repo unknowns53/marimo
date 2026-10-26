@@ -8,8 +8,10 @@
 ロゴの 1 画素は端末の文字の升目の 4 分の 1 で、横 1 に対して縦がほぼ 2 あるので、横 2 マス、縦 4 マスで描き、
 端末で見るときと同じ縦横比に保つ。
 
-キャンバスは 60×30 マスで、1 マスを 6 px にした 360×180 px の PNG を書き出す。立ち絵の領域は倍率 1.0 で幅
-180 CSS px なので、1 マスは 3 CSS px になり、等倍の画面でも 2 倍の画面でも整数の画素に載る。
+キャンバスは 36×30 マスで、1 マスを 6 px にした 216×180 px の PNG を書き出す。立ち絵の領域は倍率 1.0 で幅
+108 CSS px なので、1 マスは 3 CSS px になり、等倍の画面でも 2 倍の画面でも整数の画素に載る。横幅は、幅 32 マスの体の
+左右に 2 マスずつを残しただけにして、飾りは頭の上か体の脇に置く。広げると、立ち絵の領域の幅は変わらないので体が
+小さく描かれ、両脇が空く。
 """
 
 import argparse
@@ -20,7 +22,7 @@ from PIL import Image, ImageDraw
 REPO = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO / "assets/character/clawd"
 
-COLS, ROWS = 60, 30
+COLS, ROWS = 36, 30
 CELL = 6
 PX_W, PX_H = 2, 4
 
@@ -94,22 +96,22 @@ def state(face_rows, arms="down", hop=0, extras=()):
     return {"face": face_rows, "arms": arms, "hop": hop, "extras": extras}
 
 
-# 飾りの位置はキャンバスのマスで書く。Clawd の体はキャンバスの x 14〜45 にあり、頭の上端は y 10 にある。
+# 飾りの位置はキャンバスのマスで書く。Clawd の体はキャンバスの x 2〜33 にあり、頭の上端は y 10 にある。
 STATES = {
     "idle": state(OPEN),
-    "working": state(DOWN, extras=[(TICK, 11, 17), (TICK, 48, 17)]),
-    "working_focus": state(FOCUS, extras=[(TICK, 11, 17), (TICK, 48, 17)]),
-    "working_read": state(READ, extras=[(PAGE, 27, 20)]),
-    "working_curious": state(UP, extras=[(QUESTION, 47, 1)]),
-    "working_think": state(UP_RIGHT, extras=[(DOTS, 46, 5)]),
+    "working": state(DOWN, extras=[(TICK, 3, 14), (TICK, 32, 14)]),
+    "working_focus": state(FOCUS, extras=[(TICK, 3, 14), (TICK, 32, 14)]),
+    "working_read": state(READ, extras=[(PAGE, 15, 20)]),
+    "working_curious": state(UP, extras=[(QUESTION, 30, 1)]),
+    "working_think": state(UP_RIGHT, extras=[(DOTS, 27, 5)]),
     "working_delegate": state(WINK, arms="right_up"),
-    "waiting": state(OPEN, arms="left_up", extras=[(EXCLAIM, 47, 2), (TICK, 9, 8), (TICK, 7, 12)]),
-    "done": state(HAPPY, arms="both_up", hop=2, extras=[(SPARKLE, 4, 3), (TWINKLE, 51, 1), (SPARKLE, 52, 12)]),
-    "error": state(CROSS, extras=[(SWEAT, 47, 5)]),
+    "waiting": state(OPEN, arms="left_up", extras=[(EXCLAIM, 33, 2), (TICK, 2, 5), (TICK, 0, 8)]),
+    "done": state(HAPPY, arms="both_up", hop=2, extras=[(SPARKLE, 0, 1), (TWINKLE, 24, 3), (SPARKLE, 31, 1)]),
+    "error": state(CROSS, extras=[(SWEAT, 30, 3)]),
     "idle_look_left": state(LEFT),
     "idle_look_right": state(RIGHT),
     "idle_hop": state(OPEN, arms="lift", hop=4),
-    "idle_sleep": state(SLEEP, extras=[(SMALL_Z, 46, 5), (BIG_Z, 51, 0)]),
+    "idle_sleep": state(SLEEP, extras=[(SMALL_Z, 25, 4), (BIG_Z, 30, 0)]),
     "idle_stretch": state(CLOSED, arms="high"),
 }
 BLINKS = ["idle", "working", "working_focus", "working_read", "working_curious", "working_think", "working_delegate"]
