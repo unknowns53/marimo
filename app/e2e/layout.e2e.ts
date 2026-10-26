@@ -3,12 +3,12 @@ import { expect, test, type Page } from "@playwright/test";
 import { emit, mockTauri } from "./tauriMock";
 
 // 背の低い clawd を使う。立ち絵の上端が上の隅と下の隅で違う位置になり、配置の取り違えが見える。
-// ウィンドウは scale.rs の window_size と同じ大きさにする（倍率 1、縦横比 0.5）。
-const WIDTH = 516;
+// ウィンドウは scale.rs の window_size と同じ大きさにする（倍率 1、縦横比 5/6）。
+const WIDTH = 444;
 const HEIGHT = 380;
 const MARGIN = 8;
 const BUBBLE_ROOM = 120;
-const STAGE = { w: 180, h: 90 };
+const STAGE = { w: 108, h: 90 };
 const PANEL_W = 312;
 
 function snapshot() {

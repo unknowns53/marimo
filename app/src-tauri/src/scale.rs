@@ -7,13 +7,18 @@ use serde::{Deserialize, Serialize};
 use crate::window_pos::{Corner, StageRect};
 
 pub const MIN: f64 = 0.6;
-pub const MAX: f64 = 2.5;
+pub const MAX: f64 = 4.0;
 pub const DEFAULT: f64 = 1.0;
 
 // style.css の配置と揃えておく必要があり、window_follows_stage_aspect が照合する。立ち絵（倍率 1.0 で
-// 幅 180、高さは幅に素材の縦横比を掛けたもの）をウィンドウの隅の一つに固定し、パネル（幅 312）をその横に置く。
+// 幅 108、高さは幅に素材の縦横比を掛けたもの）をウィンドウの隅の一つに固定し、パネル（幅 312）をその横に置く。
 // 倍率 1.0 で既定のキャラクターのときのウィンドウの大きさは tauri.conf.json にも書く。
-const STAGE_W: f64 = 180.0;
+const STAGE_W: f64 = 108.0;
+// display.json の scale のキーは、立ち絵の領域の幅を 180 とした倍率で、0.6 から 2.5 の範囲で書かれている。
+// stage_scale がまだ無いときは、同じ大きさで開くよう、幅の比を掛けて今の倍率へ読み替える。
+const LEGACY_STAGE_W: f64 = 180.0;
+const LEGACY_MIN: f64 = 0.6;
+const LEGACY_MAX: f64 = 2.5;
 /// 立ち絵の縦横比（高さ ÷ 幅）。既定のキャラクターの素材 800×1200 の比で、比がまだ保存されていないときにウィンドウを開くのに使う。
 pub const DEFAULT_ASPECT: f64 = 1.5;
 // 手で書き換えた manifest の極端な縦横比で、ウィンドウが画面を覆うほど大きくならないようにする。
@@ -161,6 +166,8 @@ const FALLBACK_CHARACTER: &str = "koharu";
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Display {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    stage_scale: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     scale: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     show_character: Option<bool>,
@@ -200,15 +207,21 @@ fn read_display(home: &MarimoHome) -> Display {
 
 // 手で編集されたり壊れたりした値でウィンドウが極端な大きさにならないよう、範囲外は既定値へ戻す。
 pub fn load(home: &MarimoHome) -> f64 {
-    read_display(home)
-        .scale
+    let d = read_display(home);
+    d.stage_scale
         .filter(|s| s.is_finite() && (MIN..=MAX).contains(s))
+        .or_else(|| {
+            d.scale
+                .filter(|s| s.is_finite() && (LEGACY_MIN..=LEGACY_MAX).contains(s))
+                .map(|s| clamp(s * LEGACY_STAGE_W / STAGE_W))
+        })
         .unwrap_or(DEFAULT)
 }
 
 pub fn save(home: &MarimoHome, scale: f64) -> io::Result<()> {
     let mut d = read_display(home);
-    d.scale = Some(scale);
+    d.stage_scale = Some(scale);
+    d.scale = None;
     store::write_json_durable(&home.display_file(), &d)
 }
 
@@ -416,6 +429,8 @@ mod tests {
             r#"{"scale": 3.0}"#,
             r#"{"scale": -1}"#,
             r#"{"other": 1.5}"#,
+            r#"{"stage_scale": 0.1}"#,
+            r#"{"stage_scale": 5.0}"#,
             r#"{"stage_aspect": 0}"#,
             r#"{"stage_aspect": -1.5}"#,
         ] {
@@ -467,7 +482,7 @@ mod tests {
             ),
             (2.0, Some(counts), 1.0, "clawd")
         );
-        save(&home, 2.5).unwrap();
+        save(&home, 4.0).unwrap();
         save_panel_display(&home, display(false, PanelStyle::Detail)).unwrap();
         assert_eq!(load(&home), MAX);
         assert_eq!(
@@ -561,7 +576,7 @@ mod tests {
         let (_dir, home) = home();
         fs::write(
             home.display_file(),
-            r#"{"scale":1.3,"character":"koharu","panel_style":"counts"}"#,
+            r#"{"stage_scale":1.3,"character":"koharu","panel_style":"counts"}"#,
         )
         .unwrap();
         assert!(!load_panel_display(&home).unwrap().show_cloud_sessions);
@@ -637,7 +652,7 @@ mod tests {
         // 解釈できない不透明度があっても、同じファイルのほかの設定は読める。
         fs::write(
             home.display_file(),
-            r#"{"scale": 1.5, "character": "clawd", "panel_opacity": "80%"}"#,
+            r#"{"stage_scale": 1.5, "character": "clawd", "panel_opacity": "80%"}"#,
         )
         .unwrap();
         assert_eq!(
@@ -683,7 +698,7 @@ mod tests {
 
         fs::write(
             home.display_file(),
-            r#"{"scale": 1.5, "panel_style": "counts"}"#,
+            r#"{"stage_scale": 1.5, "panel_style": "counts"}"#,
         )
         .unwrap();
         let settings = BubbleSettings {
@@ -751,13 +766,13 @@ mod tests {
             assert!(css.contains(&format!("{var}: {value}px;")), "{var}");
         }
         for (scale, aspect, size) in [
-            (1.0, DEFAULT_ASPECT, (516.0, 398.0)),
-            (2.5, DEFAULT_ASPECT, (786.0, 803.0)),
-            (1.0, 0.5, (516.0, 380.0)),
-            (2.5, 0.5, (786.0, 380.0)),
-            (1.0, f64::NAN, (516.0, 398.0)),
-            (1.0, 0.0, (516.0, 398.0)),
-            (1.0, 100.0, (516.0, 848.0)),
+            (1.0, DEFAULT_ASPECT, (444.0, 380.0)),
+            (4.0, DEFAULT_ASPECT, (768.0, 776.0)),
+            (1.0, 0.5, (444.0, 380.0)),
+            (4.0, 0.5, (768.0, 380.0)),
+            (3.0, f64::NAN, (660.0, 614.0)),
+            (3.0, 0.0, (660.0, 614.0)),
+            (1.0, 100.0, (444.0, 560.0)),
         ] {
             assert_eq!(
                 window_size(scale, clamp_aspect(aspect)),
@@ -765,6 +780,24 @@ mod tests {
                 "scale {scale} aspect {aspect}"
             );
         }
+    }
+
+    #[test]
+    fn legacy_scale_keeps_the_same_size() {
+        let (_d, home) = home();
+        for (content, expected) in [
+            (r#"{"scale": 0.6}"#, 1.0),
+            (r#"{"scale": 1.0}"#, 1.67),
+            (r#"{"scale": 2.5}"#, MAX),
+            (r#"{"scale": 1.0, "stage_scale": 0.8}"#, 0.8),
+        ] {
+            fs::write(home.display_file(), content).unwrap();
+            assert_eq!(load(&home), expected, "content {content:?}");
+        }
+        save(&home, 0.7).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&fs::read(home.display_file()).unwrap()).unwrap();
+        assert_eq!(saved, serde_json::json!({"stage_scale": 0.7}));
     }
 
     #[test]

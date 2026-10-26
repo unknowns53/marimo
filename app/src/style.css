@@ -16,7 +16,7 @@
   --error: #f87171;
   /* 立ち絵の倍率 1.0 での幅、パネルの幅、ウィンドウの端との余白。scale.rs の STAGE_W、PANEL_W、MARGIN と
      揃える（scale.rs の window_follows_stage_aspect が照合する）。 */
-  --stage-w: 180px;
+  --stage-w: 108px;
   --panel-w: 312px;
   --margin: 8px;
   /* 立ち絵の表示倍率。Rust の set_scale が返した値を main.ts が入れる。 */
@@ -141,7 +141,7 @@ body {
   /* 長いセリフでも 3 行に収め、scale.rs の BUBBLE_ROOM（立ち絵の上に空ける高さ）からはみ出さない幅にする。 */
   max-width: 340px;
   /* しっぽは立ち絵の頭の真上に固定なので、短いセリフでもしっぽが吹き出しの中に収まる幅を保つ。 */
-  min-width: calc(90px * var(--scale));
+  min-width: calc(var(--stage-w) / 2 * var(--scale));
   padding: 10px 16px;
   border-radius: 18px;
   background: var(--bubble-bg);
@@ -165,7 +165,7 @@ body {
   content: "";
   position: absolute;
   top: 100%;
-  right: calc(90px * var(--scale) - 6px);
+  right: calc(var(--stage-w) / 2 * var(--scale) - 6px);
   border: 6px solid transparent;
   border-top-color: var(--bubble-bg);
 }
@@ -178,7 +178,7 @@ body {
 
 #app.left #bubble::after {
   right: auto;
-  left: calc(90px * var(--scale) - 6px);
+  left: calc(var(--stage-w) / 2 * var(--scale) - 6px);
 }
 
 /* 出したままにするので、押して閉じられるようにする。 */
