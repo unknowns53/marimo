@@ -138,7 +138,7 @@ function Save-Build([string]$Work, [string]$Base, [string]$NotReady, [string]$Wa
             Fail "$NotReady$WaitHint"
         }
         if ($Wait) { Write-Host "CI のビルドを待っています（$([int]((Get-Date) - $started).TotalMinutes) 分経過、最大 30 分）" }
-        else { Write-Host "ビルドがまだ取れないので、$interval 秒後に確かめ直します（最大 1 分）" }
+        else { Write-Host "ビルドがまだ公開されていないので、$interval 秒後にもう一度確認します（最大 1 分）" }
         Start-Sleep -Seconds $interval
     }
 
@@ -274,9 +274,9 @@ try {
         if ($Main -or $NoPull) { $extract = Get-CommitBuild $work }
         else { $extract = Get-ReleaseBuild $work }
         $hook = Join-Path $extract 'marimo-hook.exe'
-        if (-not (Test-Path -LiteralPath $hook)) { Fail "取ってきたものの中に marimo-hook.exe が見つかりません。" }
+        if (-not (Test-Path -LiteralPath $hook)) { Fail "ダウンロードしたファイルの中に marimo-hook.exe が見つかりません。" }
         $installer = @(Get-ChildItem -LiteralPath $extract -Filter 'marimo_*_x64-setup.exe') | Select-Object -First 1
-        if (-not $installer) { Fail "取ってきたものの中にインストーラが見つかりません。" }
+        if (-not $installer) { Fail "ダウンロードしたファイルの中にインストーラが見つかりません。" }
         # 一時フォルダは終わると消えるので、install をやり直すときはスクリプトごと実行し直してもらう。
         $retryInstall = 'tools\update.ps1 をもう一度実行してください'
     }

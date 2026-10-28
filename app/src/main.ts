@@ -169,7 +169,7 @@ async function reloadDialogue(): Promise<void> {
 function showSpeech(): void {
   const view = panelDisplay.show_character ? bubbleModel.view : null;
   scheduleExpiry(view);
-  if (view) bubble.show(view.text, `押すとセッションへ移動します（${READ_KEY} を押しながら押すと閉じます）`);
+  if (view) bubble.show(view.text, `クリックするとセッションへ移動します（${READ_KEY} を押しながらクリックすると閉じます）`);
   else bubble.hide();
   placeBubble();
   hits.schedule();
@@ -522,7 +522,7 @@ async function openMenu(): Promise<void> {
   const menu = await Menu.new({
     items: [
       await CheckMenuItem.new({
-        text: "絵を表示",
+        text: "立ち絵を表示",
         checked: panelDisplay.show_character,
         action: () => setShowCharacter(!panelDisplay.show_character),
       }),

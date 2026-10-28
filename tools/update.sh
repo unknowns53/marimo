@@ -150,7 +150,7 @@ download_from() {
     if [[ $wait -eq 1 ]]; then
       echo "CI のビルドを待っています（$(((SECONDS - started) / 60)) 分経過、最大 30 分）"
     else
-      echo "ビルドがまだ取れないので、$interval 秒後に確かめ直します（最大 1 分）"
+      echo "ビルドがまだ公開されていないので、$interval 秒後にもう一度確認します（最大 1 分）"
     fi
     sleep "$interval"
   done
@@ -167,8 +167,8 @@ download_from() {
 
   bundle="$work/extract/marimo.app"
   hook="$work/extract/marimo-hook"
-  [[ -d "$bundle" ]] || fail "取ってきたものの中にアプリが見つかりません: $archive"
-  [[ -x "$hook" ]] || fail "取ってきたものの中に marimo-hook が見つかりません: $archive"
+  [[ -d "$bundle" ]] || fail "ダウンロードしたファイルの中にアプリが見つかりません: $archive"
+  [[ -x "$hook" ]] || fail "ダウンロードしたファイルの中に marimo-hook が見つかりません: $archive"
   # 一時フォルダは終わると消えるので、install をやり直すときはスクリプトごと実行し直してもらう。
   retry_install="tools/update.sh をもう一度実行してください"
 }

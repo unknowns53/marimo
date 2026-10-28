@@ -14,7 +14,7 @@ export function opacityPercent(opacity: number): number {
 }
 
 export function bubbleSecondsLabel(seconds: number): string {
-  if (seconds === 0) return "押すまで";
+  if (seconds === 0) return "閉じるまで";
   return seconds % 60 === 0 ? `${seconds / 60} 分` : `${seconds} 秒`;
 }
 

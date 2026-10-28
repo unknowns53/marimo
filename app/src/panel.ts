@@ -12,7 +12,7 @@ const FALLBACK_SUMMARY: Record<Status, string> = {
   error: "エラー",
 };
 
-const EMPTY_LIST_TEXT = "動いているセッションはありません";
+const EMPTY_LIST_TEXT = "進行中のセッションはありません";
 const STALE_LABEL = "状態不明";
 
 export interface PanelElements {
@@ -291,7 +291,7 @@ function renderSummary(s: SessionState, summary: string): HTMLElement {
 function markReadButton(s: SessionState, actions: RowActions): HTMLElement {
   const button = el("button", "row-read", "✓");
   button.type = "button";
-  button.title = `既読にする（アプリは開きません。${READ_KEY} を押しながら行を押しても同じです）`;
+  button.title = `既読にする（アプリは開きません。${READ_KEY} を押しながら行をクリックしても同じです）`;
   button.setAttribute("aria-label", "既読にする");
   button.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -336,7 +336,7 @@ export function renderContext(s: SessionState): HTMLElement {
   }
   if (ctx?.total_input_tokens != null) {
     const tokens = el("span", "ctx-tokens", formatTokens(ctx.total_input_tokens));
-    tokens.title = `コンテキスト ${ctx.total_input_tokens.toLocaleString()} トークン（上限が分からないため % は出していません）`;
+    tokens.title = `コンテキスト ${ctx.total_input_tokens.toLocaleString()} トークン（上限が不明なため % は表示していません）`;
     return tokens;
   }
   return el("span", "ctx-none");

@@ -45,9 +45,9 @@ describe("opacityPercent", () => {
 describe("bubble seconds choices", () => {
   it("labels each choice and adds a saved value that is not one of them", () => {
     const cases: [number, string[]][] = [
-      [30, ["押すまで", "10 秒", "30 秒", "1 分", "5 分"]],
-      [45, ["押すまで", "10 秒", "30 秒", "45 秒", "1 分", "5 分"]],
-      [600, ["押すまで", "10 秒", "30 秒", "1 分", "5 分", "10 分"]],
+      [30, ["閉じるまで", "10 秒", "30 秒", "1 分", "5 分"]],
+      [45, ["閉じるまで", "10 秒", "30 秒", "45 秒", "1 分", "5 分"]],
+      [600, ["閉じるまで", "10 秒", "30 秒", "1 分", "5 分", "10 分"]],
     ];
     for (const [current, labels] of cases) {
       expect(bubbleSecondsOptions(current).map(bubbleSecondsLabel), String(current)).toEqual(labels);

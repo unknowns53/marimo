@@ -72,7 +72,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         return Err("開発中の実行ファイルからは更新できません。".into());
     }
     if INSTALLING.swap(true, atomic::Ordering::SeqCst) {
-        return Err("更新はすでに進めています。".into());
+        return Err("更新はすでに実行中です。".into());
     }
     let handle = app.clone();
     match blocking(move || prepare(&handle)).await {
@@ -183,7 +183,7 @@ impl Drop for Work {
 
 fn prepare(app: &AppHandle) -> Result<(), String> {
     let target = Target::current()?;
-    let home = MarimoHome::resolve().ok_or("marimo のフォルダの場所を決められませんでした。")?;
+    let home = MarimoHome::resolve().ok_or("marimo のフォルダの場所を特定できませんでした。")?;
     let log = home.root().join(LOG_FILE);
     // 補助のスクリプトの失敗はここにしか残らないので、書けないときは始める前に止める。
     let log_file = store::create_private_dir_all(home.root())
@@ -197,14 +197,14 @@ fn prepare(app: &AppHandle) -> Result<(), String> {
     progress(
         app,
         "download",
-        format!("正式なリリース {} を取ってきています", release.tag),
+        format!("正式なリリース {} をダウンロードしています", release.tag),
     );
     download(app, &work.path, &release.tag, archive)?;
 
-    progress(app, "verify", "チェックサムを確かめています");
+    progress(app, "verify", "チェックサムを検証しています");
     verify(&work.path, archive)?;
 
-    progress(app, "extract", "取ってきたものを展開しています");
+    progress(app, "extract", "ダウンロードしたファイルを展開しています");
     let extract = work.path.join("extract");
     fs::create_dir(&extract).map_err(|e| format!("展開先のフォルダを作れませんでした（{e}）。"))?;
     let pid = std::process::id();
@@ -275,7 +275,7 @@ fn download(app: &AppHandle, work: &Path, tag: &str, archive: &str) -> Result<()
                 progress(
                     app,
                     "download",
-                    "ビルドがまだ取れないので、10 秒後に確かめ直します（最大 1 分）",
+                    "ビルドがまだ公開されていないので、10 秒後にもう一度確認します（最大 1 分）",
                 );
                 std::thread::sleep(Duration::from_secs(10));
             }
@@ -321,7 +321,7 @@ fn sha256_file(path: &Path) -> io::Result<String> {
 fn extract_mac(archive: &Path, extract: &Path) -> Result<(), String> {
     let mut tar = Command::new("/usr/bin/tar");
     tar.arg("-xzf").arg(archive).arg("-C").arg(extract);
-    run(&mut tar, "取ってきたものを展開できませんでした。")?;
+    run(&mut tar, "ダウンロードしたファイルを展開できませんでした。")?;
     // curl で取ったものには quarantine が付かないが、付いていると初回の起動で Gatekeeper に止められるので、念のため外す。
     let _ = Command::new("/usr/bin/xattr")
         .args(["-dr", "com.apple.quarantine"])
@@ -331,10 +331,10 @@ fn extract_mac(archive: &Path, extract: &Path) -> Result<(), String> {
         .stderr(Stdio::null())
         .status();
     if !extract.join("marimo.app").is_dir() {
-        return Err("取ってきたものの中にアプリが見つかりません。".into());
+        return Err("ダウンロードしたファイルの中にアプリが見つかりません。".into());
     }
     if !is_executable(&extract.join("marimo-hook")) {
-        return Err("取ってきたものの中に marimo-hook が見つかりません。".into());
+        return Err("ダウンロードしたファイルの中に marimo-hook が見つかりません。".into());
     }
     Ok(())
 }
@@ -359,11 +359,11 @@ fn extract_windows(archive: &Path, extract: &Path) -> Result<(PathBuf, PathBuf),
         ])
         .arg("-EncodedCommand")
         .arg(encode_powershell(&command));
-    run(&mut powershell, "取ってきたものを展開できませんでした。")?;
+    run(&mut powershell, "ダウンロードしたファイルを展開できませんでした。")?;
 
     let hook = extract.join("marimo-hook.exe");
     if !hook.is_file() {
-        return Err("取ってきたものの中に marimo-hook.exe が見つかりません。".into());
+        return Err("ダウンロードしたファイルの中に marimo-hook.exe が見つかりません。".into());
     }
     let installer = fs::read_dir(extract)
         .map_err(|e| format!("展開したフォルダを読めませんでした（{e}）。"))?
@@ -373,7 +373,7 @@ fn extract_windows(archive: &Path, extract: &Path) -> Result<(PathBuf, PathBuf),
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name.starts_with("marimo_") && name.ends_with("_x64-setup.exe"))
         })
-        .ok_or("取ってきたものの中にインストーラが見つかりません。")?;
+        .ok_or("ダウンロードしたファイルの中にインストーラが見つかりません。")?;
     Ok((installer, hook))
 }
 
@@ -791,7 +791,7 @@ fi
 if [[ -e "$app_dest" ]] && ! mv "$app_dest" "$app_old"; then
   rm -rf "$app_new"
   launch
-  fail "$app_dest を退けられませんでした。アプリは差し替えずに起動し直しています。"
+  fail "$app_dest を退避できませんでした。アプリは差し替えずに起動し直しています。"
 fi
 if ! mv "$app_new" "$app_dest"; then
   [[ -e "$app_old" ]] && mv "$app_old" "$app_dest"
