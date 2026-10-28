@@ -236,12 +236,12 @@ body {
 /* パネルの右上の外に付ける切り替え。行と重ならず、パネルが上へ伸びても一緒に動く。
    文字一つだと「今の表示」と「押すとなる表示」のどちらか読み分けられないので、
    二つの表示を並べて今の方だけを明るくする。並べ方の切り替えも同じ形で左上に付ける。 */
-#panel-toggle,
+/* 並べ方は押すたびに次へ移る 1 個のボタンにし、パネルの上辺の外にタブのように付ける。 */
 #row-order {
   position: absolute;
   bottom: 100%;
+  left: 8px;
   display: flex;
-  gap: 2px;
   height: var(--panel-tab-h);
   box-sizing: border-box;
   padding: 2px 2px 0;
@@ -249,15 +249,6 @@ body {
   background: var(--panel-bg);
 }
 
-#panel-toggle {
-  right: 8px;
-}
-
-#row-order {
-  left: 8px;
-}
-
-#panel-toggle button,
 #row-order button {
   padding: 1px 7px;
   border: none;
@@ -267,20 +258,19 @@ body {
   font: inherit;
   font-size: 10px;
   line-height: 1.6;
-  opacity: 0.5;
+  opacity: 0.7;
   cursor: pointer;
 }
 
-#panel-toggle button:hover,
-#row-order button:hover {
-  opacity: 0.8;
+#row-order button::after {
+  content: "⇅";
+  margin-left: 3px;
+  opacity: 0.7;
 }
 
-#panel-toggle button.active,
-#row-order button.active {
+#row-order button:hover {
   background: rgba(255, 255, 255, 0.16);
   opacity: 1;
-  cursor: default;
 }
 
 /* 1 段目は状態の点、名前、コンテキスト使用率、2 段目はどのツールかを示すマーク、要約、最後の更新からの時間。
@@ -388,34 +378,39 @@ body {
   opacity: 0.5;
 }
 
-/* 既読にするボタンはマウスを載せている間だけ時間の上に重ねて出す。グリッドの升に入れると、時間より広い分だけ
-   パネルの幅が変わり、ほかの行まで横にずれるので、行の右下に重ねて置き、幅の計算に加えない。
+/* 既読にするボタンはマウスを載せている間だけ、行の右端に 2 段ぶんの高さの帯として重ねて出し、押しやすくする。
+   グリッドの升に入れると、帯の幅の分だけパネルの幅が変わり、ほかの行まで横にずれるので、重ねて置いて幅の計算に加えない。
+   帯の下に透けないよう、同じ列のコンテキスト使用率と時間は帯を出している間だけ隠す。
    前面に無いウィンドウには :hover が付かないので、マウスが載っていることは rowHover.ts が付ける hover のクラスで見る。 */
 .row-read {
   display: none;
   position: absolute;
+  top: 2px;
   right: 6px;
-  bottom: 3px;
-  padding: 0 6px;
+  bottom: 2px;
+  width: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: none;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.16);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.12);
   color: var(--panel-fg);
   font: inherit;
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1;
   cursor: pointer;
 }
 
 .row-read.hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .row.markable.hover .row-read {
-  display: block;
+  display: flex;
 }
 
-.row.markable.hover .row-age {
+.row.markable.hover :is(.ctx, .ctx-tokens, .row-age) {
   visibility: hidden;
 }
 

@@ -7,6 +7,23 @@ export type RowOrder = "started" | "status" | "updated";
 
 export const ROW_ORDERS: readonly RowOrder[] = ["started", "status", "updated"];
 
+export const ROW_ORDER_LABEL: Record<RowOrder, string> = {
+  started: "開始順",
+  status: "状態順",
+  updated: "更新順",
+};
+
+export const ROW_ORDER_DESCRIPTION: Record<RowOrder, string> = {
+  started: "始まった時刻の新しい順",
+  status: "承認待ち、エラー、作業中、完了の順",
+  updated: "最後に更新された時刻の新しい順",
+};
+
+/** パネルの並べ方のボタンは、押すたびに ROW_ORDERS の順に次の並べ方へ移る。 */
+export function nextRowOrder(order: RowOrder): RowOrder {
+  return ROW_ORDERS[(ROW_ORDERS.indexOf(order) + 1) % ROW_ORDERS.length];
+}
+
 export interface PanelPlan {
   rows: SessionState[];
   /** その場所に残している既読の完了とエラーの行の sessionKey。薄く描く。 */
@@ -140,7 +157,7 @@ export function panelView(
 
 /**
  * 出す行が無いときも、パネルは無いことを示す 1 行を出して残す。
- * パネルごと消えると、詳細と件数を切り替える場所も、立ち絵を隠しているときに右クリックやドラッグを
+ * パネルごと消えると、並べ方を切り替える場所も、立ち絵を隠しているときに右クリックやドラッグを
  * 受ける場所も無くなるからである。
  */
 export function hasContent(view: PanelView): boolean {

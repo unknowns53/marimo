@@ -99,14 +99,14 @@ test("each corner places the stage, panel and bubble", async ({ page }, info) =>
 test("pressing the stage switches the panel between detail and counts", async ({ page }) => {
   await open(page);
   await expect(page.locator(".row-agents")).toHaveText("サブ 3");
-  const pressed = page.locator("#panel-toggle button[aria-pressed=true]");
-  await expect(pressed).toHaveText("詳細");
+  const counts = page.locator("#rows .counts-group");
+  await expect(counts).toHaveCount(0);
 
   const stage = await box(page, "#stage");
   const center = { x: (stage.left + stage.right) / 2, y: (stage.top + stage.bottom) / 2 };
-  for (const expected of ["件数", "詳細"]) {
+  for (const expected of [1, 0]) {
     await page.mouse.click(center.x, center.y);
-    await expect(pressed).toHaveText(expected);
+    await expect(counts).toHaveCount(expected);
   }
   const saved = await page.evaluate(() =>
     ((window as unknown as { __marimoCalls: [string, { display?: { panel_style: string } }][] }).__marimoCalls)
@@ -114,4 +114,20 @@ test("pressing the stage switches the panel between detail and counts", async ({
       .map(([, args]) => args.display?.panel_style),
   );
   expect(saved).toEqual(["counts", "detail"]);
+});
+
+test("pressing the row order button cycles through the orders", async ({ page }) => {
+  await open(page);
+  const button = page.locator("#row-order button");
+  await expect(button).toHaveText("開始順");
+  for (const expected of ["状態順", "更新順", "開始順"]) {
+    await button.click();
+    await expect(button).toHaveText(expected);
+  }
+  const saved = await page.evaluate(() =>
+    ((window as unknown as { __marimoCalls: [string, { display?: { row_order: string } }][] }).__marimoCalls)
+      .filter(([cmd]) => cmd === "set_panel_display")
+      .map(([, args]) => args.display?.row_order),
+  );
+  expect(saved).toEqual(["status", "updated", "started"]);
 });
