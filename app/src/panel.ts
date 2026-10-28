@@ -1,7 +1,15 @@
 import { MARKABLE, sessionKey } from "./acknowledged";
 import { chatTitle, folderName, formatAge, formatClock, formatTokens, STATUS_LABEL } from "./format";
 import { limitLine, type LimitLine } from "./limits";
-import { hasContent, type PanelPlan, type PanelView } from "./panelModel";
+import {
+  hasContent,
+  nextRowOrder,
+  ROW_ORDER_DESCRIPTION,
+  ROW_ORDER_LABEL,
+  type PanelPlan,
+  type PanelView,
+  type RowOrder,
+} from "./panelModel";
 import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
 
 const FALLBACK_SUMMARY: Record<Status, string> = {
@@ -18,7 +26,6 @@ export interface PanelElements {
   panel: HTMLElement;
   rows: HTMLElement;
   limits: HTMLElement;
-  toggle: HTMLElement;
   order: HTMLElement;
 }
 
@@ -66,7 +73,7 @@ export interface PanelLimits {
 }
 
 export function renderPanel(
-  { panel, rows, limits, toggle, order }: PanelElements,
+  { panel, rows, limits, order }: PanelElements,
   view: PanelView,
   rateLimits: PanelLimits,
   icons: AppIcons,
@@ -92,16 +99,14 @@ export function renderPanel(
   panel.hidden = false;
   fitLayers(rows);
   restoreScroll(rows, kept);
-  markActive(toggle, "style", view.style);
-  markActive(order, "order", view.order);
+  renderOrder(order, view.order);
 }
 
-function markActive(group: HTMLElement, key: string, value: string): void {
-  for (const button of group.querySelectorAll<HTMLElement>(`button[data-${key}]`)) {
-    const active = button.dataset[key] === value;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", String(active));
-  }
+function renderOrder(group: HTMLElement, order: RowOrder): void {
+  const button = group.querySelector("button");
+  if (!button) return;
+  button.textContent = ROW_ORDER_LABEL[order];
+  button.title = `${ROW_ORDER_DESCRIPTION[order]}に並べています。押すと${ROW_ORDER_LABEL[nextRowOrder(order)]}に切り替えます`;
 }
 
 interface KeptScroll {

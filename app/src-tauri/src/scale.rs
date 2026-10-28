@@ -67,7 +67,9 @@ pub enum RowOrder {
 }
 
 impl RowOrder {
-    fn parse(s: &str) -> Option<Self> {
+    pub const ALL: [Self; 3] = [Self::Started, Self::Status, Self::Updated];
+
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "started" => Some(Self::Started),
             "status" => Some(Self::Status),
@@ -76,7 +78,7 @@ impl RowOrder {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Started => "started",
             Self::Status => "status",

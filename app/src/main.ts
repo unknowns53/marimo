@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
+import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
@@ -27,6 +27,8 @@ import {
   DEFAULT_PANEL_DISPLAY,
   PANEL_STYLES,
   panelView,
+  nextRowOrder,
+  ROW_ORDER_LABEL,
   ROW_ORDERS,
   trayList,
   type PanelDisplay,
@@ -62,7 +64,6 @@ const panelElements = {
   panel: $("panel"),
   rows: $("rows"),
   limits: $("limits"),
-  toggle: $("panel-toggle"),
   order: $("row-order"),
 };
 const bubbleNode = $("bubble");
@@ -202,7 +203,7 @@ function placeBubble(): void {
   const bottom = box.top - BUBBLE_GAP_PX;
   const width = bubbleNode.offsetWidth;
   const [left, right] = app.classList.contains("left") ? [box.left, box.left + width] : [box.right - width, box.right];
-  const tops = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)]
+  const tops = [rectOf(panelElements.panel), rectOf(panelElements.order)]
     .filter((r): r is Rect => r !== null && r.x + r.w > left && r.x < right)
     .map((r) => r.y - BUBBLE_GAP_PX);
   const lift = Math.max(0, Math.min(bottom - Math.min(bottom, ...tops), bottom - bubbleNode.offsetHeight));
@@ -210,8 +211,8 @@ function placeBubble(): void {
 }
 
 function collectHitRegions(): HitRegions {
-  // 切り替えと並べ方のボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
-  const rects = [rectOf(panelElements.panel), rectOf(panelElements.toggle), rectOf(panelElements.order)];
+  // 並べ方のボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
+  const rects = [rectOf(panelElements.panel), rectOf(panelElements.order)];
   // 広げたレイヤーはパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
@@ -533,6 +534,18 @@ async function openMenu(): Promise<void> {
           }),
         ),
       )),
+      await Submenu.new({
+        text: "行の並べ方",
+        items: await Promise.all(
+          ROW_ORDERS.map((order) =>
+            CheckMenuItem.new({
+              text: ROW_ORDER_LABEL[order],
+              checked: order === panelDisplay.row_order,
+              action: () => setRowOrder(order),
+            }),
+          ),
+        ),
+      }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
         text: "すべて既読にする",
@@ -550,18 +563,10 @@ async function openMenu(): Promise<void> {
   await menu.popup();
 }
 
-function bindPanelTabs(): void {
-  const pressed = (e: MouseEvent, key: string) =>
-    (e.target as HTMLElement | null)?.closest<HTMLElement>(`button[data-${key}]`)?.dataset[key];
-  panelElements.toggle.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const style = PANEL_STYLES.find((s) => s === pressed(e, "style"));
-    if (style && style !== panelDisplay.panel_style) setPanelStyle(style);
-  });
+function bindRowOrder(): void {
   panelElements.order.addEventListener("click", (e) => {
     e.stopPropagation();
-    const order = ROW_ORDERS.find((o) => o === pressed(e, "order"));
-    if (order && order !== panelDisplay.row_order) setRowOrder(order);
+    setRowOrder(nextRowOrder(panelDisplay.row_order));
   });
 }
 
@@ -572,7 +577,7 @@ function bindWindowControls(): void {
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .today-line, .counts-group, #panel-toggle, #row-order, #bubble")) {
+    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .today-line, .counts-group, #row-order, #bubble")) {
       press = null;
       return;
     }
@@ -598,7 +603,7 @@ function bindWindowControls(): void {
 
 async function start(): Promise<void> {
   bindWindowControls();
-  bindPanelTabs();
+  bindRowOrder();
   // トレイのメニューで選んだ表示は Rust が保存してから届くので、反映だけをする。起動中に選ばれたものを
   // 取りこぼさないよう保存済みの表示を読む前に聞き始め、読んでいる間に届いていたらそちらを残す。
   let trayChose = false;

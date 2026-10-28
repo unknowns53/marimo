@@ -4,12 +4,12 @@ use marimo_core::{Snapshot, Status};
 use serde::Deserialize;
 use tauri::image::Image;
 use tauri::menu::{
-    CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem,
+    CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
 };
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
-use crate::scale::{self, PanelDisplay, PanelStyle};
+use crate::scale::{self, PanelDisplay, PanelStyle, RowOrder};
 use crate::{AppState, acknowledged};
 
 /// トレイで選んだ表示を保存したあと、その表示の全体をフロントエンドへ送るイベント。フロントエンドは
@@ -31,6 +31,8 @@ const TOGGLE: &str = "tray:toggle";
 const SHOW_CHARACTER: &str = "tray:show-character";
 const STYLE_DETAIL: &str = "tray:style-detail";
 const STYLE_COUNTS: &str = "tray:style-counts";
+// 並べ方の項目の ID は、この接頭辞に RowOrder の保存名を続けたものにする。
+const ORDER_PREFIX: &str = "tray:order-";
 const MARK_ALL_READ: &str = "tray:mark-all-read";
 const SETTINGS: &str = "tray:settings";
 const QUIT: &str = "tray:quit";
@@ -45,6 +47,7 @@ pub struct Tray {
     show_character: CheckMenuItem<Wry>,
     detail: CheckMenuItem<Wry>,
     counts: CheckMenuItem<Wry>,
+    orders: Vec<(RowOrder, CheckMenuItem<Wry>)>,
     mark_all_read: MenuItem<Wry>,
 }
 
@@ -80,7 +83,13 @@ impl Tray {
                 .set_checked(display.panel_style == PanelStyle::Detail),
             self.counts
                 .set_checked(display.panel_style == PanelStyle::Counts),
-        ];
+        ]
+        .into_iter()
+        .chain(
+            self.orders
+                .iter()
+                .map(|(order, item)| item.set_checked(display.row_order == *order)),
+        );
         if let Some(Err(e)) = results.into_iter().find(Result::is_err) {
             eprintln!("marimo: cannot update the tray menu: {e}");
         }
@@ -226,6 +235,25 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         display.panel_style == PanelStyle::Counts,
         None::<&str>,
     )?;
+    let orders = RowOrder::ALL
+        .into_iter()
+        .map(|order| {
+            let item = CheckMenuItem::with_id(
+                app,
+                format!("{ORDER_PREFIX}{}", order.as_str()),
+                order_label(order),
+                true,
+                display.row_order == order,
+                None::<&str>,
+            )?;
+            Ok((order, item))
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let order_items: Vec<&dyn IsMenuItem<Wry>> = orders
+        .iter()
+        .map(|(_, item)| item as &dyn IsMenuItem<Wry>)
+        .collect();
+    let order_menu = Submenu::with_items(app, "行の並べ方", true, &order_items)?;
     let mark_all_read =
         MenuItem::with_id(app, MARK_ALL_READ, "すべて既読にする", false, None::<&str>)?;
     let menu = Menu::with_items(
@@ -236,6 +264,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
             &show_character,
             &detail,
             &counts,
+            &order_menu,
             &PredefinedMenuItem::separator(app)?,
             &mark_all_read,
             &PredefinedMenuItem::separator(app)?,
@@ -271,8 +300,17 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         show_character,
         detail,
         counts,
+        orders,
         mark_all_read,
     })
+}
+
+fn order_label(order: RowOrder) -> &'static str {
+    match order {
+        RowOrder::Started => "開始順",
+        RowOrder::Status => "状態順",
+        RowOrder::Updated => "更新順",
+    }
 }
 
 fn chosen_display(id: &str, current: PanelDisplay) -> Option<PanelDisplay> {
@@ -289,7 +327,13 @@ fn chosen_display(id: &str, current: PanelDisplay) -> Option<PanelDisplay> {
             panel_style: PanelStyle::Counts,
             ..current
         }),
-        _ => None,
+        id => id
+            .strip_prefix(ORDER_PREFIX)
+            .and_then(RowOrder::parse)
+            .map(|row_order| PanelDisplay {
+                row_order,
+                ..current
+            }),
     }
 }
 
