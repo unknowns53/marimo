@@ -359,7 +359,10 @@ fn extract_windows(archive: &Path, extract: &Path) -> Result<(PathBuf, PathBuf),
         ])
         .arg("-EncodedCommand")
         .arg(encode_powershell(&command));
-    run(&mut powershell, "ダウンロードしたファイルを展開できませんでした。")?;
+    run(
+        &mut powershell,
+        "ダウンロードしたファイルを展開できませんでした。",
+    )?;
 
     let hook = extract.join("marimo-hook.exe");
     if !hook.is_file() {
