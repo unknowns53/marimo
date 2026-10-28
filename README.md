@@ -93,7 +93,7 @@ statusLine は端末の CLI でだけ呼ばれ、デスクトップアプリの 
 
 ### Codex
 
-Codex のフックは、利用者が Codex CLI の `/hooks` で信頼するまで動きません。パネルに並べるのは、デスクトップアプリ、端末の CLI、VS Code の拡張機能から自分で始めた会話だけで、Claude Code が作業を任せるためにバックグラウンドで動かした会話や `codex exec` の会話は並べません。ChatGPT のエージェントの Dots がクラウドで動かす会話は、手でインポートした一覧を試験的に並べられます（[Cloud の手動観測](docs/development.md#cloud-の手動観測)を参照）。
+Codex のフックは、利用者が Codex CLI の `/hooks` で信頼するまで動きません。パネルに並べるのは、デスクトップアプリ、端末の CLI、VS Code の拡張機能から自分で始めた会話だけで、Claude Code が作業を任せるためにバックグラウンドで動かした会話や `codex exec` の会話は並べません。
 
 ### Hermes Agent
 

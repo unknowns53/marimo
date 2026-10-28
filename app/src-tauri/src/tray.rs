@@ -205,7 +205,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
     let show_character = CheckMenuItem::with_id(
         app,
         SHOW_CHARACTER,
-        "絵を表示",
+        "立ち絵を表示",
         true,
         display.show_character,
         None::<&str>,

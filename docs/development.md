@@ -87,7 +87,7 @@ Windows の Claude Code は、Git Bash が入っていれば Git Bash で、な�
 
 ### サブコマンドと設定ファイルの場所
 
-`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`statusline`、`record`、`cloud-snapshot`、`install`、`uninstall` の九つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code、Codex、Hermes、OpenCode のプラグインから呼ばれるか、調査や試験的な機能のためのものです（`cloud-snapshot` は [Cloud の手動観測](#cloud-の手動観測)を参照）。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
+`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`statusline`、`record`、`install`、`uninstall` の八つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code、Codex、Hermes、OpenCode のプラグインから呼ばれるか、調査のためのものです。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
 
 対象の設定ファイルは `--settings <パス>` で指定できます。省略すると、環境変数 `CLAUDE_CONFIG_DIR` が設定されていればその下の `settings.json` を、なければ `~/.claude/settings.json` を使います。
 
@@ -239,7 +239,7 @@ marimo は、状態ファイルも会話の内容も、ローカルのコンピ�
 | パス | 内容 |
 | --- | --- |
 | `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数とタイトルの読み取り、Codex の rollout と session_index.jsonl の読み取り、Hermes のフックの入力の読み替えとセッションの一覧の読み取り、OpenCode のイベントの読み替え、ターンを動かしているプロセスが動いているかの確認、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
-| `crates/marimo-hook` | Claude Code、Codex、Hermes、OpenCode のプラグインから呼ばれるコマンド。`hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`statusline`、`record`、`cloud-snapshot`、`install`、`uninstall` のサブコマンドを持ちます。`install` が置く OpenCode のプラグインの雛形 `src/opencode_plugin.js` もここにあり、ビルドのときに実行ファイルへ埋め込まれます |
+| `crates/marimo-hook` | Claude Code、Codex、Hermes、OpenCode のプラグインから呼ばれるコマンド。`hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます。`install` が置く OpenCode のプラグインの雛形 `src/opencode_plugin.js` もここにあり、ビルドのときに実行ファイルへ埋め込まれます |
 | `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、ウィンドウの制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、macOS でのアプリのアイコンの読み取りを受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
 | `assets/character/index.json` | 組み込みのキャラクターの一覧です（[自分のキャラクターを作る](customize.md#自分のキャラクターを作る)を参照） |
@@ -478,18 +478,3 @@ macOS のフックは、どのアプリから起動されたかを環境変数 `
 ### クリックの透過
 
 クリックの透過は次のように実現しています。ウィンドウがクリックを下へ通す状態になると、マウスの移動のイベントもウィンドウに届かなくなります。そこで、画面部分がクリックを受け取る領域（パネルと吹き出しの矩形と、立ち絵の画像のアルファ値から作った横 40 マスの粗い格子。縦のマス数は素材の縦横比で決まり、小春では 40×60）を Rust 側へ送り、Rust 側はカーソルの位置を定期的に読んで、領域の上にあるときだけウィンドウがクリックを受け取るように切り替えます。カーソルを読む周期は、ウィンドウの上にあるとき 40 ミリ秒、外にあるとき 150 ミリ秒です。アイコンからウィンドウを隠している間はカーソルを読まず、500 ミリ秒ごとにウィンドウが出し直されたかだけを確かめます。立ち絵の上にマウスがあるかどうかも、同じ判定のついでに画面部分へ知らせます。
-
-### Cloud の手動観測
-
-ChatGPT のエージェントの Dots がクラウドから動かす会話では、ローカルに設定したフックが使えません（[公式の説明](https://learn.chatgpt.com/docs/enterprise/cloud-local-access#check-hooks-and-network-compatibility)）。そこで marimo には、Codex アプリの一覧などから得た最小限のメタデータを手でインポートする試験的な機能があります。自動で取得する処理は含みません。
-
-```sh
-marimo-hook cloud-snapshot < cloud-metadata.json
-marimo-hook cloud-snapshot --clear
-```
-
-入力の最上位は `observed_at`（取得した時刻の Unix ミリ秒）と `threads`（配列）だけです。各項目は `id`、`title`、`cwd`（文字列か null）、`status`、`hostId` を持ち、`hostId` は `durable` に限ります。`status` の `active` は作業中、`idle` と `interrupted` は待機として扱い、`needsInput`、`completed`、`error` はそれぞれ承認待ち、完了、エラーとして扱います。`idle` から完了を推測することはしません。会話の本文などの余分な項目を含む入力、未来の時刻か 2 分以上前の観測、不正な ID は受け付けず、保存済みの観測をそのまま残します。
-
-保存先は `MARIMO_HOME/cloud_snapshot.json`（既定は `~/.marimo/cloud_snapshot.json`）で、ふつうのセッションのファイルには触れません。インポートし直すと一覧全体が置き換わります。空の一覧をインポートするか `--clear` を実行すると、Cloud の観測だけが消えます。
-
-表示するかどうかは `display.json` の `show_cloud_sessions` に保存し、既定は表示しません。表示すると、インポートした会話がふつうの行と並び、行の名前の前に「Cloud・手動」が付きます。観測から 2 分経つと期限切れになり、ファイルが変わらなくてもその時刻にパネルを描き直します。期限切れの行は消さずに「状態不明」として薄く残し、状態は待機として扱うので、立ち絵の表情とアイコンの色には効きません。Cloud の行を押しても会話へは移動しませんが、完了の行は見たものとして薄くなり、同じトリガーの吹き出しも閉じます。トークン使用量、会話の本文、ツールの実行内容はインポートしません。

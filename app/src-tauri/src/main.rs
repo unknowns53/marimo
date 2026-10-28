@@ -92,7 +92,7 @@ fn get_layout(state: State<'_, AppState>) -> window_pos::Corner {
 
 #[tauri::command]
 fn get_snapshot(state: State<'_, AppState>) -> Snapshot {
-    scale::snapshot(&state.home)
+    store::load_snapshot(&state.home)
 }
 
 #[tauri::command]
@@ -181,7 +181,7 @@ fn set_acknowledged(
     keys: Vec<String>,
 ) -> Result<(), String> {
     *state.acknowledged.lock().unwrap_or_else(|e| e.into_inner()) = keys.iter().cloned().collect();
-    tray::show_status(&app, &scale::snapshot(&state.home));
+    tray::show_status(&app, &store::load_snapshot(&state.home));
     acknowledged::save(&state.home, &keys).map_err(|e| e.to_string())
 }
 
@@ -330,7 +330,7 @@ fn main() {
             let display = scale::load_panel_display(&home).unwrap_or_default();
             let tray = tray::build(app.handle(), display)?;
             let _ = app.state::<AppState>().tray.set(tray);
-            tray::show_status(app.handle(), &scale::snapshot(&home));
+            tray::show_status(app.handle(), &store::load_snapshot(&home));
             watch::spawn(app.handle().clone(), home.clone());
             watch::spawn_pruner(home.clone());
             hit::spawn(app.handle().clone(), window, hits.clone());

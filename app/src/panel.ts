@@ -12,8 +12,7 @@ const FALLBACK_SUMMARY: Record<Status, string> = {
   error: "エラー",
 };
 
-const EMPTY_LIST_TEXT = "動いているセッションはありません";
-const STALE_LABEL = "状態不明";
+const EMPTY_LIST_TEXT = "進行中のセッションはありません";
 
 export interface PanelElements {
   panel: HTMLElement;
@@ -207,8 +206,6 @@ function renderCounts(
   const line = () => {
     const node = el("div", "counts-line");
     const items = view.counts.map((c) => countItem("counts-item", c.status, `${STATUS_LABEL[c.status]} ${c.count}`));
-    // 期限の切れた Cloud の観測は詳細では薄い行で残すので、件数でも末尾に薄く数える。
-    if (view.stale > 0) items.push(countItem("counts-item stale", "idle", `${STALE_LABEL} ${view.stale}`));
     items.forEach((item, i) => {
       if (i > 0) node.append(el("span", "counts-sep", "·"));
       node.append(item);
@@ -245,7 +242,7 @@ function renderRow(
   now: number,
   actions: RowActions,
 ): HTMLElement {
-  const row = el("div", read ? "row read" : s.cloud?.expired ? "row stale" : "row");
+  const row = el("div", read ? "row read" : "row");
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
   const detail = s.activity?.detail ?? "";
   const place = [s.title, s.cwd ?? s.session_id].filter(Boolean).join("\n");
@@ -291,7 +288,7 @@ function renderSummary(s: SessionState, summary: string): HTMLElement {
 function markReadButton(s: SessionState, actions: RowActions): HTMLElement {
   const button = el("button", "row-read", "✓");
   button.type = "button";
-  button.title = `既読にする（アプリは開きません。${READ_KEY} を押しながら行を押しても同じです）`;
+  button.title = `既読にする（アプリは開きません。${READ_KEY} を押しながら行をクリックしても同じです）`;
   button.setAttribute("aria-label", "既読にする");
   button.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -336,7 +333,7 @@ export function renderContext(s: SessionState): HTMLElement {
   }
   if (ctx?.total_input_tokens != null) {
     const tokens = el("span", "ctx-tokens", formatTokens(ctx.total_input_tokens));
-    tokens.title = `コンテキスト ${ctx.total_input_tokens.toLocaleString()} トークン（上限が分からないため % は出していません）`;
+    tokens.title = `コンテキスト ${ctx.total_input_tokens.toLocaleString()} トークン（上限が不明なため % は表示していません）`;
     return tokens;
   }
   return el("span", "ctx-none");

@@ -471,18 +471,7 @@ fn read_sessions(home: &MarimoHome) -> Vec<SessionState> {
 }
 
 pub fn load_snapshot(home: &MarimoHome) -> Snapshot {
-    snapshot_from_sessions(home, read_sessions(home))
-}
-
-pub fn load_snapshot_with_cloud(home: &MarimoHome, enabled: bool, now: u64) -> Snapshot {
     let mut sessions = read_sessions(home);
-    if enabled {
-        sessions.extend(crate::cloud::load(home, now));
-    }
-    snapshot_from_sessions(home, sessions)
-}
-
-fn snapshot_from_sessions(home: &MarimoHome, mut sessions: Vec<SessionState>) -> Snapshot {
     sessions.sort_by(|a, b| {
         b.status
             .priority()

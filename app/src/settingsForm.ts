@@ -14,7 +14,7 @@ export function opacityPercent(opacity: number): number {
 }
 
 export function bubbleSecondsLabel(seconds: number): string {
-  if (seconds === 0) return "押すまで";
+  if (seconds === 0) return "閉じるまで";
   return seconds % 60 === 0 ? `${seconds / 60} 分` : `${seconds} 秒`;
 }
 
@@ -40,7 +40,6 @@ export function formValues(state: SettingsState): FormValues {
     show_character: display.show_character,
     panel_style: display.panel_style,
     row_order: display.row_order,
-    show_cloud_sessions: display.show_cloud_sessions,
     panel_opacity: String(opacityPercent(display.panel_opacity)),
     bubble_waiting: bubble.bubble_waiting,
     bubble_done: bubble.bubble_done,
@@ -74,7 +73,6 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
   if (phase !== "change") return null;
   switch (name) {
     case "show_character":
-    case "show_cloud_sessions":
       return { kind: "display", patch: { [name]: checked } };
     case "panel_style": {
       const style = PANEL_STYLES.find((s) => s === value);

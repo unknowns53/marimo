@@ -45,9 +45,9 @@ describe("opacityPercent", () => {
 describe("bubble seconds choices", () => {
   it("labels each choice and adds a saved value that is not one of them", () => {
     const cases: [number, string[]][] = [
-      [30, ["押すまで", "10 秒", "30 秒", "1 分", "5 分"]],
-      [45, ["押すまで", "10 秒", "30 秒", "45 秒", "1 分", "5 分"]],
-      [600, ["押すまで", "10 秒", "30 秒", "1 分", "5 分", "10 分"]],
+      [30, ["閉じるまで", "10 秒", "30 秒", "1 分", "5 分"]],
+      [45, ["閉じるまで", "10 秒", "30 秒", "45 秒", "1 分", "5 分"]],
+      [600, ["閉じるまで", "10 秒", "30 秒", "1 分", "5 分", "10 分"]],
     ];
     for (const [current, labels] of cases) {
       expect(bubbleSecondsOptions(current).map(bubbleSecondsLabel), String(current)).toEqual(labels);
@@ -61,7 +61,6 @@ describe("formValues", () => {
       show_character: true,
       panel_style: "counts",
       row_order: "status",
-      show_cloud_sessions: false,
       panel_opacity: "35",
       bubble_waiting: true,
       bubble_done: false,
@@ -85,7 +84,6 @@ describe("requestFor", () => {
     const cases: [string, FormControl, "input" | "change", SettingsRequest | null][] = [
       ["checkbox", control("show_character", "on", true), "change", { kind: "display", patch: { show_character: true } }],
       ["checkbox input", control("show_character", "on", true), "input", null],
-      ["cloud", control("show_cloud_sessions"), "change", { kind: "display", patch: { show_cloud_sessions: false } }],
       ["style", control("panel_style", "counts", true), "change", { kind: "display", patch: { panel_style: "counts" } }],
       ["unknown style", control("panel_style", "list", true), "change", null],
       ["order", control("row_order", "updated", true), "change", { kind: "display", patch: { row_order: "updated" } }],
