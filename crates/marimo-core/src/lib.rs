@@ -1,6 +1,5 @@
 pub mod activity;
 pub mod appicon;
-pub mod cloud;
 pub mod codex;
 pub mod hermes;
 pub mod opencode;

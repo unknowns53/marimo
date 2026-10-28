@@ -16,8 +16,7 @@ import type { SessionState, Snapshot } from "./types";
 const ids = (list: { session_id: string }[]) => list.map((s) => s.session_id);
 
 describe("planPanel", () => {
-  it("lists every non-idle session and every expired cloud observation as its own row, newest session on top", () => {
-    const cloud = { thread_id: "c1", observed_at: 7, expires_at: 8, expired: true };
+  it("lists every non-idle session as its own row, newest session on top", () => {
     const plan = planPanel(
       snap(
         session("w1", "working", 1),
@@ -26,11 +25,10 @@ describe("planPanel", () => {
         session("ask", "waiting", 4),
         session("d1", "done", 5),
         session("e1", "error", 6),
-        { ...session("cloud-c1", "idle", 7), cloud },
       ),
       new Acknowledged(),
     );
-    expect(ids(plan.rows)).toEqual(["cloud-c1", "e1", "d1", "ask", "w2", "w1"]);
+    expect(ids(plan.rows)).toEqual(["e1", "d1", "ask", "w2", "w1"]);
   });
 
   it("keeps rows in started_at order through status changes and puts legacy sessions at the bottom", () => {
@@ -78,12 +76,11 @@ describe("planPanel", () => {
       session("g", "working", 50, 50, 5),
       session("f", "working", 50, 50, 5),
       session("h", "waiting", 40, 40, 4),
-      { ...session("x", "idle", 80, 80, 8), cloud: { thread_id: "x", observed_at: 80, expires_at: 81, expired: true } },
     );
     const cases: [RowOrder, string[]][] = [
-      ["started", ["x", "c", "b", "f", "g", "h", "d", "e", "a"]],
-      ["status", ["a", "h", "e", "b", "f", "g", "c", "d", "x"]],
-      ["updated", ["a", "x", "c", "b", "f", "g", "h", "d", "e"]],
+      ["started", ["c", "b", "f", "g", "h", "d", "e", "a"]],
+      ["status", ["a", "h", "e", "b", "f", "g", "c", "d"]],
+      ["updated", ["a", "c", "b", "f", "g", "h", "d", "e"]],
     ];
     for (const [order, expected] of cases) {
       expect(ids(planPanel(sessions, ack, order, 2000, new Set([triggerKey(seen)])).rows), order).toEqual(expected);
@@ -183,19 +180,13 @@ describe("panelView", () => {
       session("w3", "working", 6),
       session("i", "idle", 7),
     );
-  const stale = {
-    ...session("cloud-c1", "idle", 8),
-    cloud: { thread_id: "c1", observed_at: 8, expires_at: 9, expired: true },
-  };
-
-  it("counts sessions per status in priority order, skips zero counts, and counts expired cloud observations apart", () => {
-    const v = panelView(snap(...sessions().sessions, stale), new Acknowledged(), "counts");
+  it("counts sessions per status in priority order, skips zero counts", () => {
+    const v = panelView(sessions(), new Acknowledged(), "counts");
     expect(v.counts).toEqual([
       { status: "waiting", count: 1 },
       { status: "working", count: 3 },
       { status: "done", count: 2 },
     ]);
-    expect(v.stale).toBe(1);
     expect(v.target?.session_id).toBe("ask");
     expect(hasContent(v)).toBe(true);
   });
@@ -223,7 +214,6 @@ describe("panelView", () => {
       ["detail without a snapshot", null, new Acknowledged(), "detail", false],
       ["detail with a kept seen completion", snap(seen), ack, "detail", true],
       ["counts with a kept seen completion", snap(seen), ack, "counts", false],
-      ["counts with only an expired cloud observation", snap(stale), new Acknowledged(), "counts", true],
     ];
     for (const [label, snapshot, acks, style, expected] of cases) {
       expect(hasContent(panelView(snapshot, acks, style, "started", Date.now(), keep)), label).toBe(expected);

@@ -301,9 +301,7 @@ body {
   margin-top: 1px;
 }
 
-.row.read,
-.row.stale,
-.counts-item.stale {
+.row.read {
   opacity: 0.45;
 }
 

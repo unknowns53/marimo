@@ -18,8 +18,7 @@ export interface PanelPlan {
 
 /**
  * 待機以外のセッションは作業中も折りたたまずに 1 行ずつ並べ、パネルに収まらない分はスクロールで見せるので、
- * 行の数に上限を設けない。期限の切れた Cloud の観測は待機として届くが、インポートした会話がまだあることは
- * 分かっているので、状態不明の行として残す。
+ * 行の数に上限を設けない。
  * 見たと示された完了とエラーは折りたたむが、keep に triggerKey のある行だけはその場所に薄くして残す。パネルは下端を
  * 固定しているので、続けて ✓ を押す間に行が折りたたまれると上の行が下へずれ、次に押そうとした行がマウスの下から
  * 動いてしまうからである。keep はマウスがパネルの上にある間に既読にした行で、呼び出し側がマウスがパネルを
@@ -39,7 +38,7 @@ export function planPanel(
   now: number = Date.now(),
   keep: ReadonlySet<string> = new Set(),
 ): PanelPlan {
-  const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle" || isStale(s));
+  const active = (snapshot?.sessions ?? []).filter((s) => s.status !== "idle");
   const kept = active.filter((s) => isRead(s, ack) && keep.has(triggerKey(s)));
   const read = new Set(kept.map(sessionKey));
   const compare: Record<RowOrder, (a: SessionState, b: SessionState) => number> = {
@@ -56,11 +55,6 @@ export function planPanel(
     .filter((s) => isRead(s, ack) && !keep.has(triggerKey(s)) && sameLocalDay(s.status_since, now))
     .sort((a, b) => b.status_since - a.status_since || compareIds(sessionKey(a), sessionKey(b)));
   return { rows, read, today };
-}
-
-// 期限の切れた Cloud の観測。待機として届くが、状態が分からないだけで会話はまだある。
-function isStale(s: SessionState): boolean {
-  return s.status === "idle" && !!s.cloud?.expired;
 }
 
 function sameLocalDay(a: number, b: number): boolean {
@@ -90,7 +84,6 @@ export const DEFAULT_PANEL_OPACITY = 0.8;
 /** Rust の scale::PanelDisplay と同じ形で、display.json に保存する。 */
 export interface PanelDisplay {
   show_character: boolean;
-  show_cloud_sessions: boolean;
   panel_style: PanelStyle;
   row_order: RowOrder;
   /** パネルの背景だけの不透明度。文字やアイコンや状態の点は薄くしない。 */
@@ -99,7 +92,6 @@ export interface PanelDisplay {
 
 export const DEFAULT_PANEL_DISPLAY: PanelDisplay = {
   show_character: true,
-  show_cloud_sessions: false,
   panel_style: "detail",
   row_order: "started",
   panel_opacity: DEFAULT_PANEL_OPACITY,
@@ -115,8 +107,6 @@ export interface PanelView {
   order: RowOrder;
   plan: PanelPlan;
   counts: StatusCount[];
-  /** 期限の切れた Cloud の観測の数。状態が分からないので、状態ごとの件数とは別に数える。 */
-  stale: number;
   /** 件数の行を押したときに移動する、最も優先度の高い要対応のセッション。 */
   target: SessionState | null;
 }
@@ -144,9 +134,8 @@ export function panelView(
     status,
     count: counted.filter((s) => s.status === status).length,
   })).filter((c) => c.count > 0);
-  const stale = sessions.filter(isStale).length;
   const target = counted.find((s) => ATTENTION.has(s.status)) ?? null;
-  return { style, order, plan, counts, stale, target };
+  return { style, order, plan, counts, target };
 }
 
 /**
@@ -155,7 +144,7 @@ export function panelView(
  * 受ける場所も無くなるからである。
  */
 export function hasContent(view: PanelView): boolean {
-  return view.style === "detail" ? !isEmpty(view.plan) : view.counts.length > 0 || view.stale > 0;
+  return view.style === "detail" ? !isEmpty(view.plan) : view.counts.length > 0;
 }
 
 /** トレイのメニューの先頭に並べる、手を貸す必要のあるセッション。key は sessionKey である。 */

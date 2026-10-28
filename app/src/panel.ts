@@ -13,7 +13,6 @@ const FALLBACK_SUMMARY: Record<Status, string> = {
 };
 
 const EMPTY_LIST_TEXT = "進行中のセッションはありません";
-const STALE_LABEL = "状態不明";
 
 export interface PanelElements {
   panel: HTMLElement;
@@ -207,8 +206,6 @@ function renderCounts(
   const line = () => {
     const node = el("div", "counts-line");
     const items = view.counts.map((c) => countItem("counts-item", c.status, `${STATUS_LABEL[c.status]} ${c.count}`));
-    // 期限の切れた Cloud の観測は詳細では薄い行で残すので、件数でも末尾に薄く数える。
-    if (view.stale > 0) items.push(countItem("counts-item stale", "idle", `${STALE_LABEL} ${view.stale}`));
     items.forEach((item, i) => {
       if (i > 0) node.append(el("span", "counts-sep", "·"));
       node.append(item);
@@ -245,7 +242,7 @@ function renderRow(
   now: number,
   actions: RowActions,
 ): HTMLElement {
-  const row = el("div", read ? "row read" : s.cloud?.expired ? "row stale" : "row");
+  const row = el("div", read ? "row read" : "row");
   const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
   const detail = s.activity?.detail ?? "";
   const place = [s.title, s.cwd ?? s.session_id].filter(Boolean).join("\n");

@@ -233,11 +233,9 @@ function redrawPanel(): void {
 }
 
 function selectSession(session: SessionState): void {
-  if (!session.cloud) {
-    void invoke("focus_session", { provider: session.provider ?? "claude", sessionId: session.session_id }).catch(
-      (e) => console.error("focus", e),
-    );
-  }
+  void invoke("focus_session", { provider: session.provider ?? "claude", sessionId: session.session_id }).catch(
+    (e) => console.error("focus", e),
+  );
   markRead(session);
 }
 
