@@ -460,14 +460,14 @@ fn detach(command: &mut Command) {
 
 // リリースビルドのアプリはコンソールを持たないので、コンソール アプリを子プロセスとして呼ぶたびにウィンドウが開くのを止める。
 #[cfg(windows)]
-fn hide_console(command: &mut Command) {
+pub(crate) fn hide_console(command: &mut Command) {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
 #[cfg(not(windows))]
-fn hide_console(_: &mut Command) {}
+pub(crate) fn hide_console(_: &mut Command) {}
 
 /// 終了コードが 0 でなければ failure を返す。子プロセスの stderr は利用者に見せる文に向かないので、端末にだけ書く。
 fn run(command: &mut Command, failure: &str) -> Result<Vec<u8>, String> {

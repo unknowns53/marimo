@@ -24,6 +24,22 @@ export function bubbleSecondsOptions(current: number): number[] {
   return [...BUBBLE_SECONDS_CHOICES, current].sort((a, b) => a - b);
 }
 
+// 範囲は Rust 側の scale.rs と揃える（sharedConstants.test.ts が照合する）。
+export const MAX_USAGE_REFRESH_MINUTES = 1440;
+
+/** 一覧に並べる間隔（分）。0 は取り直さない。 */
+export const USAGE_REFRESH_CHOICES: readonly number[] = [0, 5, 10, 15, 30, 60];
+
+export function usageRefreshLabel(minutes: number): string {
+  return minutes === 0 ? "しない" : `${minutes} 分ごと`;
+}
+
+/** display.json を手で書き換えて一覧に無い間隔が入っていても、今の値として選べるよう加える。 */
+export function usageRefreshOptions(current: number): number[] {
+  if (USAGE_REFRESH_CHOICES.includes(current)) return [...USAGE_REFRESH_CHOICES];
+  return [...USAGE_REFRESH_CHOICES, current].sort((a, b) => a - b);
+}
+
 export function scaleLabel(scale: number): string {
   return `${scale.toFixed(1)} 倍`;
 }
@@ -48,6 +64,7 @@ export function formValues(state: SettingsState): FormValues {
     character: state.characters.length > 0 ? state.character ?? "" : null,
     scale: state.scale === null ? null : String(state.scale),
     autostart: state.autostart,
+    claude_usage_refresh_minutes: String(state.claude_usage_refresh_minutes),
   };
 }
 
@@ -94,6 +111,10 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
       return value ? { kind: "character", id: value } : null;
     case "autostart":
       return { kind: "autostart", enabled: checked };
+    case "claude_usage_refresh_minutes": {
+      const minutes = Number(value);
+      return Number.isInteger(minutes) && minutes >= 0 ? { kind: "claude-usage-refresh", minutes } : null;
+    }
     default:
       return null;
   }

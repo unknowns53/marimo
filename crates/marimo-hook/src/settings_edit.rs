@@ -453,7 +453,7 @@ fn is_marimo_codex_handler(handler: &Value) -> bool {
 }
 
 const LIMITS_HINT: &str =
-    "marimo が statusLine を受け取れないので、Claude Code の利用制限は表示されません";
+    "marimo が statusLine を受け取れないので、Claude Code の利用制限は statusLine からは届きません";
 
 fn install_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> StatusLineChange {
     let Some(existing) = root.get_mut("statusLine") else {
@@ -964,7 +964,10 @@ mod tests {
                     panic!("{command:?}: {:?}", report.status_line);
                 };
                 assert!(reason.contains("引用符や記号"), "{command:?}: {reason}");
-                assert!(reason.contains("利用制限は表示されません"), "{reason}");
+                assert!(
+                    reason.contains("利用制限は statusLine からは届きません"),
+                    "{reason}"
+                );
                 assert_eq!(settings["statusLine"], original["statusLine"]);
             }
             let report = uninstall(&mut settings, &m).unwrap();
@@ -1001,7 +1004,10 @@ mod tests {
         let StatusLineChange::Untouched { reason } = &report.status_line else {
             panic!("{:?}", report.status_line);
         };
-        assert!(reason.contains("利用制限は表示されません"), "{reason}");
+        assert!(
+            reason.contains("利用制限は statusLine からは届きません"),
+            "{reason}"
+        );
         assert!(settings.get("statusLine").is_none());
         assert_eq!(
             settings["hooks"]["Stop"][0]["hooks"][0]["command"],
