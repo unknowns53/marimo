@@ -26,8 +26,8 @@ export interface SettingsState {
   scale: number | null;
   /** ログイン項目の状態を読めなかったときは null で、切り替えられない。 */
   autostart: boolean | null;
-  /** Claude Code に `/usage` を実行させて利用制限を再取得する間隔（分）。0 は再取得しない。 */
-  claude_usage_refresh_minutes: number;
+  /** Claude Code と Codex に利用制限を再取得させる間隔（分）。0 は再取得しない。 */
+  usage_refresh_minutes: number;
 }
 
 export type SettingsRequest =
@@ -40,7 +40,7 @@ export type SettingsRequest =
   | { kind: "character"; id: string }
   | { kind: "scale"; scale: number }
   | { kind: "autostart"; enabled: boolean }
-  | { kind: "claude-usage-refresh"; minutes: number };
+  | { kind: "usage-refresh"; minutes: number };
 
 /** アプリの更新のコマンド check_update が返す形。 */
 export interface UpdateInfo {

@@ -64,7 +64,7 @@ export function formValues(state: SettingsState): FormValues {
     character: state.characters.length > 0 ? state.character ?? "" : null,
     scale: state.scale === null ? null : String(state.scale),
     autostart: state.autostart,
-    claude_usage_refresh_minutes: String(state.claude_usage_refresh_minutes),
+    usage_refresh_minutes: String(state.usage_refresh_minutes),
   };
 }
 
@@ -111,9 +111,9 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
       return value ? { kind: "character", id: value } : null;
     case "autostart":
       return { kind: "autostart", enabled: checked };
-    case "claude_usage_refresh_minutes": {
+    case "usage_refresh_minutes": {
       const minutes = Number(value);
-      return Number.isInteger(minutes) && minutes >= 0 ? { kind: "claude-usage-refresh", minutes } : null;
+      return Number.isInteger(minutes) && minutes >= 0 ? { kind: "usage-refresh", minutes } : null;
     }
     default:
       return null;

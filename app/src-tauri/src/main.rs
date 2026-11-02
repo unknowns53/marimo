@@ -151,16 +151,13 @@ fn set_bubble_settings(
 }
 
 #[tauri::command]
-fn get_claude_usage_refresh_minutes(state: State<'_, AppState>) -> u32 {
-    scale::load_claude_usage_refresh_minutes(&state.home)
+fn get_usage_refresh_minutes(state: State<'_, AppState>) -> u32 {
+    scale::load_usage_refresh_minutes(&state.home)
 }
 
 #[tauri::command]
-fn set_claude_usage_refresh_minutes(
-    state: State<'_, AppState>,
-    minutes: u32,
-) -> Result<(), String> {
-    scale::save_claude_usage_refresh_minutes(&state.home, minutes).map_err(|e| e.to_string())
+fn set_usage_refresh_minutes(state: State<'_, AppState>, minutes: u32) -> Result<(), String> {
+    scale::save_usage_refresh_minutes(&state.home, minutes).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -306,8 +303,8 @@ fn main() {
             set_panel_display,
             get_bubble_settings,
             set_bubble_settings,
-            get_claude_usage_refresh_minutes,
-            set_claude_usage_refresh_minutes,
+            get_usage_refresh_minutes,
+            set_usage_refresh_minutes,
             get_character,
             set_character,
             set_stage_aspect,
