@@ -34,7 +34,7 @@ const opacityInput = $<HTMLInputElement>("panel-opacity");
 const scaleInput = $<HTMLInputElement>("scale");
 const bubbleSecondsSelect = $<HTMLSelectElement>("bubble-seconds");
 const characterSelect = $<HTMLSelectElement>("character");
-const usageRefreshSelect = $<HTMLSelectElement>("claude-usage-refresh");
+const usageRefreshSelect = $<HTMLSelectElement>("usage-refresh");
 const versionNode = $("version");
 const checkButton = $<HTMLButtonElement>("check-update");
 const installButton = $<HTMLButtonElement>("install-update");
@@ -63,7 +63,7 @@ function render(next: SettingsState): void {
   );
   fillSelect(
     usageRefreshSelect,
-    usageRefreshOptions(next.claude_usage_refresh_minutes).map((m) => [String(m), usageRefreshLabel(m)]),
+    usageRefreshOptions(next.usage_refresh_minutes).map((m) => [String(m), usageRefreshLabel(m)]),
   );
   const values = formValues(next);
   for (const el of form.elements) {

@@ -14,46 +14,62 @@ use serde_json::{Value, json};
 use crate::scale;
 use crate::update::hide_console;
 
-const CODEX_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_GRACE: Duration = Duration::from_secs(3);
-const CLAUDE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+const CHECK_INTERVAL: Duration = Duration::from_secs(30);
 const CLAUDE_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Codex の利用制限を、Codex 自身の `codex app-server` に問い合わせて定期的に書く。rollout の
-/// token_count は Codex がターンを進めたときにしか書かれないので、使っていない間も値を新しく保つ。
+/// 設定のウィンドウで選んだ再取得の間隔（分）で、保存している値を観測した時刻がその間隔より古いかを見る。
+/// フックや statusLine が新しい値を届けている間は起動しない。起動に失敗し続けても間隔より頻繁には
+/// 起動しないよう、前回起動した時刻も見る。0 分は再取得しないことを表す。
+fn refresh_due(minutes: u32, observed_ms: Option<u64>, last_refresh: Option<Instant>) -> bool {
+    let interval = Duration::from_secs(u64::from(minutes) * 60);
+    minutes > 0
+        && observed_ms.is_none_or(|t| now_ms().saturating_sub(t) >= interval.as_millis() as u64)
+        && last_refresh.is_none_or(|t| t.elapsed() >= interval)
+}
+
+/// 再取得の間隔を選んでいれば、Codex の利用制限を Codex 自身の `codex app-server` に問い合わせて書く。
+/// rollout の token_count は Codex がターンを進めたときにしか書かれないので、使っていない間も値を
+/// 新しく保てる。
 pub fn spawn_codex(home: MarimoHome) {
     thread::spawn(move || {
+        let mut last_refresh = None;
         let mut last_error = None;
         loop {
-            let names = program_names("codex");
-            let read = user_home()
-                .and_then(|h| find_program(&names, &h))
-                .ok_or_else(|| "codex was not found".to_owned())
-                .and_then(|program| read_codex(&program));
-            let written = read.and_then(|result| {
-                let limits =
-                    codex::rate_limits_from_account(&result, now_ms()).ok_or_else(|| {
-                        format!("unexpected account/rateLimits/read result: {result}")
-                    })?;
-                store::write_codex_rate_limits(&home, &limits)
-                    .map_err(|e| format!("cannot save Codex rate limits: {e}"))
-            });
-            // 同じ失敗を 5 分ごとに書き続けないよう、変わったときだけ書く。
-            let error = written.err();
-            if let Some(e) = error.as_ref().filter(|e| last_error.as_ref() != Some(*e)) {
-                eprintln!("marimo: cannot read Codex rate limits: {e}");
+            // 設定のウィンドウで変えた間隔を次の周期から使うよう、毎回読む。
+            let minutes = scale::load_usage_refresh_minutes(&home);
+            let observed = store::read_codex_rate_limits(&home).map(|l| l.observed_at);
+            if refresh_due(minutes, observed, last_refresh) {
+                last_refresh = Some(Instant::now());
+                let names = program_names("codex");
+                let read = user_home()
+                    .and_then(|h| find_program(&names, &h))
+                    .ok_or_else(|| "codex was not found".to_owned())
+                    .and_then(|program| read_codex(&program));
+                let written = read.and_then(|result| {
+                    let limits =
+                        codex::rate_limits_from_account(&result, now_ms()).ok_or_else(|| {
+                            format!("unexpected account/rateLimits/read result: {result}")
+                        })?;
+                    store::write_codex_rate_limits(&home, &limits)
+                        .map_err(|e| format!("cannot save Codex rate limits: {e}"))
+                });
+                // 同じ失敗を再取得のたびに書き続けないよう、変わったときだけ書く。
+                let error = written.err();
+                if let Some(e) = error.as_ref().filter(|e| last_error.as_ref() != Some(*e)) {
+                    eprintln!("marimo: cannot read Codex rate limits: {e}");
+                }
+                last_error = error;
             }
-            last_error = error;
-            thread::sleep(CODEX_INTERVAL);
+            thread::sleep(CHECK_INTERVAL);
         }
     });
 }
 
 /// Claude の利用制限を、Claude Code が `~/.claude.json` の cachedUsageUtilization に残した値で補う。
 /// statusLine はデスクトップアプリの Code タブでは呼ばれず、CLI でも応答が届いたときにしか新しい値を
-/// 持たない。利用者が間隔を選んでいれば、保存済みの値がその間隔より古いときに、Claude Code に `/usage` を
-/// 実行させてこの値を取り直させる。
+/// 持たない。再取得の間隔を選んでいれば、Claude Code に `/usage` を実行させてこの値を再取得させる。
 /// ファイルは Claude Code が頻繁に書き換えるので、更新時刻が変わったときだけ読む。
 pub fn spawn_claude(home: MarimoHome) {
     thread::spawn(move || {
@@ -62,17 +78,12 @@ pub fn spawn_claude(home: MarimoHome) {
         };
         let config = user_home.join(".claude.json");
         let mut seen = None;
-        let mut last_refresh: Option<Instant> = None;
+        let mut last_refresh = None;
         let mut last_error = None;
         loop {
-            // 設定のウィンドウで変えた間隔を次の周期から使うよう、毎回読む。
-            let minutes = scale::load_claude_usage_refresh_minutes(&home);
-            let interval = Duration::from_secs(u64::from(minutes) * 60);
-            let stale = minutes > 0
-                && store::read_rate_limits(&home).is_none_or(|l| {
-                    now_ms().saturating_sub(l.updated_at) >= interval.as_millis() as u64
-                });
-            if stale && last_refresh.is_none_or(|t| t.elapsed() >= interval) {
+            let minutes = scale::load_usage_refresh_minutes(&home);
+            let observed = store::read_rate_limits(&home).map(|l| l.updated_at);
+            if refresh_due(minutes, observed, last_refresh) {
                 last_refresh = Some(Instant::now());
                 let names = program_names("claude");
                 let error = find_program(&names, &user_home)
@@ -95,7 +106,7 @@ pub fn spawn_claude(home: MarimoHome) {
                     eprintln!("marimo: cannot save Claude rate limits: {e}");
                 }
             }
-            thread::sleep(CLAUDE_CHECK_INTERVAL);
+            thread::sleep(CHECK_INTERVAL);
         }
     });
 }

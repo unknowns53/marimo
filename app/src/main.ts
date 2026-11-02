@@ -71,7 +71,7 @@ const acknowledged = new Acknowledged((keys) =>
   void invoke("set_acknowledged", { keys }).catch((e) => console.error("acknowledged", e)),
 );
 let bubbleSettings: BubbleSettings = DEFAULT_BUBBLE_SETTINGS;
-let claudeUsageRefreshMinutes = 0;
+let usageRefreshMinutes = 0;
 const bubbleModel = new BubbleModel(acknowledged, undefined, (status) => bubbleEnabled(bubbleSettings, status));
 // 知らせの吹き出しは、押すとその行を押したのと同じ操作になる。移動せずに閉じたいときは行と同じ修飾キーを使う。
 const bubble = new Bubble(bubbleNode, (e) => {
@@ -470,7 +470,7 @@ function settingsState(): SettingsState {
     character: characterId ?? null,
     scale: scale?.current ?? null,
     autostart: autostart ?? null,
-    claude_usage_refresh_minutes: claudeUsageRefreshMinutes,
+    usage_refresh_minutes: usageRefreshMinutes,
   };
 }
 
@@ -510,10 +510,10 @@ async function handleSettingsRequest(request: SettingsRequest): Promise<void> {
       await (request.enabled ? enable() : disable()).catch((e) => console.error("autostart", e));
       await readAutostart();
       break;
-    case "claude-usage-refresh":
-      claudeUsageRefreshMinutes = request.minutes;
-      await invoke("set_claude_usage_refresh_minutes", { minutes: request.minutes }).catch((e) =>
-        console.error("claude usage refresh", e),
+    case "usage-refresh":
+      usageRefreshMinutes = request.minutes;
+      await invoke("set_usage_refresh_minutes", { minutes: request.minutes }).catch((e) =>
+        console.error("usage refresh", e),
       );
       break;
   }
@@ -630,8 +630,8 @@ async function start(): Promise<void> {
     console.error("bubble settings", e);
     return DEFAULT_BUBBLE_SETTINGS;
   });
-  claudeUsageRefreshMinutes = await invoke<number>("get_claude_usage_refresh_minutes").catch((e) => {
-    console.error("claude usage refresh", e);
+  usageRefreshMinutes = await invoke<number>("get_usage_refresh_minutes").catch((e) => {
+    console.error("usage refresh", e);
     return 0;
   });
   appIcons = await invoke<AppIcons>("app_icons").catch((e) => {

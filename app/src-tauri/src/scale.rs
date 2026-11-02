@@ -90,7 +90,7 @@ impl RowOrder {
 /// 自動で消すまでの秒数の上限。手で書いた極端な値で吹き出しが事実上消えなくならないよう、1 時間に収める。
 pub const MAX_BUBBLE_SECONDS: u32 = 3600;
 
-/// Claude Code に `/usage` を実行させて利用制限を取り直す間隔の上限（分）。
+/// Claude Code と Codex に利用制限を再取得させる間隔の上限（分）。
 pub const MAX_USAGE_REFRESH_MINUTES: u32 = 1440;
 
 /// 知らせの吹き出しは、承認待ち、完了、エラーの種類ごとに出すかどうかを選べる。
@@ -192,7 +192,7 @@ struct Display {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     bubble_seconds: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    claude_usage_refresh_minutes: Option<serde_json::Value>,
+    usage_refresh_minutes: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -297,19 +297,19 @@ pub fn save_bubble_settings(home: &MarimoHome, settings: BubbleSettings) -> io::
     store::write_json_durable(&home.display_file(), &d)
 }
 
-/// 0 は取り直さないことを表し、保存されていないときや解釈できない値のときもそうする。`/usage` を
-/// 実行させる操作は利用者が選んだときだけ行う。
-pub fn load_claude_usage_refresh_minutes(home: &MarimoHome) -> u32 {
+/// 0 は再取得しないことを表し、保存されていないときや解釈できない値のときもそうする。Claude Code と
+/// Codex を起動する操作は利用者が選んだときだけ行う。
+pub fn load_usage_refresh_minutes(home: &MarimoHome) -> u32 {
     read_display(home)
-        .claude_usage_refresh_minutes
+        .usage_refresh_minutes
         .as_ref()
         .and_then(serde_json::Value::as_u64)
         .map_or(0, |m| m.min(u64::from(MAX_USAGE_REFRESH_MINUTES)) as u32)
 }
 
-pub fn save_claude_usage_refresh_minutes(home: &MarimoHome, minutes: u32) -> io::Result<()> {
+pub fn save_usage_refresh_minutes(home: &MarimoHome, minutes: u32) -> io::Result<()> {
     let mut d = read_display(home);
-    d.claude_usage_refresh_minutes = Some(minutes.min(MAX_USAGE_REFRESH_MINUTES).into());
+    d.usage_refresh_minutes = Some(minutes.min(MAX_USAGE_REFRESH_MINUTES).into());
     store::write_json_durable(&home.display_file(), &d)
 }
 
@@ -638,32 +638,29 @@ mod tests {
     }
 
     #[test]
-    fn claude_usage_refresh_minutes_default_to_off() {
+    fn usage_refresh_minutes_default_to_off() {
         let (_d, home) = home();
         let cases = [
             (r#"{}"#, 0),
-            (r#"{"claude_usage_refresh_minutes": 10}"#, 10),
+            (r#"{"usage_refresh_minutes": 10}"#, 10),
             (
-                r#"{"claude_usage_refresh_minutes": 99999}"#,
+                r#"{"usage_refresh_minutes": 99999}"#,
                 MAX_USAGE_REFRESH_MINUTES,
             ),
-            (r#"{"claude_usage_refresh_minutes": -5}"#, 0),
-            (r#"{"claude_usage_refresh_minutes": "10"}"#, 0),
+            (r#"{"usage_refresh_minutes": -5}"#, 0),
+            (r#"{"usage_refresh_minutes": "10"}"#, 0),
         ];
         for (content, minutes) in cases {
             fs::write(home.display_file(), content).unwrap();
             assert_eq!(
-                load_claude_usage_refresh_minutes(&home),
+                load_usage_refresh_minutes(&home),
                 minutes,
                 "content {content:?}"
             );
         }
         fs::write(home.display_file(), r#"{"stage_scale": 1.5}"#).unwrap();
-        save_claude_usage_refresh_minutes(&home, 15).unwrap();
-        assert_eq!(
-            (load(&home), load_claude_usage_refresh_minutes(&home)),
-            (1.5, 15)
-        );
+        save_usage_refresh_minutes(&home, 15).unwrap();
+        assert_eq!((load(&home), load_usage_refresh_minutes(&home)), (1.5, 15));
     }
 
     #[test]
