@@ -101,7 +101,7 @@ Hermes のフックは `install` では登録しないので、[Hermes のフッ
 
 ### OpenCode
 
-対象は OpenCode v2 を端末から使うときのセッションで、v1 のデスクトップアプリには対応していません。プラグインは OpenCode の設定のフォルダ（既定は `~/.config/opencode`）があるときだけ置き、OpenCode の設定ファイルは書き換えません（[OpenCode のプラグイン](docs/development.md#opencode-のプラグイン)を参照）。行を押して移動できるのは、macOS の Ghostty の中で動いている端末だけです。
+対象は OpenCode v2 を端末から使うときのセッションで、v1 のデスクトップアプリには対応していません。プラグインは OpenCode の設定のフォルダ（既定は `~/.config/opencode`）があるときだけ置き、OpenCode の設定ファイルは書き換えません（[OpenCode のプラグイン](docs/development.md#opencode-のプラグイン)を参照）。行を押して移動できるのは、macOS の Ghostty の中で動いている端末だけです。Claude Code が作業を任せるために `opencode run --standalone` で動かした会話は、任せた側の Claude Code の行と重なるので、パネルに並べません。
 
 ## 動作環境
 

@@ -42,6 +42,13 @@ const FROM_CHILD = new Set([
 
 const LIMIT = 500
 
+// Claude Code が作業を任せるために起動した OpenCode の会話は、任せた側の Claude Code の行がすでに作業中を
+// 示しているので、行を作らない。Claude Code はツールから起動したプロセスの環境に CLAUDECODE=1 を入れ、
+// opencode run --standalone が立てる専用のサーバーはそれを受け継ぐ。端末の画面がつなぐバックグラウンドの
+// サービス（opencode serve --service）も、Claude Code の中から起動されるとこの値を持ったまま利用者が開いた
+// 会話を動かすので、サービスでは見分けに使わない。
+const DELEGATED = process.env.CLAUDECODE === "1" && !process.argv.includes("--service")
+
 // プラグインが場所ごとに読み込まれても、同じモジュールの値を分け合って同じイベントを二度渡さない。
 const seen = new Set()
 const children = new Map()
@@ -249,6 +256,7 @@ async function handle(ctx, event) {
 export default {
   id: "marimo",
   setup(ctx) {
+    if (DELEGATED) return () => {}
     listing = loadWindows(ctx)
     const controller = new AbortController()
     // OpenCode は追いつかない購読を切るので、外すとき以外に切れたら少し置いて購読し直す。
