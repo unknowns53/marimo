@@ -27,10 +27,32 @@ pub fn utc_date(ms: u64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// `YYYY-MM-DDTHH:MM:SS` に小数秒と `Z` が続く UTC の時刻を、Unix エポックからのミリ秒にする。
-/// Codex の rollout の各行の timestamp がこの形で書かれる。時差の付いた形は受け付けない。
+/// `YYYY-MM-DDTHH:MM:SS` に小数秒と、`Z` か `+09:00` のような時差が続く時刻を、Unix エポックからの
+/// ミリ秒にする。Codex の rollout の各行の timestamp は `Z` で、Claude Code が保存する利用制限の
+/// resets_at は `+00:00` で書かれる。
 pub fn parse_rfc3339_utc_ms(s: &str) -> Option<u64> {
-    let s = s.strip_suffix('Z')?;
+    let (s, offset_secs) = split_offset(s)?;
+    let local = parse_without_offset(s)?;
+    u64::try_from(i64::try_from(local).ok()? - offset_secs * 1000).ok()
+}
+
+fn split_offset(s: &str) -> Option<(&str, i64)> {
+    if let Some(rest) = s.strip_suffix('Z') {
+        return Some((rest, 0));
+    }
+    let at = s.len().checked_sub(6)?;
+    let (rest, offset) = (s.get(..at)?, s.get(at..)?);
+    let sign = match offset.as_bytes()[0] {
+        b'+' => 1,
+        b'-' => -1,
+        _ => return None,
+    };
+    let (h, m) = offset[1..].split_once(':')?;
+    let (h, m) = (h.parse::<i64>().ok()?, m.parse::<i64>().ok()?);
+    (h <= 23 && m <= 59).then_some((rest, sign * (h * 3600 + m * 60)))
+}
+
+fn parse_without_offset(s: &str) -> Option<u64> {
     let (date, time) = s.split_once('T')?;
     let mut d = date.splitn(3, '-').map(|p| p.parse::<i64>().ok());
     let (y, m, day) = (d.next()??, d.next()??, d.next()??);
@@ -104,10 +126,19 @@ mod tests {
             parse_rfc3339_utc_ms("2026-09-27T11:42:05.1234Z"),
             Some(1_790_509_325_123)
         );
+        assert_eq!(
+            parse_rfc3339_utc_ms("2026-09-27T11:42:05.123456+00:00"),
+            Some(1_790_509_325_123)
+        );
+        assert_eq!(
+            parse_rfc3339_utc_ms("2026-09-27T20:42:05+09:00"),
+            Some(1_790_509_325_000)
+        );
         for bad in [
             "",
             "2026-09-27",
-            "2026-09-27T11:42:05+09:00",
+            "2026-09-27T11:42:05",
+            "2026-09-27T11:42:05+0900",
             "2026-13-01T00:00:00Z",
             "x-y-zT0:0:0Z",
         ] {

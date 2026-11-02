@@ -8,6 +8,7 @@ import { MAX_BUBBLE_SECONDS } from "./bubbleSettings";
 import { DEFAULT_ASPECT } from "./manifest";
 import { DEFAULT_PANEL_OPACITY, PANEL_OPACITY_MAX, PANEL_OPACITY_MIN } from "./panelModel";
 import { SCALE_MAX, SCALE_MIN } from "./scale";
+import { MAX_USAGE_REFRESH_MINUTES } from "./settingsForm";
 
 // Rust はこれらの値で保存する値を収め直し、フロントエンドは同じ値で操作の範囲を決めて描く。
 // 片方だけ変えると表示と保存がずれるので、Rust のソースを読んで値を突き合わせる。
@@ -28,6 +29,7 @@ describe("constants shared with Rust", () => {
       ["DEFAULT_OPACITY", DEFAULT_PANEL_OPACITY],
       ["MAX_BUBBLE_SECONDS", MAX_BUBBLE_SECONDS],
       ["DEFAULT_ASPECT", DEFAULT_ASPECT],
+      ["MAX_USAGE_REFRESH_MINUTES", MAX_USAGE_REFRESH_MINUTES],
     ];
     for (const [name, value] of cases) expect(value, name).toBe(rustConst(scaleRs, name));
   });

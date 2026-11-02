@@ -72,7 +72,7 @@ statusLine がまだ無ければ `marimo-hook statusline` だけを登録しま�
 
 Windows の Claude Code は、Git Bash が入っていれば Git Bash で、なければ PowerShell で statusLine を実行します。どちらで動くかが環境によって変わり、両者で引用の規則も違うので、引用符を使わずにどちらのシェルでも同じように読める形だけで書きます。marimo-hook のパスは、実行ファイルがホームフォルダの下にあれば `~/.marimo/bin/marimo-hook.exe statusline` のように `~/` で始め、そうでなければ `/` 区切りの絶対パスを書きます。パスに空白などが含まれていてどちらの形でも書けない場合は、statusLine を登録せず、既存の statusLine もラップしません。
 
-既存の statusLine は、`bash C:/Users/user/.claude/statusline.sh` のように、引用符や記号を含まない語を空白一つずつで区切って並べたコマンドの場合だけラップします。このときは `sh -c` を使わず、`~/.marimo/bin/marimo-hook.exe statusline -- bash C:/Users/user/.claude/statusline.sh` のように元のコマンドをそのまま後ろへ続けます。引用符、`$`、`|`、`;`、`\` などを含むコマンドや、`~` で始まる語を含むコマンドは、二つのシェルで読み方が変わるのでラップせずにそのまま残し、Claude Code の利用制限が表示されないことを知らせます。`bash ~/.claude/statusline.sh` のように `~` で始まる語だけが理由でラップできない場合は、`~` を `C:/Users/user` に書き換えてから `install` を実行し直すとラップできます。
+既存の statusLine は、`bash C:/Users/user/.claude/statusline.sh` のように、引用符や記号を含まない語を空白一つずつで区切って並べたコマンドの場合だけラップします。このときは `sh -c` を使わず、`~/.marimo/bin/marimo-hook.exe statusline -- bash C:/Users/user/.claude/statusline.sh` のように元のコマンドをそのまま後ろへ続けます。引用符、`$`、`|`、`;`、`\` などを含むコマンドや、`~` で始まる語を含むコマンドは、二つのシェルで読み方が変わるのでラップせずにそのまま残し、Claude Code の利用制限が statusLine からは届かないことを知らせます。`bash ~/.claude/statusline.sh` のように `~` で始まる語だけが理由でラップできない場合は、`~` を `C:/Users/user` に書き換えてから `install` を実行し直すとラップできます。
 
 ラップしたコマンドの最初の語が `bash` のような名前だけのときは、marimo-hook が環境変数 `PATH` の並びの順に探して起動します。Rust の標準の探し方は `PATH` より先に System32 などを探すので、WSL（Windows の上で Linux を動かす仕組み）を入れていると System32 の `bash.exe` が見つかり、Git Bash や PowerShell が起動するものと違ってしまうためです。
 
@@ -178,10 +178,10 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID（セッションに振られる識別子）のペアでセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `sessions/hermes-<session_id>.json` | Hermes のセッションごとの状態です。Codex と同じく名前に `hermes-` を付けて分けます。書き方と消し方は Claude Code のセッションと同じです |
 | `sessions/opencode-<session_id>.json` | OpenCode のセッションごとの状態です。Codex と同じく名前に `opencode-` を付けて分けます。OpenCode で会話を消したとき（`session.deleted`）は、完了とエラーのセッションも消します。24 時間更新のないファイルは、ほかのセッションと同じくアプリが消します |
-| `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine の入力から、そのセッションに新しい応答が届いていたときだけ書きます |
+| `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine の入力から、そのセッションに新しい応答が届いていたときだけ書きます。アプリも、Claude Code が `~/.claude.json` の `cachedUsageUtilization` に残した値のうち、保存している `updated_at` より新しい時点のものを書きます。このときの `updated_at` は、marimo が読んだ時刻ではなく、Claude Code が値を取得した時刻（`fetchedAtMs`）です。`cachedUsageUtilization` は Claude Code の文書に無い項目で、Claude Code 2.1.316 が書く形に合わせています |
 | `statusline_responses.json` | セッションごとに、statusLine の入力にあった `cost.total_api_duration_ms`（API の応答を待った時間の累計）と、その値が変わった時刻を持ちます。この値が前回より増えていれば新しい応答が届いたと見て、`rate_limits.json` を書き換えます。24 時間変わらなかったセッションの記録は、次に書くときに消します |
-| `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書きます |
-| `display.json` | 表示の設定です。倍率の `stage_scale`（0.6 から 4.0 までの数。無いときは、立ち絵の領域の幅を 180 ピクセルとした倍率で書かれた以前の `scale` を、同じ大きさになるよう読み替えて使い、次に倍率を保存したときに `scale` を消します）、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、パネルの背景の不透明度の `panel_opacity`（0.2 から 1.0 までの数。無いときや数でないときは 0.8 を使い、範囲の外の数は近い端に寄せます。文字やアイコンは薄くしません）、吹き出しを出す種類ごとの `bubble_waiting`、`bubble_done`、`bubble_error`（真偽値で、無いときや真偽値でないときは `true`）、吹き出しを自動で閉じるまでの秒数の `bubble_seconds`（0 から 3600 までの整数で、0 は押すまで出し続けます。無いときや整数でないときは 0 を使い、上限を超える数は上限に寄せます）、選んだキャラクターの名前の `character`、選んだキャラクターの立ち絵の領域の縦横比（高さを幅で割った値）の `stage_aspect` を持ちます。`stage_aspect` は画面部分が値を知らせるたびに保存し、次の起動ではウィンドウを最初からこの縦横比で開くので、起動の直後にウィンドウが動きません。無いときや値が正しくないときは 1.5 を使い、0.25 から 4.0 の範囲に収めます。古い形式のキー `panel_mode` が残っている場合は、表示を切り替えて新しいキーを保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンからウィンドウを隠したかどうかは保存しません |
+| `codex_rate_limits.json` | Codex の利用制限です。Codex のフックが rollout から読んで書くほかに、アプリが 5 分ごとに `codex app-server` の `account/rateLimits/read` で問い合わせて書きます |
+| `display.json` | 表示の設定です。倍率の `stage_scale`（0.6 から 4.0 までの数。無いときは、立ち絵の領域の幅を 180 ピクセルとした倍率で書かれた以前の `scale` を、同じ大きさになるよう読み替えて使い、次に倍率を保存したときに `scale` を消します）、立ち絵を出すかどうかの `show_character`、パネルの行の出し方の `panel_style`（`"detail"` か `"counts"`）、パネルの行の並べ方の `row_order`（始まった順の `"started"`、状態の順の `"status"`、更新の新しい順の `"updated"` のどれか。無いときや知らない値のときは `"started"`）、パネルの背景の不透明度の `panel_opacity`（0.2 から 1.0 までの数。無いときや数でないときは 0.8 を使い、範囲の外の数は近い端に寄せます。文字やアイコンは薄くしません）、吹き出しを出す種類ごとの `bubble_waiting`、`bubble_done`、`bubble_error`（真偽値で、無いときや真偽値でないときは `true`）、吹き出しを自動で閉じるまでの秒数の `bubble_seconds`（0 から 3600 までの整数で、0 は押すまで出し続けます。無いときや整数でないときは 0 を使い、上限を超える数は上限に寄せます）、Claude Code に `/usage` を実行させて利用制限を取り直す間隔（分）の `claude_usage_refresh_minutes`（0 から 1440 までの整数で、0 は取り直しません。無いときや整数でないときは 0 を使い、上限を超える数は上限に寄せます）、選んだキャラクターの名前の `character`、選んだキャラクターの立ち絵の領域の縦横比（高さを幅で割った値）の `stage_aspect` を持ちます。`stage_aspect` は画面部分が値を知らせるたびに保存し、次の起動ではウィンドウを最初からこの縦横比で開くので、起動の直後にウィンドウが動きません。無いときや値が正しくないときは 1.5 を使い、0.25 から 4.0 の範囲に収めます。古い形式のキー `panel_mode` が残っている場合は、表示を切り替えて新しいキーを保存するまで読み替えて使います（`"list"` は立ち絵なしの詳細、`"picture"` は立ち絵ありの件数だけになります）。アイコンからウィンドウを隠したかどうかは保存しません |
 | `window.json` | ウィンドウの位置と、立ち絵を置いているウィンドウの隅です |
 | `acknowledged.json` | 既読にした完了などのトリガーの記録です |
 | `dialogue.json` | 利用者が書くセリフの上書きです。marimo はこのファイルを作りません |
@@ -200,7 +200,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | --- | --- |
 | `windows` | 利用制限のウィンドウの配列です。各要素は、ウィンドウの長さ（分）の `window_minutes`、使った割合（%）の `used_percentage`、次に戻る時刻（Unix 秒）の `resets_at` を持ちます。Codex が値を送らなかったウィンドウは含めません |
 | `plan_type` | Codex が送ってきたプランの種類です |
-| `observed_at` | 値を読んだ rollout の行の時刻（Unix ミリ秒）です。これより古い時点の値では書き換えません |
+| `observed_at` | 値を読んだ rollout の行の時刻か、アプリが `codex app-server` に問い合わせた時刻（Unix ミリ秒）です。これより古い時点の値では書き換えません |
 | `updated_at` | marimo がこのファイルを書いた時刻（Unix ミリ秒）です |
 
 状態ファイルは、一時ファイルに書いてから名前を変える方法で書き換えます。この方法だと、読む側が書きかけのファイルを読むことがありません（atomic write、原子的な書き込みと呼ばれます）。書き込みの途中には、`.` で始まり `.tmp` で終わる一時ファイルが一瞬だけ現れます。
@@ -222,7 +222,15 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 - **OpenCode のプラグインが渡すもの** OpenCode のセッションでは、プラグインが選んだイベントの内容（セッションの ID、作業フォルダ、ツールの名前と引数、実行許可を求める操作の種類と対象、質問のフォームのフィールド、エラーの種類と文、各ステップのトークン数）を受け取ります。プラグインはこれに、ターンで最後に書かれた応答の文章と、OpenCode に尋ねた値を足して渡します。プラグインが OpenCode に尋ねるのは、作成を見ていないセッションの親、タイトル、作業フォルダと、モデルの一覧にあるコンテキストの上限だけです。OpenCode のファイルは読みません。
 - **ターンを動かしているプロセス** セッションの開始時とプロンプトを送ったとき（Hermes と OpenCode ではターンの始まり）と、まだ記録の無い行へのフックで、フックの祖先のうちシェルでない最も近いプロセスの ID と起動した時刻を状態ファイルに記録します。シェルを見分けるために祖先の実行ファイルの名前を読みますが、名前は記録しません。アプリは、記録したプロセスがまだ動いているかを OS に尋ねるだけで、引数は読みません。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）、API の応答を待った時間の累計（`cost.total_api_duration_ms`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。
+- **Claude Code の `~/.claude.json`** アプリが 30 秒ごとに更新時刻を確かめ、変わっていたら読んで、Claude Code が取得した利用制限の `cachedUsageUtilization` と、ログイン中のアカウントの `oauthAccount.accountUuid` だけを取り出します。アカウントの ID は、別のアカウントで取得された値を使わないために照らし合わせるだけで、記録しません。Claude Code のトークンを含む資格情報は読みません。
 - **アプリのアイコン** パネルのマークに使うため、起動したときに一度だけ、Claude、Codex、OpenCode のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop`、`com.openai.codex`、`ai.opencode.desktop` のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。Windows では OpenCode のアイコンを問い合わせません。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。Hermes Agent のアイコンと、OpenCode のデスクトップアプリのアイコンを受け取れなかったときの OpenCode のアイコンは、`app/src/assets/providers/` に同梱した画像を使います（出どころと許諾は `LICENSE-ASSETS` に書いています）。
+
+### marimo が起動するもの
+
+- **`codex app-server`** アプリが 5 分ごとに起動し、`initialize` のあとに `account/rateLimits/read` だけを送って、応答を受け取ったら標準入力を閉じて終わらせます。Codex への認証は Codex 自身が行い、marimo は Codex の `auth.json` を読みません。会話は始めないので rollout はできません。
+- **`claude -p "/usage" --no-session-persistence --settings '{"disableAllHooks": true}'`** 設定のウィンドウの「Claude の取り直し」で間隔を選んだときだけ、保存している Claude の値がその間隔より古ければ、`~/.marimo` を作業フォルダにして起動します。`/usage` は Claude Code の中で処理され、モデルへのリクエストは送られません。`--no-session-persistence` で会話ログを残さず、`disableAllHooks` で marimo を含むフックを動かしません。60 秒で終わらなければ止めます。
+
+どちらのコマンドも、GUI のアプリは端末の PATH を引き継がないので、PATH のほかに `~/.local/bin`、macOS では `/opt/homebrew/bin` と `/usr/local/bin` からも探し、`codex` は macOS の ChatGPT のデスクトップアプリが同梱する `Contents/Resources/codex-cli/bin` からも探します。npm で入れた `codex` は `node` で動くので、見つけたコマンドのフォルダを子プロセスの PATH の先頭に足します。
 
 ### marimo が書くもの
 
@@ -240,7 +248,7 @@ marimo は、状態ファイルも会話の内容も、ローカルのコンピ�
 | --- | --- |
 | `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数とタイトルの読み取り、Codex の rollout と session_index.jsonl の読み取り、Hermes のフックの入力の読み替えとセッションの一覧の読み取り、OpenCode のイベントの読み替え、ターンを動かしているプロセスが動いているかの確認、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
 | `crates/marimo-hook` | Claude Code、Codex、Hermes、OpenCode のプラグインから呼ばれるコマンド。`hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます。`install` が置く OpenCode のプラグインの雛形 `src/opencode_plugin.js` もここにあり、ビルドのときに実行ファイルへ埋め込まれます |
-| `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、ウィンドウの制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、macOS でのアプリのアイコンの読み取りを受け持ちます |
+| `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、Claude Code と Codex からの利用制限の取得、ウィンドウの制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、macOS でのアプリのアイコンの読み取りを受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
 | `assets/character/index.json` | 組み込みのキャラクターの一覧です（[自分のキャラクターを作る](customize.md#自分のキャラクターを作る)を参照） |
 | `assets/character/koharu` | 小春の素材。24 枚の PNG（画像の形式）、`manifest.json`、既定のセリフの `dialogue.json` |
@@ -297,9 +305,9 @@ README の[動作環境](../README.md#動作環境)の表を、ツールと画�
 | ツール | 使い方 | 確認の状況 | 確かめたことと制約 |
 | --- | --- | --- | --- |
 | Claude Code | macOS の端末で動かす CLI | 確認済み | すべての機能が使えます。フックと statusLine の両方が動きます。更新用のスクリプトでローカルでビルドして更新する方法も確かめています。行を押してセッションへ移動する機能は Terminal.app と Ghostty で確かめており、Ghostty では Claude Code の background session からも移れることを確かめています。iTerm2 と VS Code の統合ターミナルでの見分け方は、それぞれのアプリの文書に基づいています |
-| Claude Code | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限は CLI も使っているときだけ出ます。そのときは、CLI の statusLine が最後に届けた値を出します（[利用制限の表示](usage.md#利用制限の表示)を参照） |
+| Claude Code | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine はこの画面では呼ばれないので、利用制限は、「Claude の取り直し」で間隔を選んだときか、CLI も使っているときに出ます（[利用制限の表示](usage.md#利用制限の表示)を参照） |
 | Claude Code | VS Code の拡張機能の画面 | 未確認 | statusLine が動くかどうかを確かめていません |
-| Claude Code | Windows | 一部確認済み | Windows 11 で、ビルド、NSIS（Windows 向けのインストーラを作る仕組み）のインストーラによる導入、更新用のスクリプトでローカルでビルドする更新、`install`、フックの発火、自動起動、クリック透過、通知領域のアイコンからウィンドウを隠して出し直す操作を確かめています。statusLine が無い場合の `install` による登録が Git Bash と PowerShell のどちらでも動くことと、既存の statusLine を `install` がラップしても元の表示が変わらず、CLI のセッションでコンテキスト使用率がパーセントで出ることも確かめています（[statusLine のラップのしかた](#statusline-のラップのしかた)を参照）。ラップできない statusLine を使っている場合は、marimo が statusLine を受け取れないので、Claude Code の利用制限は出ません。行を押してセッションへ移動する機能は、デスクトップアプリの Code タブ、Windows Terminal、conhost、VS Code の統合ターミナルのどれでも確かめています（[セッションへ移動する](usage.md#セッションへ移動する)を参照） |
+| Claude Code | Windows | 一部確認済み | Windows 11 で、ビルド、NSIS（Windows 向けのインストーラを作る仕組み）のインストーラによる導入、更新用のスクリプトでローカルでビルドする更新、`install`、フックの発火、自動起動、クリック透過、通知領域のアイコンからウィンドウを隠して出し直す操作を確かめています。statusLine が無い場合の `install` による登録が Git Bash と PowerShell のどちらでも動くことと、既存の statusLine を `install` がラップしても元の表示が変わらず、CLI のセッションでコンテキスト使用率がパーセントで出ることも確かめています（[statusLine のラップのしかた](#statusline-のラップのしかた)を参照）。ラップできない statusLine を使っている場合は、marimo が statusLine を受け取れないので、Claude Code の利用制限は「Claude の取り直し」で間隔を選んだときだけ出ます。行を押してセッションへ移動する機能は、デスクトップアプリの Code タブ、Windows Terminal、conhost、VS Code の統合ターミナルのどれでも確かめています（[セッションへ移動する](usage.md#セッションへ移動する)を参照） |
 | Claude Code | Linux | 未確認 | 動作を確かめていません |
 | Claude Code | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | ローカルの `~/.claude/settings.json` を読まないので、フックが届きません |
 | Claude Code | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
@@ -360,9 +368,10 @@ git push origin v0.1.0
 データは次の順に流れます。
 
 1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。Codex のフックからは `marimo-hook codex-hook` が呼ばれ、同じ規則で `sessions/codex-<session_id>.json` に書き、利用制限を `codex_rate_limits.json` へ書きます。Hermes のフックからは `marimo-hook hermes-hook` が呼ばれ、入力を Claude Code の入力に読み替えてから同じ規則で `sessions/hermes-<session_id>.json` に書きます。OpenCode では、サービスの中で動くプラグインがイベントを購読し、選んだイベントごとに `marimo-hook opencode-hook` を起動します。`opencode-hook` は、イベントを Claude Code の入力に読み替えてから同じ規則で `sessions/opencode-<session_id>.json` に書きます。プラグインは、前に起動した `marimo-hook` が終わってから次を起動するので、書く順がイベントの順と入れ替わりません。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、そのセッションに新しい応答が届いていれば利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
-2. アプリはファイルの監視（file watcher。フォルダの中のファイルが変わると OS から知らせを受け取る仕組み）で `sessions/` と `rate_limits.json` の変化を受け取ります。並列のツール呼び出しで書き込みが重なるので、120 ミリ秒静かになるまで待ち、遅くとも 500 ミリ秒で、全セッションをまとめたスナップショットを読みます。
-3. Rust 側は、スナップショットの全体の状態に合わせてメニューバーと通知領域のアイコンを替え、スナップショットを `snapshot` という名前のイベントで画面部分へ送ります。アイコンを画面部分に任せないのは、ウィンドウを隠している間は画面部分が止まることがあるからです。macOS 14 以降では、隠したウィンドウの画面部分を WebKit が止めないよう、`tauri.conf.json` の `backgroundThrottling` を `disabled` にしています。Tauri はこの設定を macOS 13 以前と Windows では扱いません。
-4. 画面部分は、既読の記録を加味して全体の状態を決め直し、表情、吹き出し、パネルを描き直します。アイコンのメニューの先頭に並べるセッションの一覧も画面部分が決め、変わったときだけ Rust 側へ送ります。メニューでセッションを選ぶと、Rust 側はそのセッションのキーを `tray-session` という名前のイベントで画面部分へ返し、画面部分がパネルの行を押したときと同じ操作をします。
+2. アプリは、Claude Code が `~/.claude.json` に残した利用制限を 30 秒ごとに確かめて `rate_limits.json` へ書き、5 分ごとに `codex app-server` に問い合わせた利用制限を `codex_rate_limits.json` へ書きます（[marimo が起動するもの](#marimo-が起動するもの)を参照）。
+3. アプリはファイルの監視（file watcher。フォルダの中のファイルが変わると OS から知らせを受け取る仕組み）で `sessions/` と `rate_limits.json` の変化を受け取ります。並列のツール呼び出しで書き込みが重なるので、120 ミリ秒静かになるまで待ち、遅くとも 500 ミリ秒で、全セッションをまとめたスナップショットを読みます。
+4. Rust 側は、スナップショットの全体の状態に合わせてメニューバーと通知領域のアイコンを替え、スナップショットを `snapshot` という名前のイベントで画面部分へ送ります。アイコンを画面部分に任せないのは、ウィンドウを隠している間は画面部分が止まることがあるからです。macOS 14 以降では、隠したウィンドウの画面部分を WebKit が止めないよう、`tauri.conf.json` の `backgroundThrottling` を `disabled` にしています。Tauri はこの設定を macOS 13 以前と Windows では扱いません。
+5. 画面部分は、既読の記録を加味して全体の状態を決め直し、表情、吹き出し、パネルを描き直します。アイコンのメニューの先頭に並べるセッションの一覧も画面部分が決め、変わったときだけ Rust 側へ送ります。メニューでセッションを選ぶと、Rust 側はそのセッションのキーを `tray-session` という名前のイベントで画面部分へ返し、画面部分がパネルの行を押したときと同じ操作をします。
 
 ### 状態の決め方
 
@@ -409,7 +418,7 @@ Codex のフックから記録するものは次のとおりです。
 - **コンテキスト使用率** Codex が会話ごとに書く記録（rollout。`~/.codex/sessions/` の下の JSON Lines 形式のファイル）の末尾から最後の `token_count` を読み、Codex の画面の下に出る残りの割合と同じ式で計算します。Codex は、システムプロンプトなどで常に使われる 12000 トークンをコンテキストの上限と使用量の両方から引いて割合を出すので、marimo も同じように引き、100 からその残りの割合を引いた値を使用率として記録します。読むのはセッションの開始、PostToolUse、Stop のときだけです。
 - **タイトル** セッションの開始、プロンプトの送信、Stop のときに、`~/.codex/session_index.jsonl` の末尾からそのセッションの最後の `thread_name` を読みます。Codex のデスクトップアプリは、プロジェクトを選ばずに始めた会話ごとに `~/Documents/Codex/<日付>/<最初のプロンプトから作った名前>` という作業フォルダを作ります。このフォルダ名はタイトルの言い換えでしかないので、行の名前と吹き出しの `{folder}` には、フォルダ名の代わりにタイトルを使います。
 - **プログラムから始めた会話** 行を作るのは、rollout の先頭の `session_meta` にある `originator` が、利用者が自分で開くクライアントの名前のときだけです。通す名前は、デスクトップアプリの `Codex Desktop`、端末の Codex CLI の `codex-tui`、VS Code の拡張機能の `codex_vscode` の三つです。`codex exec`（`codex_exec`）や、Claude Code から作業を任された codex-async（`codex-async-bridge`）と Claude Code 向けの Codex プラグイン（`Claude Code`）のように、プログラムから始めた会話はパネルに並べません。Claude Code から任された会話なら、任せた側の Claude Code の行がすでに作業中を示しているからです。rollout が無いか、先頭の行が 64 KB に収まらず `originator` を読めない会話には、行を作りません。デスクトップアプリが提案を作るためにバックグラウンドで始める会話（cwd が `/` で、`~/.codex/ambient-suggestions` に結果を書くもの）は rollout を残さないので、ここで隠れます。自分で始めた会話でも、rollout ができる前に届いたフックでは行を作らず、`originator` を読めた次のフックから並べます。SessionEnd は `transcript_path` を持たずに届くので、`originator` を読めて既に作った行は、読めないフックが届いても消しません。利用制限はアカウント全体の値なので、隠した会話の rollout からも記録します。`originator` の値は Codex の文書には無く、macOS と Windows のローカルの rollout で確かめたものです。app-server を通して始めた会話では、クライアントが名乗った `clientInfo.name` が入ります。
-- **利用制限** rollout の同じ `token_count` にある利用制限を、`~/.marimo/codex_rate_limits.json` に書きます。Codex の利用制限のウィンドウは、プランによって 5 時間と 7 日の二つだったり 7 日の一つだけだったりするので、ウィンドウの長さを分単位のまま記録します。複数のセッションの rollout はそれぞれ別の時点の値を持つので、すでに記録した値より新しい時点の値だけで書き換えます。
+- **利用制限** rollout の同じ `token_count` にある利用制限を、`~/.marimo/codex_rate_limits.json` に書きます。アプリも 5 分ごとに `codex app-server` へ問い合わせて同じファイルに書くので、Codex を使っていない間も値が古くなりません。Codex の利用制限のウィンドウは、プランによって 5 時間と 7 日の二つだったり 7 日の一つだけだったりするので、ウィンドウの長さを分単位のまま記録します。複数のセッションの rollout はそれぞれ別の時点の値を持つので、すでに記録した値より新しい時点の値だけで書き換えます。
 
 ### Hermes のフックから記録するもの
 

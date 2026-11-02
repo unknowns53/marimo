@@ -22,6 +22,7 @@ const STATE: SettingsState = {
   character: "clawd",
   scale: 1.5,
   autostart: false,
+  claude_usage_refresh_minutes: 10,
 };
 
 describe("opacityPercent", () => {
@@ -69,6 +70,7 @@ describe("formValues", () => {
       character: "clawd",
       scale: "1.5",
       autostart: false,
+      claude_usage_refresh_minutes: "10",
     });
   });
 
@@ -96,6 +98,13 @@ describe("requestFor", () => {
       ["scale drag", control("scale", "1.7"), "input", { kind: "scale", scale: 1.7 }],
       ["scale release", control("scale", "1.7"), "change", null],
       ["autostart", control("autostart", "on", true), "change", { kind: "autostart", enabled: true }],
+      [
+        "usage refresh",
+        control("claude_usage_refresh_minutes", "15"),
+        "change",
+        { kind: "claude-usage-refresh", minutes: 15 },
+      ],
+      ["bad usage refresh", control("claude_usage_refresh_minutes", "-1"), "change", null],
       ["unknown control", control("other"), "change", null],
     ];
     for (const [label, c, phase, expected] of cases) {

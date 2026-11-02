@@ -90,6 +90,9 @@ impl RowOrder {
 /// 自動で消すまでの秒数の上限。手で書いた極端な値で吹き出しが事実上消えなくならないよう、1 時間に収める。
 pub const MAX_BUBBLE_SECONDS: u32 = 3600;
 
+/// Claude Code に `/usage` を実行させて利用制限を取り直す間隔の上限（分）。
+pub const MAX_USAGE_REFRESH_MINUTES: u32 = 1440;
+
 /// 知らせの吹き出しは、承認待ち、完了、エラーの種類ごとに出すかどうかを選べる。
 /// 秒数が 0 のときは、押して閉じるか、トリガーが終わるまで出し続ける。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +191,8 @@ struct Display {
     bubble_error: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     bubble_seconds: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    claude_usage_refresh_minutes: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -289,6 +294,22 @@ pub fn save_bubble_settings(home: &MarimoHome, settings: BubbleSettings) -> io::
     d.bubble_done = Some(settings.bubble_done.into());
     d.bubble_error = Some(settings.bubble_error.into());
     d.bubble_seconds = Some(settings.bubble_seconds.min(MAX_BUBBLE_SECONDS).into());
+    store::write_json_durable(&home.display_file(), &d)
+}
+
+/// 0 は取り直さないことを表し、保存されていないときや解釈できない値のときもそうする。`/usage` を
+/// 実行させる操作は利用者が選んだときだけ行う。
+pub fn load_claude_usage_refresh_minutes(home: &MarimoHome) -> u32 {
+    read_display(home)
+        .claude_usage_refresh_minutes
+        .as_ref()
+        .and_then(serde_json::Value::as_u64)
+        .map_or(0, |m| m.min(u64::from(MAX_USAGE_REFRESH_MINUTES)) as u32)
+}
+
+pub fn save_claude_usage_refresh_minutes(home: &MarimoHome, minutes: u32) -> io::Result<()> {
+    let mut d = read_display(home);
+    d.claude_usage_refresh_minutes = Some(minutes.min(MAX_USAGE_REFRESH_MINUTES).into());
     store::write_json_durable(&home.display_file(), &d)
 }
 
@@ -613,6 +634,35 @@ mod tests {
         assert_eq!(
             (load(&home), load_character(&home).as_str()),
             (1.5, "clawd")
+        );
+    }
+
+    #[test]
+    fn claude_usage_refresh_minutes_default_to_off() {
+        let (_d, home) = home();
+        let cases = [
+            (r#"{}"#, 0),
+            (r#"{"claude_usage_refresh_minutes": 10}"#, 10),
+            (
+                r#"{"claude_usage_refresh_minutes": 99999}"#,
+                MAX_USAGE_REFRESH_MINUTES,
+            ),
+            (r#"{"claude_usage_refresh_minutes": -5}"#, 0),
+            (r#"{"claude_usage_refresh_minutes": "10"}"#, 0),
+        ];
+        for (content, minutes) in cases {
+            fs::write(home.display_file(), content).unwrap();
+            assert_eq!(
+                load_claude_usage_refresh_minutes(&home),
+                minutes,
+                "content {content:?}"
+            );
+        }
+        fs::write(home.display_file(), r#"{"stage_scale": 1.5}"#).unwrap();
+        save_claude_usage_refresh_minutes(&home, 15).unwrap();
+        assert_eq!(
+            (load(&home), load_claude_usage_refresh_minutes(&home)),
+            (1.5, 15)
         );
     }
 

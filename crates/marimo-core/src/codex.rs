@@ -143,6 +143,47 @@ fn rate_limits(limits: Limits, observed_at: u64, now_ms: u64) -> Option<CodexRat
     })
 }
 
+// 項目名は `codex app-server` の account/rateLimits/read の応答に従う。rollout の token_count と
+// 同じ値を camelCase の名前で持つ。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountRateLimits {
+    rate_limits: Option<AccountLimits>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountLimits {
+    primary: Option<AccountWindow>,
+    secondary: Option<AccountWindow>,
+    plan_type: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountWindow {
+    used_percent: f64,
+    window_duration_mins: Option<i64>,
+    resets_at: Option<i64>,
+}
+
+/// `codex app-server` の account/rateLimits/read の result を読む。値はその場で問い合わせたものなので、
+/// 読んだ時刻を観測の時刻にする。
+pub fn rate_limits_from_account(result: &Value, now_ms: u64) -> Option<CodexRateLimits> {
+    let limits = AccountRateLimits::deserialize(result).ok()?.rate_limits?;
+    let window = |w: AccountWindow| Window {
+        used_percent: w.used_percent,
+        window_minutes: w.window_duration_mins,
+        resets_at: w.resets_at,
+    };
+    let limits = Limits {
+        primary: limits.primary.map(window),
+        secondary: limits.secondary.map(window),
+        plan_type: limits.plan_type,
+    };
+    rate_limits(limits, now_ms, now_ms)
+}
+
 /// rollout の先頭の session_meta から、会話を始めたクライアントの名前（originator）を読む。
 /// originator の値は Codex のドキュメントに無く、app-server を通して始めた会話では、クライアントが
 /// initialize で名乗った clientInfo.name が入る。先頭の行は基本の指示を含んで 20 KB ほどになるので、
@@ -294,6 +335,30 @@ mod tests {
         let tail = read_rollout_tail(write(&lines).path(), 1).unwrap();
         assert_eq!(tail.usage.unwrap().last_total_tokens, 3000);
         assert_eq!(tail.rate_limits, None);
+    }
+
+    #[test]
+    fn reads_the_app_server_rate_limits() {
+        let result = json!({"rateLimits": {
+            "limitId": "codex",
+            "primary": {"usedPercent": 7, "windowDurationMins": 300, "resetsAt": 1_793_607_567},
+            "secondary": null,
+            "planType": "plus"}});
+        let rl = rate_limits_from_account(&result, 99).unwrap();
+        assert_eq!((rl.observed_at, rl.updated_at), (99, 99));
+        assert_eq!(rl.plan_type.as_deref(), Some("plus"));
+        assert_eq!(
+            rl.windows,
+            vec![CodexRateWindow {
+                window_minutes: Some(300),
+                used_percentage: 7.0,
+                resets_at: Some(1_793_607_567)
+            }]
+        );
+        assert_eq!(
+            rate_limits_from_account(&json!({"rateLimits": null}), 1),
+            None
+        );
     }
 
     #[test]

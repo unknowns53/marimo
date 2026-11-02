@@ -6,6 +6,7 @@ mod dialogue;
 mod focus;
 mod hit;
 mod icons;
+mod limits;
 mod scale;
 mod settings;
 mod tray;
@@ -147,6 +148,19 @@ fn set_bubble_settings(
     settings: scale::BubbleSettings,
 ) -> Result<(), String> {
     scale::save_bubble_settings(&state.home, settings).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_claude_usage_refresh_minutes(state: State<'_, AppState>) -> u32 {
+    scale::load_claude_usage_refresh_minutes(&state.home)
+}
+
+#[tauri::command]
+fn set_claude_usage_refresh_minutes(
+    state: State<'_, AppState>,
+    minutes: u32,
+) -> Result<(), String> {
+    scale::save_claude_usage_refresh_minutes(&state.home, minutes).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -292,6 +306,8 @@ fn main() {
             set_panel_display,
             get_bubble_settings,
             set_bubble_settings,
+            get_claude_usage_refresh_minutes,
+            set_claude_usage_refresh_minutes,
             get_character,
             set_character,
             set_stage_aspect,
@@ -333,6 +349,8 @@ fn main() {
             tray::show_status(app.handle(), &store::load_snapshot(&home));
             watch::spawn(app.handle().clone(), home.clone());
             watch::spawn_pruner(home.clone());
+            limits::spawn_codex(home.clone());
+            limits::spawn_claude(home.clone());
             hit::spawn(app.handle().clone(), window, hits.clone());
             follow_autostart_path(app.handle());
             Ok(())

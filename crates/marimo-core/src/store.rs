@@ -19,7 +19,7 @@ use crate::state::{
     context_from_codex, context_from_transcript, expire_agents, refresh_repo, transition,
     without_agents,
 };
-use crate::time::{now_ms, rfc3339_utc, utc_date};
+use crate::time::{now_ms, parse_rfc3339_utc_ms, rfc3339_utc, utc_date};
 use crate::transcript::{self, LastTurn, TranscriptTail};
 
 // フックは Claude Code の処理を止めてしまうので、ロックを待つ時間に上限を設ける。
@@ -441,6 +441,49 @@ fn observe_rate_limits(home: &MarimoHome, input: &Value, now: u64) -> io::Result
 pub fn read_rate_limits(home: &MarimoHome) -> Option<RateLimits> {
     let bytes = read_file(&home.rate_limits_file()).ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+/// Claude Code が自分の利用制限の取得結果を `~/.claude.json` の cachedUsageUtilization に残したものを
+/// 読む。項目名は Claude Code 2.1.316 が書く形に従う。この項目は文書に無いので、形が違えば None を返す。
+/// Claude Code 自身と同じく、ログイン中のアカウントと違うアカウントの値は使わない。
+/// updated_at には、marimo が読んだ時刻ではなく Claude Code が取得した時刻を入れる。
+pub fn rate_limits_from_claude_config(config: &Value) -> Option<RateLimits> {
+    let cached = config.get("cachedUsageUtilization")?;
+    let account = config
+        .get("oauthAccount")
+        .and_then(|a| a.get("accountUuid"))
+        .and_then(Value::as_str);
+    if cached.get("accountUuid").and_then(Value::as_str) != account {
+        return None;
+    }
+    let utilization = cached.get("utilization")?;
+    let window = |key: &str| {
+        let w = utilization.get(key)?;
+        Some(RateWindow {
+            used_percentage: w.get("utilization")?.as_f64()?,
+            resets_at: w
+                .get("resets_at")
+                .and_then(Value::as_str)
+                .and_then(parse_rfc3339_utc_ms)
+                .map(|ms| (ms / 1000) as i64),
+        })
+    };
+    let limits = RateLimits {
+        five_hour: window("five_hour"),
+        seven_day: window("seven_day"),
+        updated_at: cached.get("fetchedAtMs")?.as_u64()?,
+    };
+    (limits.five_hour.is_some() || limits.seven_day.is_some()).then_some(limits)
+}
+
+/// statusLine が保存した値と、Claude Code が `~/.claude.json` に残した値のうち、新しい時点のものを
+/// 残す。保存済みの値と同じか新しい時点の値なら書かない。
+pub fn write_rate_limits_if_newer(home: &MarimoHome, limits: &RateLimits) -> io::Result<()> {
+    let _lock = lock_home(home);
+    if read_rate_limits(home).is_some_and(|stored| stored.updated_at >= limits.updated_at) {
+        return Ok(());
+    }
+    write_json_atomic(&home.rate_limits_file(), limits)
 }
 
 /// Codex のセッションはそれぞれ自分の rollout の末尾にある時点の利用制限を持つので、しばらく
@@ -1146,6 +1189,51 @@ mod tests {
         apply_hook(&home, &input, &extras).unwrap();
         assert!(read_session(&home, Provider::Codex, "s1").is_none());
         assert_eq!(read_codex_rate_limits(&home), Some(codex_limits(10, 5.0)));
+    }
+
+    #[test]
+    fn reads_claude_code_cached_usage() {
+        let config = |cached_account: &str| {
+            json!({
+                "oauthAccount": {"accountUuid": "a1"},
+                "cachedUsageUtilization": {
+                    "fetchedAtMs": 1_793_606_269_733_u64,
+                    "accountUuid": cached_account,
+                    "utilization": {
+                        "five_hour": {"utilization": 46, "resets_at": "2026-11-02T08:10:00.558884+00:00"},
+                        "seven_day": null,
+                        "seven_day_opus": null}}})
+        };
+        assert_eq!(
+            rate_limits_from_claude_config(&config("a1")),
+            Some(RateLimits {
+                five_hour: Some(RateWindow {
+                    used_percentage: 46.0,
+                    resets_at: Some(1_793_607_000)
+                }),
+                seven_day: None,
+                updated_at: 1_793_606_269_733,
+            })
+        );
+        assert_eq!(rate_limits_from_claude_config(&config("other")), None);
+    }
+
+    #[test]
+    fn claude_rate_limits_keep_the_newest_observation() {
+        let (_d, home) = home();
+        let limits = |updated_at: u64, used: f64| RateLimits {
+            five_hour: Some(RateWindow {
+                used_percentage: used,
+                resets_at: None,
+            }),
+            seven_day: None,
+            updated_at,
+        };
+        write_rate_limits_if_newer(&home, &limits(100, 10.0)).unwrap();
+        write_rate_limits_if_newer(&home, &limits(100, 99.0)).unwrap();
+        assert_eq!(read_rate_limits(&home), Some(limits(100, 10.0)));
+        write_rate_limits_if_newer(&home, &limits(200, 20.0)).unwrap();
+        assert_eq!(read_rate_limits(&home), Some(limits(200, 20.0)));
     }
 
     #[test]

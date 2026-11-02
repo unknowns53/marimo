@@ -301,7 +301,10 @@ fn install_then_uninstall_restores_realistic_settings() {
         "{text}"
     );
     #[cfg(windows)]
-    assert!(text.contains("利用制限は表示されません"), "{text}");
+    assert!(
+        text.contains("利用制限は statusLine からは届きません"),
+        "{text}"
+    );
 
     let once = env.text();
     let out = env.run(&["install"]);
