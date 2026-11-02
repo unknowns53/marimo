@@ -26,7 +26,7 @@ export interface SettingsState {
   scale: number | null;
   /** ログイン項目の状態を読めなかったときは null で、切り替えられない。 */
   autostart: boolean | null;
-  /** Claude Code に `/usage` を実行させて利用制限を取り直す間隔（分）。0 は取り直さない。 */
+  /** Claude Code に `/usage` を実行させて利用制限を再取得する間隔（分）。0 は再取得しない。 */
   claude_usage_refresh_minutes: number;
 }
 

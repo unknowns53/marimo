@@ -27,7 +27,7 @@ export function bubbleSecondsOptions(current: number): number[] {
 // 範囲は Rust 側の scale.rs と揃える（sharedConstants.test.ts が照合する）。
 export const MAX_USAGE_REFRESH_MINUTES = 1440;
 
-/** 一覧に並べる間隔（分）。0 は取り直さない。 */
+/** 一覧に並べる間隔（分）。0 は再取得しない。 */
 export const USAGE_REFRESH_CHOICES: readonly number[] = [0, 5, 10, 15, 30, 60];
 
 export function usageRefreshLabel(minutes: number): string {

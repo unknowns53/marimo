@@ -53,7 +53,7 @@ pub fn spawn_codex(home: MarimoHome) {
 /// Claude の利用制限を、Claude Code が `~/.claude.json` の cachedUsageUtilization に残した値で補う。
 /// statusLine はデスクトップアプリの Code タブでは呼ばれず、CLI でも応答が届いたときにしか新しい値を
 /// 持たない。利用者が間隔を選んでいれば、保存済みの値がその間隔より古いときに、Claude Code に `/usage` を
-/// 実行させてこの値を取り直させる。
+/// 実行させてこの値を再取得させる。
 /// ファイルは Claude Code が頻繁に書き換えるので、更新時刻が変わったときだけ読む。
 pub fn spawn_claude(home: MarimoHome) {
     thread::spawn(move || {

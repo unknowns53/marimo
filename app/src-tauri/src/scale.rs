@@ -90,7 +90,7 @@ impl RowOrder {
 /// 自動で消すまでの秒数の上限。手で書いた極端な値で吹き出しが事実上消えなくならないよう、1 時間に収める。
 pub const MAX_BUBBLE_SECONDS: u32 = 3600;
 
-/// Claude Code に `/usage` を実行させて利用制限を取り直す間隔の上限（分）。
+/// Claude Code に `/usage` を実行させて利用制限を再取得する間隔の上限（分）。
 pub const MAX_USAGE_REFRESH_MINUTES: u32 = 1440;
 
 /// 知らせの吹き出しは、承認待ち、完了、エラーの種類ごとに出すかどうかを選べる。
@@ -297,7 +297,7 @@ pub fn save_bubble_settings(home: &MarimoHome, settings: BubbleSettings) -> io::
     store::write_json_durable(&home.display_file(), &d)
 }
 
-/// 0 は取り直さないことを表し、保存されていないときや解釈できない値のときもそうする。`/usage` を
+/// 0 は再取得しないことを表し、保存されていないときや解釈できない値のときもそうする。`/usage` を
 /// 実行させる操作は利用者が選んだときだけ行う。
 pub fn load_claude_usage_refresh_minutes(home: &MarimoHome) -> u32 {
     read_display(home)
