@@ -52,7 +52,7 @@ async function open(page: Page): Promise<void> {
     get_bubble_settings: { bubble_waiting: true, bubble_done: true, bubble_error: true, bubble_seconds: 0 },
     get_acknowledged: [],
     get_dialogue: {},
-    app_icons: { claude: null, codex: null, hermes: null, opencode: null },
+    app_icons: { claude: null, codex: null, hermes: null, opencode: null, antigravity: null },
   });
   await page.goto("/");
   await expect(page.locator("#rows .row")).toHaveCount(2);

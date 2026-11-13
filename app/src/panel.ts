@@ -1,6 +1,6 @@
 import { MARKABLE, sessionKey } from "./acknowledged";
 import { chatTitle, folderName, formatAge, formatClock, formatTokens, STATUS_LABEL } from "./format";
-import { limitLine, type LimitLine } from "./limits";
+import { limitLine, type LimitLine, type LimitSources } from "./limits";
 import {
   hasContent,
   nextRowOrder,
@@ -10,7 +10,7 @@ import {
   type PanelView,
   type RowOrder,
 } from "./panelModel";
-import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
+import type { AppIcons, LimitTool, Provider, SessionState, Status } from "./types";
 
 const FALLBACK_SUMMARY: Record<Status, string> = {
   idle: "",
@@ -29,24 +29,26 @@ export interface PanelElements {
   order: HTMLElement;
 }
 
-const PROVIDER_NAME: Record<Provider, string> = {
+const PROVIDER_NAME: Record<Provider | LimitTool, string> = {
   claude: "Claude Code",
   codex: "Codex",
   hermes: "Hermes Agent",
   opencode: "OpenCode",
+  antigravity: "Antigravity",
 };
 
 // Claude と Codex のアイコンは同梱できないので利用者のデスクトップアプリから読み、読めないときはこの文字で示す。
-const PROVIDER_BADGE: Record<Provider, string> = {
+const PROVIDER_BADGE: Record<Provider | LimitTool, string> = {
   claude: "CC",
   codex: "CX",
   hermes: "HM",
   opencode: "OC",
+  antigravity: "AG",
 };
 
 // Hermes Agent と OpenCode は MIT ライセンスで配られているアイコンを同梱し、デスクトップアプリが無くても出す。
 // 出どころと許諾は LICENSE-ASSETS に書いている。
-const BUNDLED_ICON: Partial<Record<Provider, string>> = {
+const BUNDLED_ICON: Partial<Record<Provider | LimitTool, string>> = {
   hermes: new URL("./assets/providers/hermes.png", import.meta.url).href,
   opencode: new URL("./assets/providers/opencode.png", import.meta.url).href,
 };
@@ -67,21 +69,16 @@ function press(e: MouseEvent, session: SessionState, actions: RowActions): void 
   else actions.select(session);
 }
 
-export interface PanelLimits {
-  claude: RateLimits | null;
-  codex: CodexRateLimits | null;
-}
-
 export function renderPanel(
   { panel, rows, limits, order }: PanelElements,
   view: PanelView,
-  rateLimits: PanelLimits,
+  rateLimits: LimitSources,
   icons: AppIcons,
   now: number,
   actions: RowActions,
   todayOpen: boolean,
 ): void {
-  const line = limitLine(rateLimits.claude, rateLimits.codex, now);
+  const line = limitLine(rateLimits, now);
   if (line) renderLimits(limits, line, icons);
   let children: HTMLElement[];
   if (!hasContent(view)) {
@@ -308,7 +305,7 @@ function renderAge(updatedAt: number, now: number): HTMLElement {
   return age;
 }
 
-function providerMarker(provider: Provider, icons: AppIcons): HTMLElement {
+function providerMarker(provider: Provider | LimitTool, icons: AppIcons): HTMLElement {
   const src = icons[provider] ?? BUNDLED_ICON[provider];
   if (!src) {
     const badge = el("span", "provider provider-badge", PROVIDER_BADGE[provider]);

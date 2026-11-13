@@ -161,6 +161,16 @@ fn set_usage_refresh_minutes(state: State<'_, AppState>, minutes: u32) -> Result
 }
 
 #[tauri::command]
+fn get_usage_tools(state: State<'_, AppState>) -> scale::UsageTools {
+    scale::load_usage_tools(&state.home)
+}
+
+#[tauri::command]
+fn set_usage_tools(state: State<'_, AppState>, tools: scale::UsageTools) -> Result<(), String> {
+    scale::save_usage_tools(&state.home, tools).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_character(state: State<'_, AppState>) -> String {
     scale::load_character(&state.home)
 }
@@ -305,6 +315,8 @@ fn main() {
             set_bubble_settings,
             get_usage_refresh_minutes,
             set_usage_refresh_minutes,
+            get_usage_tools,
+            set_usage_tools,
             get_character,
             set_character,
             set_stage_aspect,
@@ -348,6 +360,7 @@ fn main() {
             watch::spawn_pruner(home.clone());
             limits::spawn_codex(home.clone());
             limits::spawn_claude(home.clone());
+            limits::spawn_antigravity(home.clone());
             hit::spawn(app.handle().clone(), window, hits.clone());
             follow_autostart_path(app.handle());
             Ok(())

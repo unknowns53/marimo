@@ -1,5 +1,6 @@
 import type { BubbleSettings } from "./bubbleSettings";
 import type { PanelDisplay } from "./panelModel";
+import type { UsageTools } from "./types";
 
 // 設定の持ち主はメインのウィンドウで、設定のウィンドウは変更を頼むだけにする。表示の状態と描画をメインのウィンドウが持つので、
 // 設定のウィンドウが自分で保存すると、反映の処理を二か所に書くことになるからである。
@@ -26,8 +27,9 @@ export interface SettingsState {
   scale: number | null;
   /** ログイン項目の状態を読めなかったときは null で、切り替えられない。 */
   autostart: boolean | null;
-  /** Claude Code と Codex に利用制限を再取得させる間隔（分）。0 は再取得しない。 */
+  /** Claude Code、Codex、Antigravity に利用制限を再取得させる間隔（分）。0 は再取得しない。 */
   usage_refresh_minutes: number;
+  usage_tools: UsageTools;
 }
 
 export type SettingsRequest =
@@ -40,7 +42,8 @@ export type SettingsRequest =
   | { kind: "character"; id: string }
   | { kind: "scale"; scale: number }
   | { kind: "autostart"; enabled: boolean }
-  | { kind: "usage-refresh"; minutes: number };
+  | { kind: "usage-refresh"; minutes: number }
+  | { kind: "usage-tools"; patch: Partial<UsageTools> };
 
 /** アプリの更新のコマンド check_update が返す形。 */
 export interface UpdateInfo {

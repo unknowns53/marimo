@@ -427,6 +427,8 @@ pub struct Snapshot {
     pub rate_limits: Option<RateLimits>,
     #[serde(default)]
     pub codex_rate_limits: Option<CodexRateLimits>,
+    #[serde(default)]
+    pub antigravity_rate_limits: Option<RateLimits>,
 }
 
 /// 項目名は https://code.claude.com/docs/en/hooks の Common input fields と、

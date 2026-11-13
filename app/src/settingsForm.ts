@@ -65,6 +65,9 @@ export function formValues(state: SettingsState): FormValues {
     scale: state.scale === null ? null : String(state.scale),
     autostart: state.autostart,
     usage_refresh_minutes: String(state.usage_refresh_minutes),
+    usage_claude: state.usage_tools.claude,
+    usage_codex: state.usage_tools.codex,
+    usage_antigravity: state.usage_tools.antigravity,
   };
 }
 
@@ -115,6 +118,12 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
       const minutes = Number(value);
       return Number.isInteger(minutes) && minutes >= 0 ? { kind: "usage-refresh", minutes } : null;
     }
+    case "usage_claude":
+      return { kind: "usage-tools", patch: { claude: checked } };
+    case "usage_codex":
+      return { kind: "usage-tools", patch: { codex: checked } };
+    case "usage_antigravity":
+      return { kind: "usage-tools", patch: { antigravity: checked } };
     default:
       return null;
   }

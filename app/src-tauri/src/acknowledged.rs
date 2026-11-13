@@ -111,6 +111,7 @@ mod tests {
             sessions,
             rate_limits: None,
             codex_rate_limits: None,
+            antigravity_rate_limits: None,
         };
         let read: HashSet<String> = [&error, &done, &waiting]
             .map(trigger_key)

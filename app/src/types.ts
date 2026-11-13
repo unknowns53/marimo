@@ -90,10 +90,19 @@ export interface Snapshot {
   sessions: SessionState[];
   rate_limits: RateLimits | null;
   codex_rate_limits?: CodexRateLimits | null;
+  antigravity_rate_limits?: RateLimits | null;
 }
 
+/** 利用制限の行に値を出せるツール。Antigravity のセッションは記録しないので、Provider には無い。 */
+export type LimitTool = "claude" | "codex" | "antigravity";
+
+/** 利用制限の行に値を出すツール。出さないツールには利用制限を再取得させない。 */
+export type UsageTools = Record<LimitTool, boolean>;
+
+export const DEFAULT_USAGE_TOOLS: UsageTools = { claude: true, codex: true, antigravity: true };
+
 // app_icons コマンドが返す PNG の data URL。アプリが入っていなければ null になる。
-export type AppIcons = Record<Provider, string | null>;
+export type AppIcons = Record<Provider | LimitTool, string | null>;
 
 // 分類名はドット区切りで、細かい分類（waiting.permission など）から親の分類（waiting）へ戻れる。
 export type Dialogue = Record<string, string[]>;

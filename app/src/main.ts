@@ -44,7 +44,7 @@ import {
   type SettingsRequest,
   type SettingsState,
 } from "./settingsProtocol";
-import type { AppIcons, Dialogue, SessionState, Snapshot } from "./types";
+import { DEFAULT_USAGE_TOOLS, type AppIcons, type Dialogue, type SessionState, type Snapshot, type UsageTools } from "./types";
 
 const CHARACTER_ROOT = new URL("/character/", window.location.href).href;
 // 以前は行を隠す設定だけをこの名前で localStorage に持っていた。表示の保存先を MARIMO_HOME へ
@@ -72,6 +72,7 @@ const acknowledged = new Acknowledged((keys) =>
 );
 let bubbleSettings: BubbleSettings = DEFAULT_BUBBLE_SETTINGS;
 let usageRefreshMinutes = 0;
+let usageTools: UsageTools = DEFAULT_USAGE_TOOLS;
 const bubbleModel = new BubbleModel(acknowledged, undefined, (status) => bubbleEnabled(bubbleSettings, status));
 // 知らせの吹き出しは、押すとその行を押したのと同じ操作になる。移動せずに閉じたいときは行と同じ修飾キーを使う。
 const bubble = new Bubble(bubbleNode, (e) => {
@@ -106,7 +107,7 @@ let dialogue: Dialogue = {};
 // 組み込みの既定のセリフ。利用者の dialogue.json は上書きしたい分類だけを持ち、分類ごとに重ねる。
 let defaultDialogue: Dialogue = {};
 let panelDisplay: PanelDisplay = DEFAULT_PANEL_DISPLAY;
-let appIcons: AppIcons = { claude: null, codex: null, hermes: null, opencode: null };
+let appIcons: AppIcons = { claude: null, codex: null, hermes: null, opencode: null, antigravity: null };
 let scale: ScaleControl | undefined;
 // ログイン項目の状態はアプリの外（システム設定など）でも変わるので、設定のウィンドウが開くたびに読み直す。
 // 読めなかったときは undefined にする。
@@ -225,7 +226,11 @@ function collectHitRegions(): HitRegions {
 function redrawPanel(): void {
   const now = Date.now();
   const view = panelView(shown, acknowledged, panelDisplay.panel_style, panelDisplay.row_order, now, keptRead);
-  const limits = { claude: shown?.rate_limits ?? null, codex: shown?.codex_rate_limits ?? null };
+  const limits = {
+    claude: usageTools.claude ? (shown?.rate_limits ?? null) : null,
+    codex: usageTools.codex ? (shown?.codex_rate_limits ?? null) : null,
+    antigravity: usageTools.antigravity ? (shown?.antigravity_rate_limits ?? null) : null,
+  };
   const actions = { select: selectSession, markRead, toggleToday };
   renderPanel(panelElements, view, limits, appIcons, now, actions, todayOpen);
   placeBubble();
@@ -471,6 +476,7 @@ function settingsState(): SettingsState {
     scale: scale?.current ?? null,
     autostart: autostart ?? null,
     usage_refresh_minutes: usageRefreshMinutes,
+    usage_tools: usageTools,
   };
 }
 
@@ -515,6 +521,11 @@ async function handleSettingsRequest(request: SettingsRequest): Promise<void> {
       await invoke("set_usage_refresh_minutes", { minutes: request.minutes }).catch((e) =>
         console.error("usage refresh", e),
       );
+      break;
+    case "usage-tools":
+      usageTools = { ...usageTools, ...request.patch };
+      redrawPanel();
+      await invoke("set_usage_tools", { tools: usageTools }).catch((e) => console.error("usage tools", e));
       break;
   }
   publishSettings();
@@ -633,6 +644,10 @@ async function start(): Promise<void> {
   usageRefreshMinutes = await invoke<number>("get_usage_refresh_minutes").catch((e) => {
     console.error("usage refresh", e);
     return 0;
+  });
+  usageTools = await invoke<UsageTools>("get_usage_tools").catch((e) => {
+    console.error("usage tools", e);
+    return DEFAULT_USAGE_TOOLS;
   });
   appIcons = await invoke<AppIcons>("app_icons").catch((e) => {
     console.error("app icons", e);

@@ -640,10 +640,13 @@ body {
   opacity: 0.85;
 }
 
-/* Claude Code と Codex の値を、それぞれのアイコンを先頭に付けて同じ行に並べる。 */
+/* ツールごとの値を、それぞれのアイコンを先頭に付けて並べる。三つ並ぶとパネルの幅に収まらないことがあるので、
+   グループの切れ目で折り返し、時刻は右端に残す。 */
 .limit-values.marked {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
 }
 
 .limit-group {

@@ -502,6 +502,16 @@ pub fn read_codex_rate_limits(home: &MarimoHome) -> Option<CodexRateLimits> {
     serde_json::from_slice(&bytes).ok()
 }
 
+pub fn write_antigravity_rate_limits(home: &MarimoHome, limits: &RateLimits) -> io::Result<()> {
+    let _lock = lock_home(home);
+    write_json_atomic(&home.antigravity_rate_limits_file(), limits)
+}
+
+pub fn read_antigravity_rate_limits(home: &MarimoHome) -> Option<RateLimits> {
+    let bytes = read_file(&home.antigravity_rate_limits_file()).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 fn read_sessions(home: &MarimoHome) -> Vec<SessionState> {
     fs::read_dir(home.sessions_dir())
         .into_iter()
@@ -526,6 +536,7 @@ pub fn load_snapshot(home: &MarimoHome) -> Snapshot {
         sessions,
         rate_limits: read_rate_limits(home),
         codex_rate_limits: read_codex_rate_limits(home),
+        antigravity_rate_limits: read_antigravity_rate_limits(home),
     }
 }
 
