@@ -10,7 +10,7 @@ import {
   type PanelView,
   type RowOrder,
 } from "./panelModel";
-import type { AppIcons, LimitTool, Provider, SessionState, Status } from "./types";
+import type { AppIcons, Provider, SessionState, Status } from "./types";
 
 const FALLBACK_SUMMARY: Record<Status, string> = {
   idle: "",
@@ -29,7 +29,7 @@ export interface PanelElements {
   order: HTMLElement;
 }
 
-const PROVIDER_NAME: Record<Provider | LimitTool, string> = {
+const PROVIDER_NAME: Record<Provider, string> = {
   claude: "Claude Code",
   codex: "Codex",
   hermes: "Hermes Agent",
@@ -37,8 +37,8 @@ const PROVIDER_NAME: Record<Provider | LimitTool, string> = {
   antigravity: "Antigravity",
 };
 
-// Claude と Codex のアイコンは同梱できないので利用者のデスクトップアプリから読み、読めないときはこの文字で示す。
-const PROVIDER_BADGE: Record<Provider | LimitTool, string> = {
+// Claude、Codex、Antigravity のアイコンは同梱できないので利用者のデスクトップアプリから読み、読めないときはこの文字で示す。
+const PROVIDER_BADGE: Record<Provider, string> = {
   claude: "CC",
   codex: "CX",
   hermes: "HM",
@@ -48,7 +48,7 @@ const PROVIDER_BADGE: Record<Provider | LimitTool, string> = {
 
 // Hermes Agent と OpenCode は MIT ライセンスで配られているアイコンを同梱し、デスクトップアプリが無くても出す。
 // 出どころと許諾は LICENSE-ASSETS に書いている。
-const BUNDLED_ICON: Partial<Record<Provider | LimitTool, string>> = {
+const BUNDLED_ICON: Partial<Record<Provider, string>> = {
   hermes: new URL("./assets/providers/hermes.png", import.meta.url).href,
   opencode: new URL("./assets/providers/opencode.png", import.meta.url).href,
 };
@@ -305,7 +305,7 @@ function renderAge(updatedAt: number, now: number): HTMLElement {
   return age;
 }
 
-function providerMarker(provider: Provider | LimitTool, icons: AppIcons): HTMLElement {
+function providerMarker(provider: Provider, icons: AppIcons): HTMLElement {
   const src = icons[provider] ?? BUNDLED_ICON[provider];
   if (!src) {
     const badge = el("span", "provider provider-badge", PROVIDER_BADGE[provider]);

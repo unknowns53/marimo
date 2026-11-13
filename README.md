@@ -1,6 +1,6 @@
 # marimo
 
-marimo は、AI のコーディングエージェントのセッションの状態を画面の隅で知らせるデスクトップウィジェットです。Claude Code、Codex、Hermes Agent、OpenCode の四つに対応しています。
+marimo は、AI のコーディングエージェントのセッションの状態を画面の隅で知らせるデスクトップウィジェットです。Claude Code、Codex、Hermes Agent、OpenCode、Antigravity の五つに対応しています。
 
 画面の隅に立つキャラクターが、各セッションが作業中なのか、承認を待っているのか、終わったのかを表情と吹き出しで伝えます。横のパネルには、セッションごとのコンテキスト使用率と、Claude Code、Codex、Antigravity のアカウント全体の利用制限が出ます。別の作業をしていても、エージェントのウィンドウを見に行かずに状況が分かるようにすることが marimo の目的です。
 
@@ -11,7 +11,7 @@ marimo は、AI のコーディングエージェントのセッションの状�
 上の画面では、gaussian-scan のセッションがコマンドの実行許可を待っているので、立ち絵が手を振って吹き出しで知らせています。パネルには承認待ち（橙）、作業中（青）、完了（緑）のセッションが 1 行ずつ並び、いちばん下の行がアカウント全体の利用制限です。
 
 > [!NOTE]
-> marimo は有志が作った非公式のツールです。Anthropic をはじめ、marimo が対応しているツールのどの開発元とも関係がなく、どの開発元が承認したものでもありません。Claude と Claude Code は Anthropic の商標です。Codex、ChatGPT、Hermes Agent、OpenCode などのそのほかの製品名は、それぞれの会社の商標または登録商標である場合があります。
+> marimo は有志が作った非公式のツールです。Anthropic をはじめ、marimo が対応しているツールのどの開発元とも関係がなく、どの開発元が承認したものでもありません。Claude と Claude Code は Anthropic の商標です。Codex、ChatGPT、Hermes Agent、OpenCode、Antigravity、Gemini などのそのほかの製品名は、それぞれの会社の商標または登録商標である場合があります。
 
 ## 目次
 
@@ -72,20 +72,22 @@ marimo は、どのツールのセッションも次の五つの状態に分け�
 | Codex | フック | `install` が `hooks.json` に登録し、利用者が Codex CLI の `/hooks` で信頼します |
 | Hermes Agent | シェルフック | 利用者が `config.yaml` に手で書き、Hermes で承認します |
 | OpenCode | プラグイン | `install` が設定のフォルダにプラグインを置き、利用者が OpenCode を起動し直します |
+| Antigravity | フック | `install` が `~/.gemini/config/hooks.json` に登録し、利用者が agy を起動し直します |
 
 フックは、特定のイベントが起きたときにツールが呼び出す外部コマンドです。statusLine は、Claude Code の CLI（端末で動かすコマンドラインインターフェース）が画面下部の一行を表示するために呼ぶ外部コマンドで、marimo はここからコンテキスト使用率と利用制限を受け取ります。
 
 ツールによって、パネルに出せるものと、行を押したときの移動先が違います。
 
-| 項目 | Claude Code | Codex | Hermes Agent | OpenCode |
-| --- | --- | --- | --- | --- |
-| タイトル | 会話のタイトル | 会話のタイトル | Discord のチャンネル名か `DM` | 会話のタイトル |
-| コンテキスト使用率 | CLI ではパーセント、デスクトップアプリの Code タブではトークン数 | 上限が分かればパーセント | 上限が分かればパーセント、分からなければトークン数 | 上限が分かればパーセント、分からなければトークン数 |
-| 利用制限 | 5 時間と 7 日 | Codex が送ってきたウィンドウ | 出ません | 出ません |
-| 行を押したときの移動先 | 端末のタブ、エディタのウィンドウ、デスクトップアプリの会話 | Claude Code と同じ | Discord のチャンネル | macOS の Ghostty の端末だけ |
-| サブエージェント | 動いている間は親の行が作業中のままです | 親の行が作業中のままです | 親とは別の行になります | 親の行の作業として出します |
+| 項目 | Claude Code | Codex | Hermes Agent | OpenCode | Antigravity |
+| --- | --- | --- | --- | --- | --- |
+| タイトル | 会話のタイトル | 会話のタイトル | Discord のチャンネル名か `DM` | 会話のタイトル | デスクトップアプリでは会話のタイトル、CLI では出ません |
+| コンテキスト使用率 | CLI ではパーセント、デスクトップアプリの Code タブではトークン数 | 上限が分かればパーセント | 上限が分かればパーセント、分からなければトークン数 | 上限が分かればパーセント、分からなければトークン数 | トークン数 |
+| 承認待ち | 出ます | 出ます | 出ます | 出ます | 出ません |
+| 利用制限 | 5 時間と 7 日 | Codex が送ってきたウィンドウ | 出ません | 出ません | Gemini のモデルの 5 時間と週 |
+| 行を押したときの移動先 | 端末のタブ、エディタのウィンドウ、デスクトップアプリの会話 | Claude Code と同じ | Discord のチャンネル | macOS の Ghostty の端末だけ | 端末のタブ（Claude Code の CLI と同じ）、デスクトップアプリの会話では Gemini のアプリ |
+| サブエージェント | 動いている間は親の行が作業中のままです | 親の行が作業中のままです | 親とは別の行になります | 親の行の作業として出します | 動いている間は親の行が作業中のままです |
 
-どのツールのセッションかは、行のアイコンか文字のマークで見分けます（[パネルの見方](docs/usage.md#パネルの見方)を参照）。行を押したときの動きは[セッションへ移動する](docs/usage.md#セッションへ移動する)に、利用制限の出方は[利用制限の表示](docs/usage.md#利用制限の表示)に書いています。Antigravity は、セッションの行は出ず、Gemini のモデルの利用制限だけを出せます。
+どのツールのセッションかは、行のアイコンか文字のマークで見分けます（[パネルの見方](docs/usage.md#パネルの見方)を参照）。行を押したときの動きは[セッションへ移動する](docs/usage.md#セッションへ移動する)に、利用制限の出方は[利用制限の表示](docs/usage.md#利用制限の表示)に書いています。
 
 ### Claude Code
 
@@ -102,6 +104,10 @@ Hermes のフックは `install` では登録しないので、[Hermes のフッ
 ### OpenCode
 
 対象は OpenCode v2 を端末から使うときのセッションで、v1 のデスクトップアプリには対応していません。プラグインは OpenCode の設定のフォルダ（既定は `~/.config/opencode`）があるときだけ置き、OpenCode の設定ファイルは書き換えません（[OpenCode のプラグイン](docs/development.md#opencode-のプラグイン)を参照）。行を押して移動できるのは、macOS の Ghostty の中で動いている端末だけです。Claude Code が作業を任せるために `opencode run --standalone` で動かした会話は、任せた側の Claude Code の行と重なるので、パネルに並べません。
+
+### Antigravity
+
+フックは、agy の利用者ごとの設定のファイル `~/.gemini/config/hooks.json` に登録し、agy の CLI と、Antigravity を同梱した Gemini のデスクトップアプリの両方がこのフックを呼びます。agy には承認を求めている間に呼ばれるフックが無いので、Antigravity の行は承認待ちになりません。利用者に質問するツール（`ask_question`）を呼んでいる間だけは、承認待ちとして出す作りにしていますが、この動きは確かめていません。デスクトップアプリの会話にはアプリが付けたタイトルが出ますが、CLI の会話にはタイトルが無いので、行には作業フォルダの名前だけが出ます。Claude Code の中から起動した agy の会話（Claude Code が作業を任せた agy-async など）は、任せた側の Claude Code の行と重なるので、パネルに並べません（[Antigravity のフック](docs/development.md#antigravity-のフック)を参照）。
 
 ## 動作環境
 
@@ -121,6 +127,9 @@ marimo は macOS で動作を確かめており、Windows 11 でも大半の機�
 | OpenCode | macOS の端末の v2 | 一部確認済み | 行を押して移動できるのは Ghostty だけです |
 | OpenCode | Windows の端末の v2 | 未確認 | 行を押しても移動しません |
 | OpenCode | v1 のデスクトップアプリ | 対象外 | プラグインが読み込まれません |
+| Antigravity | macOS の端末の CLI（agy 1.5.8） | 一部確認済み | 作業中、完了、サブエージェント、コンテキストのトークン数と、行を押すと Ghostty のタブへ移ることを確かめています。中断とエラーは確かめていません |
+| Antigravity | Gemini のデスクトップアプリ | 一部確認済み | パネルに行が出て、作業中から完了へ移ることと、タイトルが出ること、行を押すと Gemini のアプリが前面に出ることを確かめています |
+| Antigravity | Windows | 未確認 | 動作を確かめていません |
 
 環境ごとに何を確かめたかは、[動作確認の状況](docs/development.md#動作確認の状況)に書いています。
 
@@ -151,7 +160,7 @@ cd ..
 
 ### 2. 各ツールに登録する
 
-`marimo-hook install` は、Claude Code のフックと statusLine を登録し、Codex のフォルダがあれば Codex のフックを、OpenCode の設定のフォルダがあれば OpenCode のプラグインを登録します。Claude Code 自身の設定ファイル `~/.claude/settings.json` を書き換えるので、Claude Code に頼まずに自分の端末で実行してください。
+`marimo-hook install` は、Claude Code のフックと statusLine を登録し、Codex のフォルダがあれば Codex のフックを、OpenCode の設定のフォルダがあれば OpenCode のプラグインを、agy の設定のフォルダ（`~/.gemini/config`）があれば Antigravity のフックを登録します。Claude Code 自身の設定ファイル `~/.claude/settings.json` を書き換えるので、Claude Code に頼まずに自分の端末で実行してください。
 
 最初に `--dry-run` を付けると、ファイルを書き換えずに、変更後の settings.json と変更点だけを表示します。
 
@@ -173,6 +182,7 @@ cd ..
 | Codex | Codex CLI で `/hooks` を開き、marimo のフックを信頼します（[Codex のフック](docs/development.md#codex-のフック)を参照） |
 | Hermes Agent | `config.yaml` へ手でフックを加え、Hermes で承認してから gateway を起動し直します（[Hermes のフック](docs/development.md#hermes-のフック)を参照） |
 | OpenCode | 動いている OpenCode を、バックグラウンドのサービスも含めて起動し直します。サービスは `opencode service restart` で起動し直せます |
+| Antigravity | 動いている agy の CLI と、Gemini のデスクトップアプリを起動し直します |
 
 ### 3. アプリを置いて起動する
 
@@ -218,7 +228,7 @@ pwsh -ExecutionPolicy Bypass -File .\tools\update.ps1
 
 - 再現の手順
 - OS（macOS か Windows）とそのバージョン
-- どのツール（Claude Code、Codex、Hermes Agent、OpenCode）で起きたかと、そのバージョン
+- どのツール（Claude Code、Codex、Hermes Agent、OpenCode、Antigravity）で起きたかと、そのバージョン
 - そのツールを端末とデスクトップアプリのどちらで使っているか
 
 状態ファイルや会話ログを添えるときは、作業フォルダ名やコマンドに人に見せたくない情報が入っていないかを先に確かめてください。settings.json の書き換え、OpenCode のプラグインの配置、会話ログの読み取りなど、安全に関わる問題は、公開の Issue ではなく GitHub の Security Advisories から非公開で報告してください。

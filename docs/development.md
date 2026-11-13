@@ -37,7 +37,7 @@ Node.js のバージョンは、依存しているビルドツールの Vite と
 
 ## フックと statusLine の登録
 
-`marimo-hook install` と `uninstall` が、Claude Code と Codex の設定と OpenCode のプラグインのフォルダをどう書き換えるかと、Hermes Agent のフックを手で登録する手順を説明します。登録の手順の全体は、README の [2. 各ツールに登録する](../README.md#2-各ツールに登録する)にあります。
+`marimo-hook install` と `uninstall` が、Claude Code、Codex、Antigravity の設定と OpenCode のプラグインのフォルダをどう書き換えるかと、Hermes Agent のフックを手で登録する手順を説明します。登録の手順の全体は、README の [2. 各ツールに登録する](../README.md#2-各ツールに登録する)にあります。
 
 ### install が行うこと
 
@@ -65,6 +65,7 @@ Node.js のバージョンは、依存しているビルドツールの Vite と
 3. statusLine を登録します（[statusLine のラップのしかた](#statusline-のラップのしかた)を参照）。
 4. Codex のフォルダがあれば、Codex の `hooks.json` にフックを登録します（[Codex のフック](#codex-のフック)を参照）。
 5. OpenCode の設定のフォルダがあれば、その中の `plugins/marimo.js` にプラグインを置きます（[OpenCode のプラグイン](#opencode-のプラグイン)を参照）。
+6. agy の設定のフォルダ（`~/.gemini/config`）があれば、その中の `hooks.json` にフックを登録します（[Antigravity のフック](#antigravity-のフック)を参照）。
 
 ### statusLine のラップのしかた
 
@@ -87,7 +88,7 @@ Windows の Claude Code は、Git Bash が入っていれば Git Bash で、な�
 
 ### サブコマンドと設定ファイルの場所
 
-`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`statusline`、`record`、`install`、`uninstall` の八つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code、Codex、Hermes、OpenCode のプラグインから呼ばれるか、調査のためのものです。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
+`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`antigravity-hook`、`statusline`、`record`、`install`、`uninstall` の九つです。利用者が直接使うのは `install` と `uninstall` だけで、残りは Claude Code、Codex、Hermes、OpenCode のプラグイン、agy から呼ばれるか、調査のためのものです。`--help` のようなヘルプの表示はなく、知らないサブコマンドを渡すとエラーを一行出して終わります。
 
 対象の設定ファイルは `--settings <パス>` で指定できます。省略すると、環境変数 `CLAUDE_CONFIG_DIR` が設定されていればその下の `settings.json` を、なければ `~/.claude/settings.json` を使います。
 
@@ -164,9 +165,45 @@ OpenCode はプラグインを起動したときにだけ読むので、ファ�
 OpenCode は起動したときにプラグインを読み込みます。動いている OpenCode は、バックグラウンドのサービスも含めて起動し直してください（サービスは opencode service restart で起動し直せます）。
 ```
 
+### Antigravity のフック
+
+agy の利用者ごとのフックは `~/.gemini/config/hooks.json` に書きます。agy の CLI の `/hooks` がこのファイルの項目を一覧に出すことと、Gemini のデスクトップアプリが動かす agy（Hub）がこのファイルのフックを起動し直さずに読み直して呼ぶことを確かめています。このファイルの最上位は、フックの名前ごとの設定です。`install` は、ほかの名前の項目に触れず、`marimo` という名前の項目を一つだけ書きます。フォルダ `~/.gemini/config` が無ければ Antigravity は入っていないものとみなし、Antigravity については何も表示しません。
+
+```json
+{
+  "marimo": {
+    "PreInvocation": [
+      { "type": "command", "command": "/Users/user/.marimo/bin/marimo-hook antigravity-hook PreInvocation", "timeout": 10 }
+    ],
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "/Users/user/.marimo/bin/marimo-hook antigravity-hook PreToolUse", "timeout": 10 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "/Users/user/.marimo/bin/marimo-hook antigravity-hook PostToolUse", "timeout": 10 }] }
+    ],
+    "Stop": [
+      { "type": "command", "command": "/Users/user/.marimo/bin/marimo-hook antigravity-hook Stop", "timeout": 10 }
+    ]
+  }
+}
+```
+
+agy はフックが終わるまで処理を止めて待つので、状態を決めるのに使う四つのイベントだけを登録し、時間の上限を 10 秒にしています。Gemini のデスクトップアプリが動かす agy は、入力に `hookEventName` を入れてこないので、イベント名をコマンドの引数で渡します。agy のハンドラには args が無く、`command` を Unix では `sh -c`、Windows では `cmd /c` に書いたとおりに渡します。そこで Codex と同じく、Unix ではパスを単一引用符で引用し、Windows では空白や記号を含まない一語のパスのときだけ登録します（[Codex のフック](#codex-のフック)を参照）。
+
+- `marimo` の項目が書こうとする内容と同じなら「変更はありません（すでにインストール済みです）」と表示し、ファイルに手を付けません。
+- すべてのハンドラが、どこかに置いた `marimo-hook` の `antigravity-hook` を呼ぶ項目を、イベント名の引数の有無によらず marimo のものとみなします。古い場所の `marimo-hook` を指す marimo の項目は、名前が何であっても、新しい `marimo` の項目に置き換えます。
+- `marimo` という名前で marimo のものではない項目があれば、書き換えずにエラーで終わります。
+- 書き換える前に、settings.json と同じくバックアップを取ります。
+
+agy は起動したときにフックを読み込むことをログで確かめているので、ファイルを書き換えたときは、`install` が次の案内を表示します。
+
+```text
+フックを読み込ませるため、動いている agy の CLI と、Gemini のデスクトップアプリを起動し直してください。
+```
+
 ### uninstall が行うこと
 
-`uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。Codex のフォルダがあれば、Codex の `hooks.json` からも marimo のフックだけを取り除きます。OpenCode の設定のフォルダがあれば、marimo が書いた `plugins/marimo.js` を消します。`plugins/` のフォルダは残します。Hermes の `config.yaml` には触れないので、[Hermes のフック](#hermes-のフック)の手順で手で取り除きます。取り除くのは marimo が足したものだけで、シェルを通す形で登録されたフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドをラップしていた場合は元のコマンドへ戻します。
+`uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを取ります。Codex のフォルダがあれば、Codex の `hooks.json` からも marimo のフックだけを取り除きます。OpenCode の設定のフォルダがあれば、marimo が書いた `plugins/marimo.js` を消します。`plugins/` のフォルダは残します。agy の設定のフォルダがあれば、`hooks.json` から marimo の項目だけを取り除きます。Hermes の `config.yaml` には触れないので、[Hermes のフック](#hermes-のフック)の手順で手で取り除きます。取り除くのは marimo が足したものだけで、シェルを通す形で登録されたフックも取り除きます。marimo のフックだけが入っていたグループやイベントは丸ごと消し、他のフックと同じイベントに並んでいた場合は他のフックを残します。statusLine は、marimo だけを登録していた場合は取り除き、元のコマンドをラップしていた場合は元のコマンドへ戻します。
 
 ## ファイルとデータ
 
@@ -177,6 +214,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `sessions/<session_id>.json` | セッションごとの状態です。フックが書き、SessionEnd で消します。完了とエラーのセッションは、SessionEnd の `reason` が `clear`、`resume`、`logout`、`prompt_input_exit` のどれかのときだけ消し、それ以外では残します。24 時間更新のないファイルと、バックグラウンドへ移した会話の元のファイルと、プロセスが終わった待機のセッションのファイルは、アプリが消します |
 | `sessions/codex-<session_id>.json` | Codex のセッションごとの状態です。Claude Code と Codex の session_id は別々に振られるので、名前に `codex-` を付けて分けます。marimo はどちらのツールのセッションかと ID（セッションに振られる識別子）のペアでセッションを見分けるので、ID が重なっても行や既読の記録が混ざることはありません。書き方と消し方は Claude Code のセッションと同じです |
 | `sessions/hermes-<session_id>.json` | Hermes のセッションごとの状態です。Codex と同じく名前に `hermes-` を付けて分けます。書き方と消し方は Claude Code のセッションと同じです |
+| `sessions/antigravity-<conversationId>.json` | Antigravity の会話ごとの状態です。Codex と同じく名前に `antigravity-` を付けて分けます。agy には会話の終わりを知らせるフックが無いので、ファイルはアプリが消します（[Antigravity のフックから記録するもの](#antigravity-のフックから記録するもの)を参照） |
 | `sessions/opencode-<session_id>.json` | OpenCode のセッションごとの状態です。Codex と同じく名前に `opencode-` を付けて分けます。OpenCode で会話を消したとき（`session.deleted`）は、完了とエラーのセッションも消します。24 時間更新のないファイルは、ほかのセッションと同じくアプリが消します |
 | `rate_limits.json` | 5 時間と 7 日の利用制限です。statusLine の入力から、そのセッションに新しい応答が届いていたときだけ書きます。アプリも、Claude Code が `~/.claude.json` の `cachedUsageUtilization` に残した値のうち、保存している `updated_at` より新しい時点のものを書きます。このときの `updated_at` は、marimo が読んだ時刻ではなく、Claude Code が値を取得した時刻（`fetchedAtMs`）です。`cachedUsageUtilization` は Claude Code の文書に無い項目で、Claude Code 2.1.316 が書く形に合わせています |
 | `statusline_responses.json` | セッションごとに、statusLine の入力にあった `cost.total_api_duration_ms`（API の応答を待った時間の累計）と、その値が変わった時刻を持ちます。この値が前回より増えていれば新しい応答が届いたと見て、`rate_limits.json` を書き換えます。24 時間変わらなかったセッションの記録は、次に書くときに消します |
@@ -192,7 +230,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 | `logs/record-<日付>.jsonl` | 調査用のコマンド `marimo-hook record <ラベル>` が、受け取った JSON をそのまま追記するファイルです。このコマンドを自分で登録したときだけできます。日付は UTC で、ファイルは 1 日ごとに分かれます。プロンプトやツールの引数を含みうるので、追記のたびに 7 日より前の日のファイルを消します。日付の無い名前の `logs/record.jsonl` も、7 日を超えて更新がなければ同じときに消します |
 | `.lock` | フックどうしが同時に書き込んでぶつからないようにするためのロックファイルです |
 
-セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes`、`opencode` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。どのツールのセッションでも、ファイルはターンを動かしているプロセスの ID と起動した時刻の `host` を持ちます（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。Claude Code のセッションでは、ファイルは会話ログの場所の `transcript_path` も持ちます（[バックグラウンドへ移した会話](#バックグラウンドへ移した会話)と[利用者が止めた応答](#利用者が止めた応答)を参照）。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前のバージョンのアプリは、Hermes のセッションのファイルを読み飛ばします。OpenCode のセッションでは `source` が `opencode-step` になります。`opencode` を知らない以前のバージョンのアプリも、OpenCode のセッションのファイルを同じように読み飛ばします。
+セッションの状態ファイルは、どのツールのセッションかを表す `provider` を持ち、値は `claude`、`codex`、`hermes`、`opencode`、`antigravity` のどれかです。この項目を持たないファイルは、Claude Code のセッションとして読みます。どのツールのセッションでも、ファイルはターンを動かしているプロセスの ID と起動した時刻の `host` を持ちます（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。Claude Code のセッションでは、ファイルは会話ログの場所の `transcript_path` も持ちます（[バックグラウンドへ移した会話](#バックグラウンドへ移した会話)と[利用者が止めた応答](#利用者が止めた応答)を参照）。Codex のセッションでは、コンテキスト使用率の `source` が `codex-rollout` になります。Hermes のセッションでは `source` が `hermes-api` になり、ファイルは今のターンの ID の `turn_id` と、行を押したときに開く URL の `link` も持ちます。`hermes` を知らない以前のバージョンのアプリは、Hermes のセッションのファイルを読み飛ばします。OpenCode のセッションでは `source` が `opencode-step` になります。`opencode` を知らない以前のバージョンのアプリも、OpenCode のセッションのファイルを同じように読み飛ばします。Antigravity のセッションでは `source` が `antigravity-transcript` になり、`antigravity` を知らない以前のバージョンのアプリは、そのファイルを読み飛ばします。
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使います。
 
@@ -211,7 +249,7 @@ marimo のデータはすべて `~/.marimo` に置かれます。環境変数 `M
 
 ## プライバシーとセキュリティ
 
-marimo は、対応しているツールの作業を一切妨げないことを最優先にしています。フックは状態ファイルへ書き込むだけで、何が失敗しても終了コード 0 で終わり、標準出力には何も出しません。Claude Code はフックの終了コード 2 で操作を止め、一部のフックの標準出力を Claude への文脈に加えます。Codex と Hermes のフックも、終了コードと標準出力で操作を止めたり会話に文脈を加えたりできます。marimo はそのどれも起こさないようにしています。OpenCode のプラグインは `marimo-hook` の終了を待たずに OpenCode の処理を続け、`marimo-hook` の終了コードと出力も読みません。marimo のアプリが起動していなくても、どのツールの動作にも影響しません。
+marimo は、対応しているツールの作業を一切妨げないことを最優先にしています。フックは状態ファイルへ書き込むだけで、何が失敗しても終了コード 0 で終わり、標準出力には何も出しません。Claude Code はフックの終了コード 2 で操作を止め、一部のフックの標準出力を Claude への文脈に加えます。Codex と Hermes のフックも、終了コードと標準出力で操作を止めたり会話に文脈を加えたりできます。marimo はそのどれも起こさないようにしています。OpenCode のプラグインは `marimo-hook` の終了を待たずに OpenCode の処理を続け、`marimo-hook` の終了コードと出力も読みません。agy の文書はフックに JSON の出力を求めますが、`antigravity-hook` もほかと同じく何も出しません。agy 1.5.8 は、何も出さないフックを失敗として記録しないことと、承認が要る操作の扱いがフックの有無で変わらないことを確かめています。marimo のアプリが起動していなくても、どのツールの動作にも影響しません。
 
 ### marimo が読むもの
 
@@ -223,6 +261,7 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 - **Hermes のセッションの一覧** Hermes のセッションでは、ターンの始まりに、Hermes のフォルダの `sessions/sessions.json` から、そのセッションの行を探してチャットの種類と名前、Discord のサーバーとチャンネルの ID だけを取り出します。Hermes の `.env`、`auth.json`、`state.db` は読みません。
 - **OpenCode のプラグインが渡すもの** OpenCode のセッションでは、プラグインが選んだイベントの内容（セッションの ID、作業フォルダ、ツールの名前と引数、実行許可を求める操作の種類と対象、質問のフォームのフィールド、エラーの種類と文、各ステップのトークン数）を受け取ります。プラグインはこれに、ターンで最後に書かれた応答の文章と、OpenCode に尋ねた値を足して渡します。プラグインが OpenCode に尋ねるのは、作成を見ていないセッションの親、タイトル、作業フォルダと、モデルの一覧にあるコンテキストの上限だけです。OpenCode のファイルは読みません。
 - **ターンを動かしているプロセス** セッションの開始時とプロンプトを送ったとき（Hermes と OpenCode ではターンの始まり）と、まだ記録の無い行へのフックで、フックの祖先のうちシェルでない最も近いプロセスの ID と起動した時刻を状態ファイルに記録します。シェルを見分けるために祖先の実行ファイルの名前を読みますが、名前は記録しません。アプリは、記録したプロセスがまだ動いているかを OS に尋ねるだけで、引数は読みません。
+- **Antigravity のフックの入力と transcript** Antigravity のセッションでは、フックの入力から会話の ID、作業フォルダ、ツールの名前と引数、ターンの終わりの理由を取り出します。Gemini のデスクトップアプリの会話では、ターンの始まりと終わりに `annotations/<会話の ID>.pbtxt` からタイトルだけを読みます。フックが届くたびに、会話の transcript（agy が `brain/<会話の ID>/.system_generated/logs/transcript_full.jsonl` に書くもの）の先頭から 2 KB と、末尾から最後のモデルの応答の行までを読み、サブエージェントの会話かどうかと、最後の応答の文章と、最後のモデルの呼び出しの入力のトークン数だけを取り出します。agy の資格情報と会話の一覧のデータベースは読みません。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）、API の応答を待った時間の累計（`cost.total_api_duration_ms`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。
 - **Claude Code の `~/.claude.json`** アプリが 30 秒ごとに更新時刻を確かめ、変わっていたら読んで、Claude Code が取得した利用制限の `cachedUsageUtilization` と、ログイン中のアカウントの `oauthAccount.accountUuid` だけを取り出します。アカウントの ID は、別のアカウントで取得された値を使わないために照らし合わせるだけで、記録しません。Claude Code のトークンを含む資格情報は読みません。
 - **アプリのアイコン** パネルのマークに使うため、起動したときに一度だけ、Claude、Codex、OpenCode、Gemini のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop`、`com.openai.codex`、`ai.opencode.desktop`、`com.google.GeminiMacOS`（Antigravity を同梱しているアプリ）のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。Windows では OpenCode と Antigravity のアイコンを問い合わせません。受け取ったアイコンはメモリに置くだけで、ファイルには書きません。Hermes Agent のアイコンと、OpenCode のデスクトップアプリのアイコンを受け取れなかったときの OpenCode のアイコンは、`app/src/assets/providers/` に同梱した画像を使います（出どころと許諾は `LICENSE-ASSETS` に書いています）。
@@ -238,7 +277,7 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 ### marimo が書くもの
 
 - アプリとフックは、`~/.marimo` の中のファイルを書きます（[ファイルとデータ](#ファイルとデータ)を参照）。状態ファイルには、実行したコマンド、ファイルのパス、応答の冒頭などの要約が最大 500 文字まで入ります。リポジトリ名と、チャットのタイトルも最大 200 文字まで入ります。
-- `install` と `uninstall` は、Claude Code の settings.json とそのバックアップを書きます。Codex のフォルダがある場合は、Codex の `hooks.json` とそのバックアップも書きます。OpenCode の設定のフォルダがある場合は、`plugins/marimo.js` を書くか消します。
+- `install` と `uninstall` は、Claude Code の settings.json とそのバックアップを書きます。Codex のフォルダがある場合は、Codex の `hooks.json` とそのバックアップも書きます。OpenCode の設定のフォルダがある場合は、`plugins/marimo.js` を書くか消します。agy の設定のフォルダがある場合は、`~/.gemini/config/hooks.json` とそのバックアップを書きます。
 - 「ログイン時に起動」を有効にすると、macOS では LaunchAgent の plist を、Windows ではレジストリの値を書きます（場所は[ログイン時に起動する](usage.md#ログイン時に起動する)を参照）。
 
 ### marimo が送るもの
@@ -249,8 +288,8 @@ marimo は、状態ファイルも会話の内容も、ローカルのコンピ�
 
 | パス | 内容 |
 | --- | --- |
-| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数とタイトルの読み取り、Codex の rollout と session_index.jsonl の読み取り、Hermes のフックの入力の読み替えとセッションの一覧の読み取り、OpenCode のイベントの読み替え、ターンを動かしているプロセスが動いているかの確認、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
-| `crates/marimo-hook` | Claude Code、Codex、Hermes、OpenCode のプラグインから呼ばれるコマンド。`hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます。`install` が置く OpenCode のプラグインの雛形 `src/opencode_plugin.js` もここにあり、ビルドのときに実行ファイルへ埋め込まれます |
+| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、会話ログからのトークン数とタイトルの読み取り、Codex の rollout と session_index.jsonl の読み取り、Hermes のフックの入力の読み替えとセッションの一覧の読み取り、OpenCode のイベントの読み替え、Antigravity のフックの入力の読み替えと transcript の読み取り、ターンを動かしているプロセスが動いているかの確認、リポジトリ名の判定、Windows でセッションのウィンドウを探して前面に出す処理と MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
+| `crates/marimo-hook` | Claude Code、Codex、Hermes、OpenCode のプラグイン、agy から呼ばれるコマンド。`hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`antigravity-hook`、`statusline`、`record`、`install`、`uninstall` のサブコマンドを持ちます。`install` が置く OpenCode のプラグインの雛形 `src/opencode_plugin.js` もここにあり、ビルドのときに実行ファイルへ埋め込まれます |
 | `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、Claude Code、Codex、Antigravity からの利用制限の取得、ウィンドウの制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、macOS でのアプリのアイコンの読み取りを受け持ちます |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使っていません |
 | `assets/character/index.json` | 組み込みのキャラクターの一覧です（[自分のキャラクターを作る](customize.md#自分のキャラクターを作る)を参照） |
@@ -321,6 +360,9 @@ README の[動作環境](../README.md#動作環境)の表を、ツールと画�
 | OpenCode | macOS の端末で動かす v2 | 一部確認済み | `opencode run --standalone` で、作業中から完了、許可待ちから作業中、質問待ちから作業中へ移ることと、サブエージェントが行を作らないこと、タイトルとコンテキスト使用率が出ることを確かめています。TUI とバックグラウンドのサービスの下でも、行が出て作業中、許可待ち、完了と動くことと、行を押すと Ghostty の端末へ移れること、中断で待機に戻ることと、エラーが出ることを確かめています。行を押したときに移動できるのは Ghostty の端末だけです（[OpenCode](../README.md#opencode)を参照） |
 | OpenCode | Windows の端末で動かす v2 の TUI | 未確認 | プラグインは、ほかの OS と同じくホームの `.config/opencode` の下に置きます。行を押しても移動せず、パネルのマークは marimo に同梱した OpenCode のアイコンです |
 | OpenCode | v1 のデスクトップアプリ | 対象外 | marimo のプラグインは v2 のプラグインの仕組みで書いているので、v1 では読み込まれません |
+| Antigravity | macOS の端末で動かす agy 1.5.8 の CLI | 一部確認済み | ワークスペースの `.agents/hooks.json` に同じフックを置き、`agy -p` で、作業中から完了へ移ることと、作業中の要約にコマンドの説明（`toolSummary`）が出ること、コンテキストのトークン数が出ること、起動元に Ghostty が記録されること、サブエージェントが自分の行を作らずに親の行の中で数えられること、親の行がサブエージェントの終わるまで作業中のままでいること、Claude Code の中から起動した agy が行を作らないこと、承認が要る操作（ワークスペースの外への書き込み）の扱いがフックの有無で変わらないことを確かめています。`-p` で承認が要る操作が自動で拒否されたときは、PostToolUse も Stop も届かず、行は作業中のまま残り、agy が終わったあとの見回りで待機へ戻ります。`install` が `~/.gemini/config/hooks.json` に登録したフックで、端末の対話の画面の会話にも行が出て、行を押すと Ghostty のタブへ移ることを確かめています。中断とエラーは確かめていません |
+| Antigravity | Gemini のデスクトップアプリ | 一部確認済み | `~/.gemini/config/hooks.json` のフックが、ワークスペースを選ばずに始めた会話で届くことを確かめています。パネルに行が出て、作業中から完了へ移り、アプリが付けたタイトルとコンテキストのトークン数が出ることと、行を押すと Gemini のアプリが前面に出ることを確かめています |
+| Antigravity | Windows | 未確認 | 動作を確かめていません |
 
 ## リリースを作る
 
@@ -370,7 +412,7 @@ git push origin v0.1.0
 
 データは次の順に流れます。
 
-1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。Codex のフックからは `marimo-hook codex-hook` が呼ばれ、同じ規則で `sessions/codex-<session_id>.json` に書き、利用制限を `codex_rate_limits.json` へ書きます。Hermes のフックからは `marimo-hook hermes-hook` が呼ばれ、入力を Claude Code の入力に読み替えてから同じ規則で `sessions/hermes-<session_id>.json` に書きます。OpenCode では、サービスの中で動くプラグインがイベントを購読し、選んだイベントごとに `marimo-hook opencode-hook` を起動します。`opencode-hook` は、イベントを Claude Code の入力に読み替えてから同じ規則で `sessions/opencode-<session_id>.json` に書きます。プラグインは、前に起動した `marimo-hook` が終わってから次を起動するので、書く順がイベントの順と入れ替わりません。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、そのセッションに新しい応答が届いていれば利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
+1. Claude Code がフックを呼ぶと、`marimo-hook hook` が標準入力の JSON を読み、セッションの新しい状態を決めて `sessions/<session_id>.json` に書きます。Codex のフックからは `marimo-hook codex-hook` が呼ばれ、同じ規則で `sessions/codex-<session_id>.json` に書き、利用制限を `codex_rate_limits.json` へ書きます。Hermes のフックからは `marimo-hook hermes-hook` が呼ばれ、入力を Claude Code の入力に読み替えてから同じ規則で `sessions/hermes-<session_id>.json` に書きます。OpenCode では、サービスの中で動くプラグインがイベントを購読し、選んだイベントごとに `marimo-hook opencode-hook` を起動します。`opencode-hook` は、イベントを Claude Code の入力に読み替えてから同じ規則で `sessions/opencode-<session_id>.json` に書きます。プラグインは、前に起動した `marimo-hook` が終わってから次を起動するので、書く順がイベントの順と入れ替わりません。agy のフックからは `marimo-hook antigravity-hook` が呼ばれ、入力を Claude Code の入力に読み替えてから同じ規則で `sessions/antigravity-<conversationId>.json` に書き、transcript から読んだトークン数をコンテキスト使用率として書きます。statusLine から呼ばれた `marimo-hook statusline` は、コンテキスト使用率とセッションの名前をセッションのファイルへ、そのセッションに新しい応答が届いていれば利用制限を `rate_limits.json` へ書きます。フックは Claude Code の処理を止めてしまうので、ロックを待つのは最大 300 ミリ秒までにしています。
 2. アプリは、Claude Code が `~/.claude.json` に残した利用制限を 30 秒ごとに確かめて `rate_limits.json` へ書きます。再取得の間隔を選んでいれば、`codex app-server` に問い合わせた利用制限を `codex_rate_limits.json` へ、`agy -p /usage` で読んだ利用制限を `antigravity_rate_limits.json` へ書きます（[marimo が起動するもの](#marimo-が起動するもの)を参照）。
 3. アプリはファイルの監視（file watcher。フォルダの中のファイルが変わると OS から知らせを受け取る仕組み）で `sessions/` と `rate_limits.json` の変化を受け取ります。並列のツール呼び出しで書き込みが重なるので、120 ミリ秒静かになるまで待ち、遅くとも 500 ミリ秒で、全セッションをまとめたスナップショットを読みます。
 4. Rust 側は、スナップショットの全体の状態に合わせてメニューバーと通知領域のアイコンを替え、スナップショットを `snapshot` という名前のイベントで画面部分へ送ります。アイコンを画面部分に任せないのは、ウィンドウを隠している間は画面部分が止まることがあるからです。macOS 14 以降では、隠したウィンドウの画面部分を WebKit が止めないよう、`tauri.conf.json` の `backgroundThrottling` を `disabled` にしています。Tauri はこの設定を macOS 13 以前と Windows では扱いません。
@@ -386,9 +428,9 @@ git push origin v0.1.0
 
 ### プロセスが異常な終わり方をしたとき
 
-Claude Code、Codex、Hermes、OpenCode のどれも、プロセスが落ちたり強制終了されたりすると、SessionEnd にあたるフックやイベントを送りません。Claude Code が中断の後に送る待機の通知（idle_prompt）も、プロセスが無くなれば届きません。そのままでは、作業中や承認待ちの行が、24 時間後に消えるまで残ります。
+Claude Code、Codex、Hermes、OpenCode、Antigravity のどれも、プロセスが落ちたり強制終了されたりすると、SessionEnd にあたるフックやイベントを送りません。Claude Code が中断の後に送る待機の通知（idle_prompt）も、プロセスが無くなれば届きません。そのままでは、作業中や承認待ちの行が、24 時間後に消えるまで残ります。
 
-そこで、フックはターンを動かしているプロセスの ID と起動した時刻を `host` に記録します。記録するのは、セッションの開始時とプロンプトを送ったときと、まだ記録の無い行へのフックです。`--resume` で別のプロセスへ移った会話は、そこで新しいプロセスに置き換わります。フックの親がシェルのとき（sh、bash、zsh、dash、ksh、fish、cmd、powershell、pwsh と、環境変数 `SHELL` と `COMSPEC` が指すもの）は、シェルを飛ばした先の祖先を記録します。シェルはフックと一緒に終わるからです。macOS の Claude Code では `/bin/sh` が exec でフックに置き換わるので親が claude のプロセスになりますが、Windows の Git Bash の bash.exe は exec しても親として残ります。Codex は、macOS では `SHELL` のシェルの `-lc` で、Windows では `COMSPEC`（無ければ cmd.exe）の `/C` でフックを起動します（codex-rs/hooks/src/engine/command_runner.rs の build_command）。OpenCode のプラグインは `marimo-hook` をシェルを通さずに起動するので、記録するのはプラグインを動かしている OpenCode のサービスのプロセスです。
+そこで、フックはターンを動かしているプロセスの ID と起動した時刻を `host` に記録します。記録するのは、セッションの開始時とプロンプトを送ったときと、まだ記録の無い行へのフックです。`--resume` で別のプロセスへ移った会話は、そこで新しいプロセスに置き換わります。フックの親がシェルのとき（sh、bash、zsh、dash、ksh、fish、cmd、powershell、pwsh と、環境変数 `SHELL` と `COMSPEC` が指すもの）は、シェルを飛ばした先の祖先を記録します。シェルはフックと一緒に終わるからです。macOS の Claude Code では `/bin/sh` が exec でフックに置き換わるので親が claude のプロセスになりますが、Windows の Git Bash の bash.exe は exec しても親として残ります。Codex は、macOS では `SHELL` のシェルの `-lc` で、Windows では `COMSPEC`（無ければ cmd.exe）の `/C` でフックを起動します（codex-rs/hooks/src/engine/command_runner.rs の build_command）。OpenCode のプラグインは `marimo-hook` をシェルを通さずに起動するので、記録するのはプラグインを動かしている OpenCode のサービスのプロセスです。agy は Unix では `sh -c` でフックを起動するので、記録するのは端末の `agy` のプロセスです。
 
 アプリは起動したときと 10 分ごとに、作業中か承認待ちの行のプロセスが終わっていれば、中断されたものとして待機へ戻し、動いていたサブエージェントの記録も外します。親の会話が完了かエラーで、サブエージェントが動いているので作業中と出ていた行は、まだ読んでいない結果なので完了かエラーのまま残し、サブエージェントの記録だけを外します。待機の行のプロセスが終わっていれば、行のファイルを消します。Claude Code がバックグラウンドで用意しておく予備のプロセス（`claude bg-spare`）は、自分の session_id で SessionStart を送って待機の行を作り、使われないまま 60 分ほどで終わっても SessionEnd を送らないからです。待機の行はパネルに出ないので、消した行のセッションがまだ続いていても見え方は変わらず、次のフックでファイルが作り直されます。プロセス ID は使い回されるので、起動した時刻が記録と違えば別のプロセスとみなします。macOS では、親に回収される前のゾンビの状態も終わったものとみなします。権限が足りないなどで確かめられないときは、動いているものとみなします。
 
@@ -481,6 +523,31 @@ OpenCode v2 のプラグイン（`install` が OpenCode の設定のフォルダ
 - **プロセスの終わり** フックの親は OpenCode のサービスのプロセスなので、サービスが落ちたときや強制終了されたときは、ほかのツールと同じく、作業中や承認待ちの行を遅くとも 10 分ほどで待機へ戻します（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。
 - **起動元** 会話を動かすサービスは端末とは別のプロセスなので、起動元の手がかりは記録しません。行を押したときは、macOS の Ghostty で、タイトルが `OC | <会話のタイトル>` のターミナルを探します。これは OpenCode の端末の画面がターミナルに付けるタイトルで、タイトルが 40 文字（JavaScript の文字列の長さで、UTF-16 の単位で数えます）を超えるときは、37 文字に切って省略の記号を足した形になります。タイトルで見つからなければ、作業フォルダが一致するターミナルが一つだけのときにそれを選びます。見つからなければ、Ghostty も前面に出さずに何もしません。Terminal.app と iTerm2 は tty（端末の装置名）でしかタブを探せないので扱わず、Windows では何もしません。
 - **記録しないもの** 利用制限は記録しません。プラグインが OpenCode のイベントから利用制限を取り出さないためです。
+
+### Antigravity のフックから記録するもの
+
+agy のフック（`install` が `~/.gemini/config/hooks.json` に登録するもの）は、`marimo-hook antigravity-hook <イベント名>` を呼びます。`marimo-hook` は、入力を Claude Code の入力に読み替えてから状態を決めます。フックの入力の形は、agy に同梱された agy-customizations の skill の `docs/hooks.md` に従います。Gemini のデスクトップアプリが動かす agy の入力は、CLI の 1.5.8 と違って `hookEventName` と `cwd` を持たないので、イベント名はコマンドの引数から、作業フォルダは `workspacePaths` の先頭から取ります。ワークスペースを選ばずに始めた会話は作業フォルダを持たないので、Hermes の gateway の会話と同じく、タイトルを行の名前にします。
+
+| agy のイベント | 読み替え先 | 状態 |
+| --- | --- | --- |
+| `PreInvocation`（`invocationNum` が 0） | UserPromptSubmit | 作業中。ターンの最初のモデルの呼び出しの前に届く |
+| `PreToolUse` | PreToolUse | 作業中。ツールの名前と引数を Claude Code のものに置き換える |
+| `PostToolUse` | PostToolUse | 作業中 |
+| `Stop`（`terminationReason` が `NO_TOOL_CALL` などの正常な終わりで、`fullyIdle` が true） | Stop | 完了。transcript の最後の応答の文章を要約に使う |
+| `Stop`（正常な終わりで、`fullyIdle` が false） | PostToolUse | 作業中のまま。サブエージェントの返事を待つ親の会話は、いったん Stop を出してから、返事を受けて動き直す |
+| `Stop`（`terminationReason` が `USER_CANCELED`） | Interrupt | 待機 |
+| `Stop`（`terminationReason` が `ERROR`、`MAX_INVOCATIONS`、`MAX_FORCED_INVOCATIONS`、`MAX_TOKEN_BUDGET_EXCEEDED`） | StopFailure | エラー。`terminationReason` を小文字にしてセリフの分類に使い、`error` の文を要約に使う |
+
+- **ターンの始まり** agy は 2 ターン目以降に `SessionStart` を出さず、ターンの最初の `PreInvocation` で `invocationNum` を 0 から数え直します。サブエージェントの返事を受けて親の会話が動き直すときも 0 から数え直しますが、そのときは行が作業中のままなので、ターンの始まりの時刻を書き換えません。`SessionStart` と `PostInvocation` は登録しません。
+- **承認待ち** agy には、承認を求めている間に呼ばれるフックがありません。このため Antigravity の行は承認待ちにならず、承認を求めている間は、そのツールを使っている作業中として出ます。利用者に質問するツール（`ask_question`）だけは、Claude Code の AskUserQuestion と同じく、呼ばれた時点で承認待ち（質問）にします。このツールの名前は agy の実行ファイルの中の文字列から拾ったもので、届くことは確かめていません。
+- **Claude Code から任された会話** フックの環境に `CLAUDECODE` があるときは、行を作らず、既にある行を消します。agy は自分の環境をフックへ引き継ぐので、Claude Code の中から起動した agy（Claude Code が作業を任せた agy-async など）のフックには、Claude Code がツールから起動したプロセスに入れる `CLAUDECODE=1` が見えます。任せた側の Claude Code の行がすでに作業中を示しているので、同じ作業を別の行として並べないためです。
+- **サブエージェント** agy のサブエージェントは、親とは別の会話の ID でフックを出し、入力に親を指す項目はありません。サブエージェントの transcript の先頭の行は、親からの指示を載せた `SYSTEM_MESSAGE` の行で、その本文が `sender=<親の会話の ID>` を含みます。そこで、transcript の先頭の 2 KB にこの形があるときだけ、サブエージェントの会話とみなし、そのイベントを親の行の中で動くサブエージェントとして書きます。サブエージェントの transcript は最初のツールの呼び出しまでできないので、transcript を読めず、まだ行の無い会話のイベントは捨てます。利用者が始めた会話の transcript は、最初のフックの前にできていることを確かめています。
+- **作業の要約** agy のツールを、要約の作り方が同じ Claude Code のツールに置き換えます。`run_command` は Bash で、agy が付けるコマンドの説明（`toolSummary`）を要約に使います。`read_file` と `view_file` は Read、`write_file`、`write_to_file`、`create_file` は Write、`edit_file`、`replace_file_content`、`multi_replace_file_content` は Edit、`grep_search` は Grep、`search_web` と `read_url_content` は WebSearch と WebFetch、`invoke_subagent` は Agent として扱います。それ以外のツールは、ツール名と引数をそのまま短く出します。
+- **コンテキスト使用率** transcript の最後のモデルの応答の行にある `input_tokens` と `cache_read_tokens` の合計を、トークン数として出します。agy はモデルのコンテキストの上限をフックにも transcript にも書かないので、パーセントは出しません。
+- **タイトル** Gemini のデスクトップアプリは、会話に付けたタイトルを、agy のデータのフォルダ（`artifactDirectoryPath` の二つ上）の `annotations/<会話の ID>.pbtxt` に、protobuf のテキスト形式の `title:"..."` として書きます。ターンの始まりと終わりにこのファイルを読み、タイトルにします。この形式は文書に無く、ローカルのファイルで確かめたものです。agy の CLI はこのファイルを作らないので、CLI の会話の行には作業フォルダの名前だけが出ます。
+- **会話の終わり** agy には会話の終わりを知らせるフックがありません。フックの祖先のうちシェルでない最も近いプロセス（端末の CLI では `agy` のプロセス）を記録し、ほかのツールと同じく、そのプロセスが終わった待機の行はアプリが消し、作業中のまま残った行は遅くとも 10 分ほどで待機へ戻します（[プロセスが異常な終わり方をしたとき](#プロセスが異常な終わり方をしたとき)を参照）。完了とエラーの行は、既読にするまで残り、24 時間で消えます。
+- **起動元** Claude Code と同じく、フックの環境変数と祖先のプロセスから端末を記録し、行を押したときにその端末へ移ります。agy は Ghostty のターミナルのタイトルを `agy` にし、会話のタイトルも無いので、Ghostty では記録した tty が一致するターミナルを探します。Gemini のデスクトップアプリの会話では、起動元に Gemini のアプリ（`com.google.GeminiMacOS`）が記録されるので、行を押すと Gemini のアプリを前面に出します。
+- **記録しないもの** 利用制限はフックの入力に無いので、アプリが `agy -p /usage` で別に読みます（[marimo が起動するもの](#marimo-が起動するもの)を参照）。
 
 ### 起動元のアプリの見分け方
 

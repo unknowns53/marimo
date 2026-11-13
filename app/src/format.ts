@@ -12,10 +12,13 @@ export function isCodexScratch(session: Pick<SessionState, "cwd" | "provider">):
 }
 
 // Hermes の gateway の会話は作業フォルダを持たない（gateway の作業フォルダは marimo-hook が捨てる）ので、
-// チャンネル名などのタイトルを行の名前にする。CLI の会話は作業フォルダを持つので、ほかのツールと同じく扱う。
+// チャンネル名などのタイトルを行の名前にする。Gemini のデスクトップアプリで、ワークスペースを選ばずに始めた
+// Antigravity の会話も同じく作業フォルダを持たない。CLI の会話は作業フォルダを持つので、ほかのツールと同じく扱う。
 function isChatSession(session: Pick<SessionState, "cwd" | "provider">): boolean {
-  return session.provider === "hermes" && !session.cwd;
+  return (session.provider === "hermes" || session.provider === "antigravity") && !session.cwd;
 }
+
+const CHAT_FALLBACK_NAME = { hermes: "Hermes", antigravity: "Antigravity" } as const;
 
 // タイトルが行の名前の役をしているセッション。パネルは同じタイトルを名前の横に重ねて出さない。
 export function titleIsName(session: Pick<SessionState, "cwd" | "provider">): boolean {
@@ -39,7 +42,9 @@ export function chatTitle(session: Named): string | null {
 export function folderName(session: Named): string {
   if (session.repo) return session.repo;
   if (isCodexScratch(session)) return session.title || "Codex";
-  if (isChatSession(session)) return session.title || "Hermes";
+  if (isChatSession(session)) {
+    return session.title || CHAT_FALLBACK_NAME[session.provider === "antigravity" ? "antigravity" : "hermes"];
+  }
   const parts = (session.cwd ?? "").split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? session.session_id.slice(0, 8);
 }

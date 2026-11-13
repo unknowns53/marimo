@@ -33,12 +33,14 @@ pub fn run(mode: Mode, args: &[OsString]) -> Result<(), String> {
         Mode::Install => {
             install(&opts, &exe, &marimo)?;
             codex(&mode, &opts, &exe)?;
-            opencode(&mode, &opts, &exe)
+            opencode(&mode, &opts, &exe)?;
+            antigravity(&mode, &opts, &exe)
         }
         Mode::Uninstall => {
             uninstall(&opts, &marimo)?;
             codex(&mode, &opts, &exe)?;
             opencode(&mode, &opts, &exe)?;
+            antigravity(&mode, &opts, &exe)?;
             print(&format!(
                 "実行ファイルとデータは残しています。不要なら次を消してください。\n  {}\n  {}\n",
                 exe.display(),
@@ -176,6 +178,68 @@ fn opencode(mode: &Mode, opts: &Options, exe: &Path) -> Result<(), String> {
                 out += OPENCODE_RELOAD_NOTE;
             }
         }
+    }
+    print(&out);
+    Ok(())
+}
+
+const ANTIGRAVITY_RELOAD_NOTE: &str = "フックを読み込ませるため、動いている agy の CLI と、Gemini のデスクトップアプリを起動し直してください。\n";
+
+// agy の共通の設定のフォルダ（~/.gemini/config）が無ければ Antigravity は入っていないものとして、何も表示しない。
+// 利用者ごとの hooks.json がこのフォルダにあることは、agy の変更履歴と、agy の実行ファイルに書かれた既定の
+// パス（~/.gemini/config/hooks.json）による。
+fn antigravity(mode: &Mode, opts: &Options, exe: &Path) -> Result<(), String> {
+    let Some(dir) = user_home()
+        .map(|h| h.join(".gemini").join("config"))
+        .filter(|d| d.is_dir())
+    else {
+        return Ok(());
+    };
+    let path = dir.join("hooks.json");
+    let mut out = String::from("\nAntigravity\n");
+    let Some(command) =
+        settings_edit::antigravity_hook_command(&exe.to_string_lossy(), cfg!(windows))
+    else {
+        out += "marimo-hook のパスに空白などが含まれ、agy のシェルに引用なしで渡せないため、Antigravity のフックは扱いませんでした。\n";
+        print(&out);
+        return Ok(());
+    };
+    if opts.dry_run {
+        out += "dry-run のため、ファイルは書き換えていません。\n";
+    }
+    out += &format!("設定ファイル: {}\n", path.display());
+    match mode {
+        Mode::Install => {
+            let original = read_settings(&path, true)?;
+            let mut file = original
+                .as_ref()
+                .map_or_else(|| Value::Object(Default::default()), |s| s.value.clone());
+            if settings_edit::install_antigravity(&mut file, &command)? {
+                out += &format!("追加するフック: {}\n", settings_edit::ANTIGRAVITY_HOOK_NAME);
+                out += &commit(
+                    &path,
+                    opts.dry_run,
+                    original.as_ref().map(|s| s.bytes.as_slice()),
+                    &file,
+                )?;
+                out += ANTIGRAVITY_RELOAD_NOTE;
+            } else {
+                out += "変更はありません（すでにインストール済みです）。\n";
+            }
+        }
+        Mode::Uninstall => match read_settings(&path, false)? {
+            None => out += "hooks.json がないので、取り除くものはありません。\n",
+            Some(original) => {
+                let mut file = original.value.clone();
+                let removed = settings_edit::uninstall_antigravity(&mut file)?;
+                out += &format!("取り除くフック: {}\n", list_or_none(&removed));
+                if removed.is_empty() {
+                    out += "変更はありません（marimo は登録されていません）。\n";
+                } else {
+                    out += &commit(&path, opts.dry_run, Some(&original.bytes), &file)?;
+                }
+            }
+        },
     }
     print(&out);
     Ok(())

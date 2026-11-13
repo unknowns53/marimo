@@ -45,6 +45,19 @@ pub const CODEX_EVENTS: [&str; 10] = [
 /// 渡るかが利用者の設定で変わり、cmd /C には全体を二重引用符で囲んで渡されるので、どちらでも
 /// 同じ一つのパスとして読まれる一語のパスだけを使い、そう書けなければ None を返す。
 pub fn codex_hook_command(exe_path: &str, windows: bool) -> Option<String> {
+    hook_command(exe_path, windows, "codex-hook")
+}
+
+/// Antigravity のフックに登録するコマンドの文字列。agy もハンドラに args を持たず、command を Unix では
+/// `sh -c`、Windows では `cmd /c` に書いたとおりに渡す（docs/hooks.md の Hook Handler Fields）ので、
+/// Codex と同じ書き方にする。登録するときは、イベントごとにイベント名を引数として足す。
+pub fn antigravity_hook_command(exe_path: &str, windows: bool) -> Option<String> {
+    hook_command(exe_path, windows, ANTIGRAVITY_SUBCOMMAND)
+}
+
+const ANTIGRAVITY_SUBCOMMAND: &str = "antigravity-hook";
+
+fn hook_command(exe_path: &str, windows: bool, sub: &str) -> Option<String> {
     let exe = if windows {
         let plain = !exe_path.is_empty()
             && exe_path.chars().all(|c| {
@@ -58,7 +71,7 @@ pub fn codex_hook_command(exe_path: &str, windows: bool) -> Option<String> {
     } else {
         shell_quote(exe_path)
     };
-    Some(format!("{exe} codex-hook"))
+    Some(format!("{exe} {sub}"))
 }
 
 // フックは args を持つ exec form で登録する。hooks のドキュメントの Exec form and shell form の
@@ -437,11 +450,19 @@ fn is_codex_handler(handler: &Value, command: &str) -> bool {
 // codex_hook_command が書いた形、つまり一語の marimo-hook のパスに codex-hook が続くものだけを
 // marimo のものとみなす。どこに置いた marimo-hook でも当たるので、古い場所の登録も見つかる。
 fn is_marimo_codex_handler(handler: &Value) -> bool {
+    handler.get("type").and_then(Value::as_str) == Some("command")
+        && is_marimo_handler(handler, "codex-hook")
+}
+
+// agy の handler は type を省略でき、そのときは command として扱われる（docs/hooks.md）。
+fn is_marimo_handler(handler: &Value, sub: &str) -> bool {
+    let kind = handler.get("type").and_then(Value::as_str);
     let Some(program) = handler
         .get("command")
         .and_then(Value::as_str)
-        .filter(|_| handler.get("type").and_then(Value::as_str) == Some("command"))
-        .and_then(|c| c.strip_suffix(" codex-hook"))
+        .filter(|_| kind.is_none_or(|k| k == "command"))
+        .and_then(|c| c.strip_suffix(sub))
+        .and_then(|c| c.strip_suffix(' '))
     else {
         return false;
     };
@@ -450,6 +471,105 @@ fn is_marimo_codex_handler(handler: &Value) -> bool {
         path.rsplit(['/', '\\']).next(),
         Some("marimo-hook" | "marimo-hook.exe")
     )
+}
+
+/// marimo が agy の hooks.json に足す、名前付きのフックの名前。
+pub const ANTIGRAVITY_HOOK_NAME: &str = "marimo";
+
+/// 状態を決めるのに使うイベント。ツールのイベントは matcher を持つグループに入れる。
+const ANTIGRAVITY_EVENTS: [(&str, bool); 4] = [
+    ("PreInvocation", false),
+    ("PreToolUse", true),
+    ("PostToolUse", true),
+    ("Stop", false),
+];
+
+// Gemini のデスクトップアプリが動かす agy は入力に hookEventName を入れてこないので、イベント名を
+// コマンドの引数で渡す。フックは agy の処理を止めて同期で動くので、時間の上限を短くする。
+fn antigravity_entry(command: &str) -> Value {
+    let events = ANTIGRAVITY_EVENTS.map(|(event, grouped)| {
+        let handler =
+            json!({ "type": "command", "command": format!("{command} {event}"), "timeout": 10 });
+        let list = if grouped {
+            json!([{ "matcher": "*", "hooks": [handler] }])
+        } else {
+            json!([handler])
+        };
+        (event.to_owned(), list)
+    });
+    Value::Object(events.into_iter().collect())
+}
+
+// イベントの配列の要素は、handler そのもの（SessionStart などの flat な形）か、matcher と hooks を持つ
+// グループ（PreToolUse と PostToolUse）である。
+fn entry_handlers(entry: &Value) -> Vec<&Value> {
+    let Some(events) = entry.as_object() else {
+        return Vec::new();
+    };
+    events
+        .values()
+        .filter_map(Value::as_array)
+        .flatten()
+        .flat_map(|item| match item.get("hooks").and_then(Value::as_array) {
+            Some(hooks) => hooks.iter().collect(),
+            None => vec![item],
+        })
+        .collect()
+}
+
+// handler がすべて marimo の antigravity-hook（イベント名の引数があってもなくてもよい）であるものだけを
+// marimo のフックとみなす。
+fn is_marimo_antigravity_entry(entry: &Value) -> bool {
+    let handlers = entry_handlers(entry);
+    !handlers.is_empty()
+        && handlers.iter().all(|h| {
+            let mut bare: Value = (*h).clone();
+            if let Some(c) = h.get("command").and_then(Value::as_str) {
+                let base = ANTIGRAVITY_EVENTS
+                    .iter()
+                    .find_map(|(e, _)| c.strip_suffix(e).and_then(|c| c.strip_suffix(' ')))
+                    .unwrap_or(c);
+                bare["command"] = Value::String(base.to_owned());
+            }
+            is_marimo_handler(&bare, ANTIGRAVITY_SUBCOMMAND)
+        })
+}
+
+/// agy の hooks.json に marimo のフックを足す。既に同じものがあれば false を返す。最上位は
+/// フックの名前ごとの設定なので、marimo の名前の項目を一つだけ書き、ほかの項目には触らない。
+pub fn install_antigravity(file: &mut Value, command: &str) -> Result<bool, String> {
+    let root = file
+        .as_object_mut()
+        .ok_or("hooks.json の最上位が JSON のオブジェクトではありません")?;
+    let entry = antigravity_entry(command);
+    if root.get(ANTIGRAVITY_HOOK_NAME) == Some(&entry) {
+        return Ok(false);
+    }
+    if root
+        .get(ANTIGRAVITY_HOOK_NAME)
+        .is_some_and(|e| !is_marimo_antigravity_entry(e))
+    {
+        return Err(format!(
+            "hooks.json に、marimo のものではない {ANTIGRAVITY_HOOK_NAME:?} という名前のフックがあります"
+        ));
+    }
+    root.retain(|_, e| !is_marimo_antigravity_entry(e));
+    root.insert(ANTIGRAVITY_HOOK_NAME.to_owned(), entry);
+    Ok(true)
+}
+
+/// marimo のフックを取り除き、取り除いた名前を返す。古い場所の marimo-hook を指すものも取り除く。
+pub fn uninstall_antigravity(file: &mut Value) -> Result<Vec<String>, String> {
+    let root = file
+        .as_object_mut()
+        .ok_or("hooks.json の最上位が JSON のオブジェクトではありません")?;
+    let removed: Vec<String> = root
+        .iter()
+        .filter(|(_, e)| is_marimo_antigravity_entry(e))
+        .map(|(k, _)| k.clone())
+        .collect();
+    root.retain(|_, e| !is_marimo_antigravity_entry(e));
+    Ok(removed)
 }
 
 const LIMITS_HINT: &str =
@@ -719,6 +839,55 @@ mod tests {
                 "{exe}"
             );
         }
+    }
+
+    #[test]
+    fn antigravity_hooks_replace_only_marimo_entries() {
+        let new = "/new/marimo-hook antigravity-hook";
+        let old = "/old/marimo-hook antigravity-hook";
+        let other = json!({ "Stop": [{ "command": "./lint.sh" }] });
+        let cases = [
+            (json!({}), Ok(true), vec!["marimo"]),
+            (
+                json!({ "marimo": antigravity_entry(new), "lint": other }),
+                Ok(false),
+                vec!["lint", "marimo"],
+            ),
+            (
+                json!({ "marimo-old": antigravity_entry(old), "lint": other }),
+                Ok(true),
+                vec!["lint", "marimo"],
+            ),
+            // イベント名の引数を持たない以前の登録も marimo のものとして置き換える。
+            (
+                json!({ "marimo": { "Stop": [{ "type": "command", "command": new, "timeout": 10 }] } }),
+                Ok(true),
+                vec!["marimo"],
+            ),
+            (json!({ "marimo": other }), Err(()), vec!["marimo"]),
+        ];
+        for (mut file, changed, names) in cases {
+            let before = file.clone();
+            assert_eq!(
+                install_antigravity(&mut file, new).map_err(|_| ()),
+                changed,
+                "{before}"
+            );
+            let mut keys: Vec<&str> = file
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect();
+            keys.sort();
+            assert_eq!(keys, names, "{before}");
+        }
+        let mut file = json!({ "marimo": antigravity_entry(new), "lint": other });
+        assert_eq!(
+            uninstall_antigravity(&mut file),
+            Ok(vec!["marimo".to_owned()])
+        );
+        assert_eq!(file, json!({ "lint": other }));
     }
 
     #[test]

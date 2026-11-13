@@ -114,7 +114,7 @@ pub fn spawn_claude(home: MarimoHome) {
 }
 
 /// 再取得の間隔を選んでいれば、Antigravity の利用制限を `agy -p /usage` で問い合わせて書く。
-/// marimo は Antigravity のセッションを記録しないので、ほかに値が届く経路は無い。
+/// agy のフックの入力は利用制限を持たないので、ほかに値が届く経路は無い。
 pub fn spawn_antigravity(home: MarimoHome) {
     thread::spawn(move || {
         let mut last_refresh = None;
@@ -199,7 +199,7 @@ fn run_until_done(command: &mut Command, what: &str) -> Result<Vec<u8>, String> 
     let deadline = Instant::now() + PRINT_TIMEOUT;
     loop {
         match child.try_wait() {
-            // 子が残したプロセスがパイプを開いたままでも待ち続けないよう、読み終わりを待つ時間に上限を付ける。
+            // 子プロセスが起動したプロセスがパイプを開いたままでも待ち続けないよう、読み終わりを待つ時間に上限を付ける。
             Ok(Some(status)) if status.success() => {
                 let bytes = reader.and_then(|rx| rx.recv_timeout(EXIT_GRACE).ok());
                 return Ok(bytes.unwrap_or_default());

@@ -3,7 +3,7 @@
 export type Status = "idle" | "working" | "waiting" | "done" | "error";
 
 // 以前のバージョンのファイルは provider を持たず、Claude Code のセッションとして扱う。
-export type Provider = "claude" | "codex" | "hermes" | "opencode";
+export type Provider = "claude" | "codex" | "hermes" | "opencode" | "antigravity";
 
 export interface ContextUsage {
   used_percentage: number | null;
@@ -93,8 +93,8 @@ export interface Snapshot {
   antigravity_rate_limits?: RateLimits | null;
 }
 
-/** 利用制限の行に値を出せるツール。Antigravity のセッションは記録しないので、Provider には無い。 */
-export type LimitTool = "claude" | "codex" | "antigravity";
+/** 利用制限の行に値を出せるツール。Hermes Agent と OpenCode の利用制限は marimo に届かない。 */
+export type LimitTool = Extract<Provider, "claude" | "codex" | "antigravity">;
 
 /** 利用制限の行に値を出すツール。出さないツールには利用制限を再取得させない。 */
 export type UsageTools = Record<LimitTool, boolean>;
@@ -102,7 +102,7 @@ export type UsageTools = Record<LimitTool, boolean>;
 export const DEFAULT_USAGE_TOOLS: UsageTools = { claude: true, codex: true, antigravity: true };
 
 // app_icons コマンドが返す PNG の data URL。アプリが入っていなければ null になる。
-export type AppIcons = Record<Provider | LimitTool, string | null>;
+export type AppIcons = Record<Provider, string | null>;
 
 // 分類名はドット区切りで、細かい分類（waiting.permission など）から親の分類（waiting）へ戻れる。
 export type Dialogue = Record<string, string[]>;

@@ -19,9 +19,9 @@ pub enum Target {
     ItermSession {
         tty: String,
     },
-    /// Ghostty の AppleScript はターミナルの tty を返さないので、タイトルと作業フォルダで探す。
-    /// open_app は、見つからなかったときに Ghostty を前面に出すかどうか。
+    /// tty、タイトル、作業フォルダの順で探す。open_app は、見つからなかったときに Ghostty を前面に出すかどうか。
     GhosttyTerminal {
+        tty: Option<String>,
         title: Option<String>,
         cwd: Option<String>,
         open_app: bool,
@@ -88,6 +88,7 @@ pub fn plan(session: &SessionState) -> Target {
     // 会話のない Ghostty を前面に出しても意味がないので何もしない。
     if session.provider == Provider::Opencode {
         return Target::GhosttyTerminal {
+            tty: None,
             title: session.title.as_deref().map(opencode_terminal_title),
             cwd: session.cwd.clone(),
             open_app: false,
@@ -132,6 +133,7 @@ pub fn plan(session: &SessionState) -> Target {
     }
     if term == Some("ghostty") || bundle == Some(GHOSTTY) {
         return Target::GhosttyTerminal {
+            tty: origin.tty.clone(),
             title: session.title.clone(),
             cwd: session.cwd.clone(),
             open_app: true,
@@ -234,11 +236,16 @@ pub fn run(target: Target) {
             }
         }
         Target::GhosttyTerminal {
+            tty,
             title,
             cwd,
             open_app,
         } => {
-            let args = [title.as_deref().unwrap_or(""), cwd.as_deref().unwrap_or("")];
+            let args = [
+                title.as_deref().unwrap_or(""),
+                cwd.as_deref().unwrap_or(""),
+                tty.as_deref().unwrap_or(""),
+            ];
             if !osascript(GHOSTTY_SCRIPT, &args) && open_app {
                 open(&["-b", GHOSTTY]);
             }
@@ -348,16 +355,30 @@ on run argv
 end run
 "#;
 
-// Ghostty の辞書（Ghostty.app の Ghostty.sdef）で、terminal は name と working directory を持ち、
-// focus はそのターミナルのウィンドウを前面に出す。Claude Code は端末のタイトルを、状態を表す一文字と
+// Ghostty の辞書（Ghostty.app の Ghostty.sdef）で、terminal は name、working directory、tty を持ち、
+// focus はそのターミナルのウィンドウを前面に出す。tty は Ghostty 1.4.0 の辞書で確かめたもので、持たない
+// 版ではこの照合を飛ばす。tty が一致するものがあればそれを選ぶ。agy のように端末のタイトルを固定の名前に
+// するツールを、同じ作業フォルダのほかのターミナルと見分けるためである。Claude Code は端末のタイトルを、状態を表す一文字と
 // 空白に続けて会話のタイトルにするので、先頭の一語を除いた残りがタイトルと一致するものを先に探す。
 // タイトルで見つからなければ、作業フォルダが一致するターミナルが一つだけのときにそれを選ぶ。
 const GHOSTTY_SCRIPT: &str = r#"
 on run argv
   set wanted to item 1 of argv
   set wantedDir to item 2 of argv
+  set wantedTty to item 3 of argv
   if application "Ghostty" is not running then return "absent"
   tell application "Ghostty"
+    if wantedTty is not "" then
+      try
+        repeat with t in terminals
+          if tty of t is wantedTty then
+            focus t
+            activate
+            return "ok"
+          end if
+        end repeat
+      end try
+    end if
     if wanted is not "" then
       repeat with t in terminals
         set n to name of t
@@ -515,6 +536,7 @@ mod tests {
         assert_eq!(
             plan(&ghostty),
             Target::GhosttyTerminal {
+                tty: Some("/dev/ttys002".into()),
                 title: Some("seed 600 比較".into()),
                 cwd: Some("/w/proj".into()),
                 open_app: true,
@@ -749,6 +771,7 @@ mod tests {
                 "codex in a terminal",
                 codex("019a-77b2", Some("ghostty")),
                 Target::GhosttyTerminal {
+                    tty: None,
                     title: None,
                     cwd: Some("/w/proj".into()),
                     open_app: true,
@@ -803,6 +826,7 @@ mod tests {
             assert_eq!(
                 plan(&opencode(title)),
                 Target::GhosttyTerminal {
+                    tty: None,
                     title: wanted,
                     cwd: Some("/w/proj".into()),
                     open_app: false,

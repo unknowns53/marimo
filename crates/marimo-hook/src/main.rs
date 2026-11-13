@@ -6,8 +6,8 @@ use std::thread;
 
 use marimo_core::time::now_ms;
 use marimo_core::{
-    HookInput, HostProcess, MarimoHome, Provider, SessionState, codex, hermes, opencode, process,
-    store, transcript,
+    HookInput, HostProcess, MarimoHome, Provider, SessionState, antigravity, codex, hermes,
+    opencode, process, store, transcript,
 };
 
 mod install;
@@ -15,8 +15,8 @@ mod opencode_plugin;
 mod origin;
 mod settings_edit;
 
-// hook、codex-hook、hermes-hook、opencode-hook、statusline、record は、marimo の内部で何が失敗しても
-// 終了コード 0 で抜ける。
+// hook、codex-hook、hermes-hook、opencode-hook、antigravity-hook、statusline、record は、marimo の内部で
+// 何が失敗しても終了コード 0 で抜ける。
 // フックの終了コードと stdout は Claude Code に読まれ、終了コード 2 は操作を止め、
 // UserPromptSubmit や SessionStart の stdout は Claude の文脈に加わるためである。
 // Codex も同じで、終了コード 0 で stdout が空なら、PermissionRequest では判断を示さず通常の承認へ進み、
@@ -25,6 +25,8 @@ mod settings_edit;
 // Hermes も、pre_tool_call の終了コード 2 と stdout の JSON で操作を止め、pre_llm_call の stdout の
 // context を会話に加える（agent/shell_hooks.py の _parse_response）。
 // OpenCode のプラグインは終了コードも出力も読まないが、ほかと同じく何も出さない。
+// Antigravity の文書（docs/hooks.md）はフックに JSON の出力を求めるが、agy 1.5.8 は何も出さないフックを
+// 失敗として記録しない。
 // install と uninstall は利用者が端末で実行するので、失敗は非 0 と stderr で知らせる。
 fn main() -> ExitCode {
     // 既定の panic メッセージは stderr に出るだけで害はないが、Claude Code の
@@ -63,6 +65,11 @@ fn run(args: &[OsString]) -> ExitCode {
         }
         "opencode-hook" => {
             report(opencode_hook());
+            ExitCode::SUCCESS
+        }
+        "antigravity-hook" => {
+            let event = rest.first().and_then(|a| a.to_str());
+            report(antigravity_hook(event));
             ExitCode::SUCCESS
         }
         "statusline" => statusline(rest),
@@ -125,7 +132,7 @@ fn hook(provider: Provider) -> Result<(), String> {
             None,
             log.and_then(|p| codex::read_rollout_tail(p, now_ms()).ok()),
         ),
-        Provider::Hermes | Provider::Opencode => (None, None),
+        Provider::Hermes | Provider::Opencode | Provider::Antigravity => (None, None),
     };
     let title = codex::codex_home()
         .filter(|_| parsed.wants_codex_title())
@@ -234,6 +241,60 @@ fn opencode_hook() -> Result<(), String> {
         opencode::Event::Ignore => Ok(()),
     }
     .map_err(|e| format!("write failed: {e}"))
+}
+
+// Antigravity の入力は Claude Code の入力に読み替えてから、同じ規則で状態を決める。フックは端末の agy か、
+// Gemini のデスクトップアプリが動かす agy のプロセスから起動されるので、起動元の手がかりは Claude Code と
+// 同じく環境変数と祖先のプロセスから取る。
+// イベント名は、install が登録したコマンドの引数で受け取る。引数の無い古い登録では入力の hookEventName を使う。
+fn antigravity_hook(event: Option<&str>) -> Result<(), String> {
+    let input = read_stdin();
+    let mut raw: antigravity::AgyInput =
+        serde_json::from_slice(&input).map_err(|e| format!("invalid hook input: {e}"))?;
+    if let Some(event) = event {
+        raw.hook_event_name = event.to_owned();
+    }
+    let home = home()?;
+    // Claude Code の中から起動した agy（Claude Code から作業を任された agy-async など）は、任せた側の
+    // Claude Code の行が作業中を示しているので並べない。agy は自分の環境をフックへ引き継ぐので、
+    // Claude Code が子プロセスに設定する CLAUDECODE が見える。並べない会話の transcript は読まず、
+    // 既に行があれば消すだけにする。
+    let hidden = std::env::var_os("CLAUDECODE").is_some_and(|v| !v.is_empty());
+    let current = store::read_session(&home, Provider::Antigravity, &raw.conversation_id);
+    let transcript = raw
+        .transcript_path
+        .as_deref()
+        .filter(|p| !p.is_empty() && !hidden)
+        .and_then(|p| antigravity::read_transcript(std::path::Path::new(p)).ok());
+    let Some(parsed) = antigravity::translate(&raw, current.as_ref(), transcript.as_ref()) else {
+        return Ok(());
+    };
+    let top = parsed.subagent().is_none();
+    // デスクトップアプリはターンの終わりのころにタイトルを付けるので、ターンの始まりと終わりで読み直す。
+    let title = raw
+        .artifact_directory_path
+        .as_deref()
+        .filter(|_| top && matches!(parsed.hook_event_name.as_str(), "UserPromptSubmit" | "Stop"))
+        .and_then(|dir| antigravity::title(std::path::Path::new(dir), &raw.conversation_id));
+    let extras = store::HookExtras {
+        origin: top.then(|| origin::detect(&parsed.hook_event_name, None)),
+        title,
+        host: top
+            .then(|| host(&parsed.hook_event_name, current.as_ref()))
+            .flatten(),
+        hidden,
+        ..store::HookExtras::default()
+    };
+    store::apply_hook(&home, &parsed, &extras).map_err(|e| format!("write failed: {e}"))?;
+    let context = transcript
+        .as_ref()
+        .filter(|_| top && !hidden)
+        .and_then(|t| antigravity::context(t, now_ms()));
+    match context {
+        Some(c) => store::apply_context(&home, Provider::Antigravity, &parsed.session_id, c)
+            .map_err(|e| format!("write failed: {e}")),
+        None => Ok(()),
+    }
 }
 
 fn record(label: &str) -> Result<(), String> {
