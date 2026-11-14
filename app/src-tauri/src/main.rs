@@ -358,6 +358,7 @@ fn main() {
             tray::show_status(app.handle(), &store::load_snapshot(&home));
             watch::spawn(app.handle().clone(), home.clone());
             watch::spawn_pruner(home.clone());
+            watch::spawn_antigravity_steps(home.clone());
             limits::spawn_codex(home.clone());
             limits::spawn_claude(home.clone());
             limits::spawn_antigravity(home.clone());

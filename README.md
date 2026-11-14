@@ -107,7 +107,7 @@ Hermes のフックは `install` では登録しないので、[Hermes のフッ
 
 ### Antigravity
 
-フックは、agy の利用者ごとの設定のファイル `~/.gemini/config/hooks.json` に登録し、agy の CLI と、Antigravity を同梱した Gemini のデスクトップアプリの両方がこのフックを呼びます。agy には承認を求めている間に呼ばれるフックが無いので、Antigravity の行は承認待ちになりません。利用者に質問するツール（`ask_question`）を呼んでいる間だけは、承認待ちとして出す作りにしていますが、この動きは確かめていません。デスクトップアプリの会話にはアプリが付けたタイトルが出ますが、CLI の会話にはタイトルが無いので、行には作業フォルダの名前だけが出ます。Claude Code の中から起動した agy の会話（Claude Code が作業を任せた agy-async など）は、任せた側の Claude Code の行と重なるので、パネルに並べません（[Antigravity のフック](docs/development.md#antigravity-のフック)を参照）。
+フックは、agy の利用者ごとの設定のファイル `~/.gemini/config/hooks.json` に登録し、agy の CLI と、Antigravity を同梱した Gemini のデスクトップアプリの両方がこのフックを呼びます。agy には承認を求めている間に呼ばれるフックが無いので、アプリが agy の会話の DB を 1 秒ごとに読み、承認を求めている行を承認待ちとして出し、承認を断って止まった行を待機へ戻します。デスクトップアプリの会話でのこの動きは確かめていません。利用者に質問するツール（`ask_question`）を呼んでいる間も承認待ちとして出す作りにしていますが、この動きも確かめていません。デスクトップアプリの会話にはアプリが付けたタイトルが出ますが、CLI の会話にはタイトルが無いので、行には作業フォルダの名前だけが出ます。Claude Code の中から起動した agy の会話（Claude Code が作業を任せた agy-async など）は、任せた側の Claude Code の行と重なるので、パネルに並べません（[Antigravity のフック](docs/development.md#antigravity-のフック)を参照）。
 
 ## 動作環境
 

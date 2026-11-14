@@ -10,7 +10,7 @@
 
 use std::fs::File;
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -51,7 +51,7 @@ pub struct AgyInput {
     pub fully_idle: Option<bool>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct ToolCall {
     #[serde(default)]
     pub name: String,
@@ -307,6 +307,220 @@ fn stop(input: &AgyInput, transcript: Option<&Transcript>, base: HookInput) -> H
             last_assistant_message: transcript.and_then(|t| t.last_response.clone()),
             ..base
         },
+    }
+}
+
+// agy の step の状態（CortexStepStatus）の値。名前と値は agy の実行ファイルに埋め込まれた protobuf の定義から読んだ。
+const STEP_RUNNING: i64 = 2;
+const STEP_DONE: i64 = 3;
+const STEP_CANCELED: i64 = 6;
+const STEP_ERROR: i64 = 7;
+const STEP_WAITING: i64 = 9;
+const STEP_INTERRUPTED: i64 = 12;
+
+// 承認されたツールが失敗したときも step は ERROR になり、そのあとすぐ PostToolUse が届く。断ったときは
+// どのフックも届かないので、ERROR のまま PostToolUse を待つ時間を置いてから断ったとみなす。
+const DECLINE_GRACE_MS: u64 = 2_000;
+
+// 承認したあとは、ツールが終わるまで PostToolUse が届かない。コマンドは 5 秒で非同期に切り替わるまで届かないので、
+// RUNNING に戻ってこの時間がたったら承認されたとみなす。断ったときも RUNNING を通るが、数ミリ秒で終わる。
+const APPROVE_GRACE_MS: u64 = 1_000;
+
+/// 会話の DB の最後の step。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Step {
+    pub status: i64,
+    pub tool: Option<ToolCall>,
+    /// 今の状態になった時刻。
+    pub since_ms: Option<u64>,
+}
+
+/// 会話の DB（`<agy のデータのフォルダ>/conversations/<会話の ID>.db`）の場所を、transcript の場所
+/// （`<agy のデータのフォルダ>/brain/<会話の ID>/.system_generated/logs/transcript_full.jsonl`）から求める。
+/// サブエージェントの会話も同じフォルダに DB を持つので、その会話の ID を渡す。
+pub fn conversation_db(transcript_path: &Path, conversation_id: &str) -> Option<PathBuf> {
+    let plain = !conversation_id.is_empty()
+        && conversation_id
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() || b == b'-');
+    let data_dir = transcript_path.ancestors().nth(5).filter(|_| plain)?;
+    Some(
+        data_dir
+            .join("conversations")
+            .join(format!("{conversation_id}.db")),
+    )
+}
+
+/// steps の表の status の列と metadata の列から、step を読む。metadata は protobuf で、ツールの呼び出し
+/// （フィールド 4。その中のフィールド 2 が名前、3 が引数の JSON）と、状態の移り変わり（繰り返しのフィールド 26。
+/// その中のフィールド 2 が時刻）を持つ。この形は文書に無く、agy 1.5.9 が書く形に従う。
+pub fn step(status: i64, metadata: &[u8]) -> Step {
+    let fields = proto_fields(metadata);
+    let tool = fields.iter().rev().find_map(|&(n, v)| match (n, v) {
+        (4, Proto::Bytes(call)) => {
+            let call = proto_fields(call);
+            let text = |want| {
+                call.iter().find_map(|&(n, v)| match v {
+                    Proto::Bytes(b) if n == want => std::str::from_utf8(b).ok(),
+                    _ => None,
+                })
+            };
+            Some(ToolCall {
+                name: text(2)?.to_owned(),
+                args: text(3)
+                    .and_then(|a| serde_json::from_str(a).ok())
+                    .unwrap_or(Value::Null),
+            })
+        }
+        _ => None,
+    });
+    let since_ms = fields.iter().rev().find_map(|&(n, v)| match (n, v) {
+        (26, Proto::Bytes(history)) => {
+            let last = proto_fields(history)
+                .into_iter()
+                .rev()
+                .find_map(|(n, v)| match v {
+                    Proto::Bytes(change) if n == 1 => Some(change),
+                    _ => None,
+                })?;
+            proto_fields(last).into_iter().find_map(|(n, v)| match v {
+                Proto::Bytes(ts) if n == 2 => timestamp_ms(ts),
+                _ => None,
+            })
+        }
+        _ => None,
+    });
+    Step {
+        status,
+        tool,
+        since_ms,
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Proto<'a> {
+    Varint(u64),
+    Bytes(&'a [u8]),
+}
+
+// protobuf の一段だけを読む。読めない形に当たったら、そこまでに読めたフィールドを返す。
+fn proto_fields(mut b: &[u8]) -> Vec<(u64, Proto<'_>)> {
+    fn varint(b: &mut &[u8]) -> Option<u64> {
+        let mut v = 0u64;
+        for shift in (0..64).step_by(7) {
+            let (&c, rest) = b.split_first()?;
+            *b = rest;
+            v |= u64::from(c & 0x7f) << shift;
+            if c < 0x80 {
+                return Some(v);
+            }
+        }
+        None
+    }
+    let mut out = Vec::new();
+    while !b.is_empty() {
+        let Some(key) = varint(&mut b) else { break };
+        let value = match key & 7 {
+            0 => match varint(&mut b) {
+                Some(v) => Proto::Varint(v),
+                None => break,
+            },
+            1 | 5 => {
+                let n = if key & 7 == 1 { 8 } else { 4 };
+                let Some(rest) = b.get(n..) else { break };
+                b = rest;
+                continue;
+            }
+            2 => {
+                let Some(len) = varint(&mut b).and_then(|l| usize::try_from(l).ok()) else {
+                    break;
+                };
+                let Some((bytes, rest)) = b.split_at_checked(len) else {
+                    break;
+                };
+                b = rest;
+                Proto::Bytes(bytes)
+            }
+            _ => break,
+        };
+        out.push((key >> 3, value));
+    }
+    out
+}
+
+// google.protobuf.Timestamp（1 が秒、2 がナノ秒）をミリ秒にする。
+fn timestamp_ms(b: &[u8]) -> Option<u64> {
+    let fields = proto_fields(b);
+    let get = |want| {
+        fields.iter().find_map(|&(n, v)| match v {
+            Proto::Varint(x) if n == want => Some(x),
+            _ => None,
+        })
+    };
+    Some(get(1)? * 1000 + get(2).unwrap_or(0) / 1_000_000)
+}
+
+/// agy は承認を求めている間に呼ぶフックを持たず、利用者が断ったときも PostToolUse や Stop を出さずにターンを
+/// 止める。そこで、会話の DB の最後の step の状態を Claude Code のフックの入力に読み替える。`agent` が
+/// Some なら、`step` はその ID のサブエージェントの会話のものである。状態を変えないときは None を返す。
+pub fn step_event(
+    session: &SessionState,
+    agent: Option<&str>,
+    step: &Step,
+    now_ms: u64,
+) -> Option<HookInput> {
+    let base = |name: &str| {
+        let mut h = HookInput {
+            provider: Provider::Antigravity,
+            session_id: session.session_id.clone(),
+            hook_event_name: name.to_owned(),
+            agent_id: agent.map(str::to_owned),
+            ..HookInput::default()
+        };
+        if let Some(call) = step.tool.as_ref() {
+            let (name, args) = tool(&call.name, &call.args);
+            h.tool_name = Some(name);
+            h.tool_input = Some(args);
+        }
+        h
+    };
+    let ended = matches!(step.status, STEP_ERROR | STEP_CANCELED | STEP_INTERRUPTED);
+    if let Some(agent) = agent {
+        let pending = session.agents.get(agent)?.pending.is_some();
+        return match step.status {
+            STEP_WAITING if !pending => Some(base("PermissionRequest")),
+            _ if pending && (ended || step.status == STEP_DONE) => Some(base("PostToolUse")),
+            _ => None,
+        };
+    }
+    let own = session.own_status.unwrap_or(session.status);
+    let lasted = |ms: u64| {
+        step.since_ms
+            .is_some_and(|t| t.saturating_add(ms) <= now_ms)
+    };
+    match step.status {
+        // ツールの名前が読めなければ、PreToolUse で書いた作業の要約をそのまま使う。
+        STEP_WAITING if own == Status::Working => Some(match step.tool {
+            Some(_) => base("PermissionRequest"),
+            None => HookInput {
+                notification_type: Some("permission_prompt".to_owned()),
+                ..base("Notification")
+            },
+        }),
+        _ if own == Status::Waiting && ended && lasted(DECLINE_GRACE_MS) => Some(base("Interrupt")),
+        // 承認待ちにしたのがこの読み替えのときだけ戻す。質問のツールは、PreToolUse で承認待ちにしたあと、
+        // WAITING になる前に RUNNING のまま数秒たつことがある。
+        STEP_RUNNING
+            if own == Status::Waiting
+                && matches!(
+                    session.last_event.as_deref(),
+                    Some("PermissionRequest" | "Notification")
+                )
+                && lasted(APPROVE_GRACE_MS) =>
+        {
+            Some(base("PostToolUse"))
+        }
+        _ => None,
     }
 }
 
@@ -618,6 +832,172 @@ mod tests {
         ];
         for (input, expected) in cases {
             assert_eq!(rate_limits_from_usage(&input, 7), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn reads_the_last_step_from_the_conversation_db_row() {
+        fn varint(mut x: u64, out: &mut Vec<u8>) {
+            while x >= 0x80 {
+                out.push(x as u8 | 0x80);
+                x >>= 7;
+            }
+            out.push(x as u8);
+        }
+        let num = |n: u64, x: u64| {
+            let mut v = Vec::new();
+            varint(n << 3, &mut v);
+            varint(x, &mut v);
+            v
+        };
+        let field = |n: u64, bytes: &[u8]| {
+            let mut v = Vec::new();
+            varint(n << 3 | 2, &mut v);
+            varint(bytes.len() as u64, &mut v);
+            v.extend_from_slice(bytes);
+            v
+        };
+        let ts = |secs, nanos| [num(1, secs), num(2, nanos)].concat();
+        let change =
+            |status, secs, nanos| field(1, &[num(1, status), field(2, &ts(secs, nanos))].concat());
+        let args = r#"{"CommandLine":"echo hi","toolSummary":"Say hi"}"#;
+        let call = [
+            field(1, b"call_1"),
+            field(2, b"run_command"),
+            field(3, args.as_bytes()),
+        ]
+        .concat();
+        let metadata = [
+            field(1, &ts(100, 0)),
+            num(3, 2),
+            field(4, &call),
+            field(26, &[change(1, 100, 0), change(9, 102, 5_000_000)].concat()),
+        ]
+        .concat();
+        let tool = Some(ToolCall {
+            name: "run_command".to_owned(),
+            args: serde_json::from_str(args).unwrap(),
+        });
+        assert_eq!(
+            step(9, &metadata),
+            Step {
+                status: 9,
+                tool: tool.clone(),
+                since_ms: Some(102_005),
+            }
+        );
+        let cut = step(9, &metadata[..metadata.len() - 3]);
+        assert_eq!((cut.tool, cut.since_ms), (tool, None));
+
+        let id = "a4476239-3e70-42fc-accd-2a5220efcdd2";
+        let transcript = Path::new("/d/brain")
+            .join(id)
+            .join(".system_generated/logs/transcript_full.jsonl");
+        assert_eq!(
+            conversation_db(&transcript, id),
+            Some(Path::new("/d/conversations").join(format!("{id}.db")))
+        );
+        assert_eq!(conversation_db(&transcript, "../x"), None);
+    }
+
+    #[test]
+    fn reads_steps_hidden_from_hooks_into_claude_events() {
+        const NOW: u64 = 1_000_000;
+        let with = |own: Status, pending: Option<bool>| {
+            let mut s = SessionState::new("c1");
+            s.status = own;
+            s.own_status = Some(own);
+            if let Some(p) = pending {
+                s.agents.insert(
+                    "c2".to_owned(),
+                    crate::state::AgentRun {
+                        agent_type: None,
+                        started_at: 0,
+                        last_seen: 0,
+                        pending: p.then(|| crate::activity::Activity::message("x").unwrap()),
+                    },
+                );
+            }
+            s
+        };
+        let working = with(Status::Working, Some(false));
+        let waiting = with(Status::Waiting, Some(true));
+        let prompted = SessionState {
+            last_event: Some("PermissionRequest".to_owned()),
+            ..waiting.clone()
+        };
+        let call = ToolCall {
+            name: "run_command".to_owned(),
+            args: json!({"CommandLine": "echo hi"}),
+        };
+        let at = |status, tool: Option<&ToolCall>, since| Step {
+            status,
+            tool: tool.cloned(),
+            since_ms: Some(since),
+        };
+        // (行, サブエージェント, 最後の step, 読み替え先のイベント名とツール名)
+        type Case<'a> = (
+            &'a SessionState,
+            Option<&'a str>,
+            Step,
+            Option<(&'a str, Option<&'a str>)>,
+        );
+        let cases: [Case; 12] = [
+            (
+                &working,
+                None,
+                at(9, Some(&call), NOW),
+                Some(("PermissionRequest", Some("Bash"))),
+            ),
+            (
+                &working,
+                None,
+                at(9, None, NOW),
+                Some(("Notification", None)),
+            ),
+            (
+                &waiting,
+                None,
+                at(7, None, NOW - 2_000),
+                Some(("Interrupt", None)),
+            ),
+            (&waiting, None, at(7, None, NOW - 500), None),
+            (&working, None, at(7, None, NOW - 9_000), None),
+            (&waiting, None, at(2, None, NOW - 9_000), None),
+            (
+                &prompted,
+                None,
+                at(2, None, NOW - 1_000),
+                Some(("PostToolUse", None)),
+            ),
+            (&prompted, None, at(2, None, NOW - 10), None),
+            (
+                &working,
+                Some("c2"),
+                at(9, Some(&call), NOW),
+                Some(("PermissionRequest", Some("Bash"))),
+            ),
+            (
+                &waiting,
+                Some("c2"),
+                at(3, None, NOW),
+                Some(("PostToolUse", None)),
+            ),
+            (&waiting, Some("c2"), at(9, Some(&call), NOW), None),
+            (&working, Some("zz"), at(9, Some(&call), NOW), None),
+        ];
+        for (session, agent, step, expected) in cases {
+            let got = step_event(session, agent, &step, NOW);
+            let row = got
+                .as_ref()
+                .map(|h| (h.hook_event_name.as_str(), h.tool_name.as_deref()));
+            assert_eq!(row, expected, "{agent:?} {step:?}");
+            if let Some(h) = got {
+                assert_eq!(
+                    (h.session_id.as_str(), h.agent_id.as_deref()),
+                    ("c1", agent)
+                );
+            }
         }
     }
 }

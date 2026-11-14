@@ -306,8 +306,9 @@ pub struct SessionState {
     /// このプロセスが消えた作業中の行を待機へ戻すのに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<HostProcess>,
-    /// Claude Code の会話ログ。会話をバックグラウンドへ移すと、Claude Code は元のセッションに SessionEnd も
-    /// Stop も送らず、プロセスも残ったまま新しい session_id で続けるので、ログに残るマーカーからそれを見分けるのに使う。
+    /// Claude Code と Antigravity の会話ログ。会話をバックグラウンドへ移すと、Claude Code は元のセッションに
+    /// SessionEnd も Stop も送らず、プロセスも残ったまま新しい session_id で続けるので、ログに残るマーカーから
+    /// それを見分けるのに使う。Antigravity では、会話の DB の場所を求めるのに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcript_path: Option<String>,
     /// 親の会話だけで決まる状態。status、activity、status_reason は、これに動いているサブエージェントを
