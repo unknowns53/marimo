@@ -16,6 +16,8 @@ tauri-build = { version = "2", features = [] }
 base64 = "0.22"
 marimo-core.workspace = true
 notify = "8"
+# agy の会話の DB から承認待ちを読む。Windows には SQLite が入っていないので、ライブラリを同梱する。
+rusqlite = { version = "0.42", features = ["bundled"] }
 serde.workspace = true
 serde_json.workspace = true
 # アプリの中からの更新で、取ってきたアーカイブを SHA256SUMS と照合する。

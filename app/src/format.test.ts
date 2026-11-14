@@ -26,11 +26,14 @@ describe("folderName", () => {
     expect(folderName({ ...scratch, cwd: "/Users/u/Documents/Codex/notes" })).toBe("notes");
   });
 
-  it("names a Hermes chat by its channel and a Hermes CLI session by its folder", () => {
+  it("names a folderless chat by its title and a CLI session by its folder", () => {
     const chat = { session_id: "20260101_000000_abcd1234", cwd: null, title: "#general", provider: "hermes" as const };
     expect(folderName(chat)).toBe("#general");
     expect(titleIsName(chat)).toBe(true);
     expect(folderName({ ...chat, title: undefined })).toBe("Hermes");
+    const desktop = { ...chat, provider: "antigravity" as const };
+    expect([folderName(desktop), titleIsName(desktop)]).toEqual(["#general", true]);
+    expect(folderName({ ...desktop, title: undefined })).toBe("Antigravity");
     const cli = { ...chat, cwd: "/w/proj", title: undefined };
     expect(folderName(cli)).toBe("proj");
     expect(titleIsName(cli)).toBe(false);

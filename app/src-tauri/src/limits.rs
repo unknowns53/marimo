@@ -1,5 +1,5 @@
 use std::env;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use marimo_core::paths::user_home;
 use marimo_core::time::now_ms;
-use marimo_core::{MarimoHome, codex, store};
+use marimo_core::{MarimoHome, antigravity, codex, store};
 use serde_json::{Value, json};
 
 use crate::scale;
@@ -17,7 +17,7 @@ use crate::update::hide_console;
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_GRACE: Duration = Duration::from_secs(3);
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
-const CLAUDE_TIMEOUT: Duration = Duration::from_secs(60);
+const PRINT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// 設定のウィンドウで選んだ再取得の間隔（分）で、保存している値を観測した時刻がその間隔より古いかを見る。
 /// フックや statusLine が新しい値を届けている間は起動しない。起動に失敗し続けても間隔より頻繁には
@@ -40,7 +40,8 @@ pub fn spawn_codex(home: MarimoHome) {
             // 設定のウィンドウで変えた間隔を次の周期から使うよう、毎回読む。
             let minutes = scale::load_usage_refresh_minutes(&home);
             let observed = store::read_codex_rate_limits(&home).map(|l| l.observed_at);
-            if refresh_due(minutes, observed, last_refresh) {
+            if scale::load_usage_tools(&home).codex && refresh_due(minutes, observed, last_refresh)
+            {
                 last_refresh = Some(Instant::now());
                 let names = program_names("codex");
                 let read = user_home()
@@ -83,7 +84,8 @@ pub fn spawn_claude(home: MarimoHome) {
         loop {
             let minutes = scale::load_usage_refresh_minutes(&home);
             let observed = store::read_rate_limits(&home).map(|l| l.updated_at);
-            if refresh_due(minutes, observed, last_refresh) {
+            if scale::load_usage_tools(&home).claude && refresh_due(minutes, observed, last_refresh)
+            {
                 last_refresh = Some(Instant::now());
                 let names = program_names("claude");
                 let error = find_program(&names, &user_home)
@@ -111,6 +113,41 @@ pub fn spawn_claude(home: MarimoHome) {
     });
 }
 
+/// 再取得の間隔を選んでいれば、Antigravity の利用制限を `agy -p /usage` で問い合わせて書く。
+/// agy のフックの入力は利用制限を持たないので、ほかに値が届く経路は無い。
+pub fn spawn_antigravity(home: MarimoHome) {
+    thread::spawn(move || {
+        let mut last_refresh = None;
+        let mut last_error = None;
+        loop {
+            let minutes = scale::load_usage_refresh_minutes(&home);
+            let observed = store::read_antigravity_rate_limits(&home).map(|l| l.updated_at);
+            if scale::load_usage_tools(&home).antigravity
+                && refresh_due(minutes, observed, last_refresh)
+            {
+                last_refresh = Some(Instant::now());
+                let names = program_names("agy");
+                let written = user_home()
+                    .and_then(|h| find_program(&names, &h))
+                    .ok_or_else(|| "agy was not found".to_owned())
+                    .and_then(|program| read_antigravity(&program, &home))
+                    .and_then(|output| {
+                        let limits = antigravity::rate_limits_from_usage(&output, now_ms())
+                            .ok_or_else(|| format!("unexpected agy -p /usage output: {output}"))?;
+                        store::write_antigravity_rate_limits(&home, &limits)
+                            .map_err(|e| format!("cannot save Antigravity rate limits: {e}"))
+                    });
+                let error = written.err();
+                if let Some(e) = error.as_ref().filter(|e| last_error.as_ref() != Some(*e)) {
+                    eprintln!("marimo: cannot read Antigravity rate limits: {e}");
+                }
+                last_error = error;
+            }
+            thread::sleep(CHECK_INTERVAL);
+        }
+    });
+}
+
 /// `claude -p "/usage"` はモデルへリクエストを送らずに、Claude Code 自身が利用状況を取得して
 /// cachedUsageUtilization を書き直す。会話ログを残さないよう --no-session-persistence を付け、marimo の
 /// フックがこの呼び出しを行として拾わないよう、フックをすべて止める。
@@ -124,21 +161,57 @@ fn refresh_claude(program: &Path, cwd: &Path) -> Result<(), String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     prepare(&mut command, program);
+    run_until_done(&mut command, "claude -p /usage").map(drop)
+}
+
+/// `agy -p /usage` は会話を作らず、モデルへのリクエストも送らずに、利用制限の残りを返す。
+/// agy は起動のたびに自分のログのフォルダへ新しいファイルを作るので、上書きされる一つのファイルへ向ける。
+fn read_antigravity(program: &Path, home: &MarimoHome) -> Result<Value, String> {
+    let _ = std::fs::create_dir_all(home.logs_dir());
+    let mut command = Command::new(program);
+    command
+        .args(["-p", "/usage", "--output-format", "json", "--log-file"])
+        .arg(home.logs_dir().join("agy-usage.log"))
+        .current_dir(home.root())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    prepare(&mut command, program);
+    let stdout = run_until_done(&mut command, "agy -p /usage")?;
+    serde_json::from_slice(&stdout).map_err(|e| format!("agy -p /usage did not print JSON: {e}"))
+}
+
+/// 終わるまで待ち、PRINT_TIMEOUT を過ぎたら止める。stdout を受けるときは、出力でパイプが詰まって
+/// 終われなくならないよう、別のスレッドで読む。
+fn run_until_done(command: &mut Command, what: &str) -> Result<Vec<u8>, String> {
     let mut child = command
         .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", program.display()))?;
-    let deadline = Instant::now() + CLAUDE_TIMEOUT;
+        .map_err(|e| format!("cannot start {what}: {e}"))?;
+    let reader = child.stdout.take().map(|mut stdout| {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = stdout.read_to_end(&mut bytes);
+            let _ = tx.send(bytes);
+        });
+        rx
+    });
+    let deadline = Instant::now() + PRINT_TIMEOUT;
     loop {
         match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => return Err(format!("claude -p /usage exited with {status}")),
+            // 子プロセスが起動したプロセスがパイプを開いたままでも待ち続けないよう、読み終わりを待つ時間に上限を付ける。
+            Ok(Some(status)) if status.success() => {
+                let bytes = reader.and_then(|rx| rx.recv_timeout(EXIT_GRACE).ok());
+                return Ok(bytes.unwrap_or_default());
+            }
+            Ok(Some(status)) => return Err(format!("{what} exited with {status}")),
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(200)),
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("claude -p /usage did not finish".to_owned());
+                return Err(format!("{what} did not finish"));
             }
-            Err(e) => return Err(format!("cannot wait for claude: {e}")),
+            Err(e) => return Err(format!("cannot wait for {what}: {e}")),
         }
     }
 }

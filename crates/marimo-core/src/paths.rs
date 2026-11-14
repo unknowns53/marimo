@@ -40,6 +40,7 @@ impl MarimoHome {
             Provider::Codex => "codex-",
             Provider::Hermes => "hermes-",
             Provider::Opencode => "opencode-",
+            Provider::Antigravity => "antigravity-",
         };
         is_safe_id(session_id).then(|| {
             self.sessions_dir()
@@ -53,6 +54,10 @@ impl MarimoHome {
 
     pub fn codex_rate_limits_file(&self) -> PathBuf {
         self.root.join("codex_rate_limits.json")
+    }
+
+    pub fn antigravity_rate_limits_file(&self) -> PathBuf {
+        self.root.join("antigravity_rate_limits.json")
     }
 
     pub fn statusline_responses_file(&self) -> PathBuf {
@@ -126,6 +131,7 @@ mod tests {
             Provider::Codex,
             Provider::Hermes,
             Provider::Opencode,
+            Provider::Antigravity,
         ] {
             assert!(home.session_file(provider, "abc-123_x").is_some());
             for bad in ["", "../evil", "a/b", "a\\b", ".hidden"] {
@@ -145,6 +151,10 @@ mod tests {
         assert_eq!(
             name(Provider::Opencode),
             home.sessions_dir().join("opencode-s1.json")
+        );
+        assert_eq!(
+            name(Provider::Antigravity),
+            home.sessions_dir().join("antigravity-s1.json")
         );
     }
 }

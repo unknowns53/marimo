@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::antigravity;
 use crate::codex::RolloutTail;
 use crate::paths::MarimoHome;
 use crate::process;
@@ -259,7 +260,7 @@ fn apply_session(
             if let Some(host) = extras.host {
                 next.host = Some(host);
             }
-            if input.provider == Provider::Claude
+            if matches!(input.provider, Provider::Claude | Provider::Antigravity)
                 && input.subagent().is_none()
                 && let Some(p) = input.transcript_path.as_deref().filter(|p| !p.is_empty())
             {
@@ -502,6 +503,16 @@ pub fn read_codex_rate_limits(home: &MarimoHome) -> Option<CodexRateLimits> {
     serde_json::from_slice(&bytes).ok()
 }
 
+pub fn write_antigravity_rate_limits(home: &MarimoHome, limits: &RateLimits) -> io::Result<()> {
+    let _lock = lock_home(home);
+    write_json_atomic(&home.antigravity_rate_limits_file(), limits)
+}
+
+pub fn read_antigravity_rate_limits(home: &MarimoHome) -> Option<RateLimits> {
+    let bytes = read_file(&home.antigravity_rate_limits_file()).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 fn read_sessions(home: &MarimoHome) -> Vec<SessionState> {
     fs::read_dir(home.sessions_dir())
         .into_iter()
@@ -526,6 +537,7 @@ pub fn load_snapshot(home: &MarimoHome) -> Snapshot {
         sessions,
         rate_limits: read_rate_limits(home),
         codex_rate_limits: read_codex_rate_limits(home),
+        antigravity_rate_limits: read_antigravity_rate_limits(home),
     }
 }
 
@@ -626,6 +638,7 @@ fn last_turn(session: &SessionState) -> LastTurn {
     session
         .transcript_path
         .as_deref()
+        .filter(|_| session.provider == Provider::Claude)
         .and_then(|p| transcript::last_turn(Path::new(p)).ok())
         .unwrap_or(LastTurn::Other)
 }
@@ -665,6 +678,65 @@ fn release_interrupted(
         return None;
     }
     interrupt(session, |a| a.last_seen > at_ms, now_ms).filter(|next| next != session)
+}
+
+/// agy は承認を求めている間に呼ぶフックを持たず、利用者が承認を断ったときもフックを出さずにターンを止めるので、
+/// 作業中か承認待ちの Antigravity の行について、会話の DB の最後の step を読んで行に書く
+/// （`antigravity::step_event` を参照）。アプリが短い間隔で呼ぶ。`read_step` は DB の場所を受け取り、
+/// 最後の step を読む。
+pub fn refresh_antigravity_steps(
+    home: &MarimoHome,
+    now_ms: u64,
+    read_step: impl Fn(&Path) -> Option<antigravity::Step>,
+) -> io::Result<()> {
+    let entries = match fs::read_dir(home.sessions_dir()) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let mut first_err = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("antigravity-") || !is_session_file_name(&name) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(read) = read_file(&path) else { continue };
+        let Ok(session) = serde_json::from_slice::<SessionState>(&read) else {
+            continue;
+        };
+        let busy = matches!(session.status, Status::Working | Status::Waiting);
+        let Some(transcript) = session.transcript_path.as_deref().filter(|_| busy) else {
+            continue;
+        };
+        let events: Vec<HookInput> = std::iter::once(None)
+            .chain(session.agents.keys().map(|k| Some(k.as_str())))
+            .filter_map(|agent| {
+                let id = agent.unwrap_or(&session.session_id);
+                let step = read_step(&antigravity::conversation_db(Path::new(transcript), id)?)?;
+                antigravity::step_event(&session, agent, &step, now_ms)
+            })
+            .collect();
+        if events.is_empty() {
+            continue;
+        }
+        // prune_stale_sessions と同じく、DB を読む間はロックを持たず、書く前にファイルが読んだときのままかを確かめる。
+        let lock = lock_home(home);
+        if !lock.is_held() || read_file(&path).ok().as_deref() != Some(read.as_slice()) {
+            continue;
+        }
+        let mut next = session;
+        for event in &events {
+            if let Transition::Write(s) = transition(event, Some(&next), now_ms) {
+                next = *s;
+            }
+        }
+        if let Err(e) = write_json_atomic(&path, &next) {
+            first_err.get_or_insert(e);
+        }
+    }
+    first_err.map_or(Ok(()), Err)
 }
 
 fn interrupt(
@@ -1679,5 +1751,37 @@ mod tests {
         set_mtime(&legacy, NOW_MS - 8 * 24 * HOUR_MS);
         prune_records(&home, NOW_MS);
         assert!(!legacy.exists());
+    }
+
+    #[test]
+    fn refresh_marks_antigravity_permission_prompts() {
+        let (_dir, home) = home();
+        let id = "a4476239-3e70-42fc-accd-2a5220efcdd2";
+        let transcript = format!("/agy/brain/{id}/.system_generated/logs/transcript_full.jsonl");
+        let input = HookInput {
+            provider: Provider::Antigravity,
+            session_id: id.to_owned(),
+            hook_event_name: "PreToolUse".to_owned(),
+            tool_name: Some("Bash".to_owned()),
+            tool_input: Some(json!({"command": "echo hi"})),
+            transcript_path: Some(transcript.clone()),
+            ..HookInput::default()
+        };
+        apply_hook(&home, &input, &HookExtras::default()).unwrap();
+        let db = Path::new("/agy/conversations").join(format!("{id}.db"));
+        let waiting = |path: &Path| {
+            (path == db).then(|| antigravity::Step {
+                status: 9,
+                ..antigravity::Step::default()
+            })
+        };
+        refresh_antigravity_steps(&home, NOW_MS, waiting).unwrap();
+        let s = read_session(&home, Provider::Antigravity, id).unwrap();
+        assert_eq!(s.status, Status::Waiting);
+        assert_eq!(s.transcript_path.as_deref(), Some(transcript.as_str()));
+        assert_eq!(
+            s.activity.map(|a| a.detail),
+            Some(Some("echo hi".to_owned()))
+        );
     }
 }

@@ -114,6 +114,24 @@ impl Default for BubbleSettings {
     }
 }
 
+/// パネルの利用制限の行に値を出すツール。出さないツールには利用制限を再取得させない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsageTools {
+    pub claude: bool,
+    pub codex: bool,
+    pub antigravity: bool,
+}
+
+impl Default for UsageTools {
+    fn default() -> Self {
+        Self {
+            claude: true,
+            codex: true,
+            antigravity: true,
+        }
+    }
+}
+
 /// 立ち絵の有無と行の出し方と並べ方と地の不透明度はどれも独立に選べ、どの組み合わせでもパネルは常に出る。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PanelDisplay {
@@ -193,6 +211,8 @@ struct Display {
     bubble_seconds: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     usage_refresh_minutes: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    usage_tools: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -297,8 +317,8 @@ pub fn save_bubble_settings(home: &MarimoHome, settings: BubbleSettings) -> io::
     store::write_json_durable(&home.display_file(), &d)
 }
 
-/// 0 は再取得しないことを表し、保存されていないときや解釈できない値のときもそうする。Claude Code と
-/// Codex を起動する操作は利用者が選んだときだけ行う。
+/// 0 は再取得しないことを表し、保存されていないときや解釈できない値のときもそうする。Claude Code、
+/// Codex、Antigravity を起動する操作は利用者が選んだときだけ行う。
 pub fn load_usage_refresh_minutes(home: &MarimoHome) -> u32 {
     read_display(home)
         .usage_refresh_minutes
@@ -310,6 +330,29 @@ pub fn load_usage_refresh_minutes(home: &MarimoHome) -> u32 {
 pub fn save_usage_refresh_minutes(home: &MarimoHome, minutes: u32) -> io::Result<()> {
     let mut d = read_display(home);
     d.usage_refresh_minutes = Some(minutes.min(MAX_USAGE_REFRESH_MINUTES).into());
+    store::write_json_durable(&home.display_file(), &d)
+}
+
+/// 保存されていないツールや解釈できない値は、出すことにする。
+pub fn load_usage_tools(home: &MarimoHome) -> UsageTools {
+    let d = read_display(home);
+    let shown = |key: &str| {
+        d.usage_tools
+            .as_ref()
+            .and_then(|t| t.get(key))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true)
+    };
+    UsageTools {
+        claude: shown("claude"),
+        codex: shown("codex"),
+        antigravity: shown("antigravity"),
+    }
+}
+
+pub fn save_usage_tools(home: &MarimoHome, tools: UsageTools) -> io::Result<()> {
+    let mut d = read_display(home);
+    d.usage_tools = serde_json::to_value(tools).ok();
     store::write_json_durable(&home.display_file(), &d)
 }
 
@@ -661,6 +704,34 @@ mod tests {
         fs::write(home.display_file(), r#"{"stage_scale": 1.5}"#).unwrap();
         save_usage_refresh_minutes(&home, 15).unwrap();
         assert_eq!((load(&home), load_usage_refresh_minutes(&home)), (1.5, 15));
+    }
+
+    #[test]
+    fn usage_tools_default_to_shown() {
+        let (_d, home) = home();
+        let tools = |claude, codex, antigravity| UsageTools {
+            claude,
+            codex,
+            antigravity,
+        };
+        let cases = [
+            (r#"{}"#, tools(true, true, true)),
+            (
+                r#"{"usage_tools": {"codex": false, "antigravity": "no"}}"#,
+                tools(true, false, true),
+            ),
+            (r#"{"usage_tools": false}"#, tools(true, true, true)),
+        ];
+        for (content, expected) in cases {
+            fs::write(home.display_file(), content).unwrap();
+            assert_eq!(load_usage_tools(&home), expected, "content {content:?}");
+        }
+        fs::write(home.display_file(), r#"{"usage_refresh_minutes": 15}"#).unwrap();
+        save_usage_tools(&home, tools(false, true, false)).unwrap();
+        assert_eq!(
+            (load_usage_tools(&home), load_usage_refresh_minutes(&home)),
+            (tools(false, true, false), 15)
+        );
     }
 
     #[test]

@@ -37,7 +37,7 @@ describe("windowLabel", () => {
 
 describe("limitLine", () => {
   it("keeps the Claude-only line unmarked when there is no Codex data", () => {
-    expect(limitLine(claude(NOW - 5), null, NOW)).toEqual({
+    expect(limitLine({ claude: claude(NOW - 5), codex: null, antigravity: null }, NOW)).toEqual({
       groups: [{ provider: "claude", text: "5h 12% · 7d 30%", updatedAt: NOW - 5, stale: false }],
       marked: false,
       updatedAt: NOW - 5,
@@ -53,7 +53,7 @@ describe("limitLine", () => {
       ],
       NOW - RATE_STALE_MS - 1,
     );
-    const both = limitLine(claude(), staleCodex, NOW);
+    const both = limitLine({ claude: claude(), codex: staleCodex, antigravity: null }, NOW);
     expect(both?.marked).toBe(true);
     expect(both?.groups.map((g) => [g.provider, g.text, g.stale])).toEqual([
       ["claude", "5h 12% · 7d 30%", false],
@@ -63,10 +63,28 @@ describe("limitLine", () => {
 
     // Codex のウィンドウがどれも出せなくても、Codex の値がある以上はマークを付けたまま Claude Code のグループだけを出す。
     const expired = codex([{ window_minutes: 300, used_percentage: 50, resets_at: past }]);
-    const onlyClaude = limitLine(claude(), expired, NOW);
+    const onlyClaude = limitLine({ claude: claude(), codex: expired, antigravity: null }, NOW);
     expect([onlyClaude?.marked, onlyClaude?.groups.map((g) => g.provider)]).toEqual([true, ["claude"]]);
-    const onlyCodex = limitLine(null, codex([{ window_minutes: 10080, used_percentage: 13, resets_at: null }]), NOW);
+    const onlyCodex = limitLine(
+      { claude: null, codex: codex([{ window_minutes: 10080, used_percentage: 13, resets_at: null }]), antigravity: null },
+      NOW,
+    );
     expect(onlyCodex?.groups.map((g) => [g.provider, g.text])).toEqual([["codex", "7d 13%"]]);
-    expect(limitLine(null, expired, NOW)).toBeNull();
+    expect(limitLine({ claude: null, codex: expired, antigravity: null }, NOW)).toBeNull();
+
+    // Antigravity は Claude Code と同じ 5h と 7d の名前で、Codex の後ろに並ぶ。Antigravity だけでもマークを付ける。
+    const antigravity: RateLimits = {
+      five_hour: { used_percentage: 9.9, resets_at: future },
+      seven_day: { used_percentage: 3, resets_at: future },
+      updated_at: NOW,
+    };
+    const all = limitLine({ claude: claude(), codex: staleCodex, antigravity }, NOW);
+    expect(all?.groups.map((g) => [g.provider, g.text])).toEqual([
+      ["claude", "5h 12% · 7d 30%"],
+      ["codex", "7d 13% · 4%"],
+      ["antigravity", "5h 10% · 7d 3%"],
+    ]);
+    const onlyAntigravity = limitLine({ claude: null, codex: null, antigravity }, NOW);
+    expect([onlyAntigravity?.marked, onlyAntigravity?.groups.map((g) => g.provider)]).toEqual([true, ["antigravity"]]);
   });
 });

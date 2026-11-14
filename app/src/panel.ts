@@ -1,6 +1,6 @@
 import { MARKABLE, sessionKey } from "./acknowledged";
 import { chatTitle, folderName, formatAge, formatClock, formatTokens, STATUS_LABEL } from "./format";
-import { limitLine, type LimitLine } from "./limits";
+import { limitLine, type LimitLine, type LimitSources } from "./limits";
 import {
   hasContent,
   nextRowOrder,
@@ -10,7 +10,7 @@ import {
   type PanelView,
   type RowOrder,
 } from "./panelModel";
-import type { AppIcons, CodexRateLimits, Provider, RateLimits, SessionState, Status } from "./types";
+import type { AppIcons, Provider, SessionState, Status } from "./types";
 
 const FALLBACK_SUMMARY: Record<Status, string> = {
   idle: "",
@@ -34,14 +34,16 @@ const PROVIDER_NAME: Record<Provider, string> = {
   codex: "Codex",
   hermes: "Hermes Agent",
   opencode: "OpenCode",
+  antigravity: "Antigravity",
 };
 
-// Claude と Codex のアイコンは同梱できないので利用者のデスクトップアプリから読み、読めないときはこの文字で示す。
+// Claude、Codex、Antigravity のアイコンは同梱できないので利用者のデスクトップアプリから読み、読めないときはこの文字で示す。
 const PROVIDER_BADGE: Record<Provider, string> = {
   claude: "CC",
   codex: "CX",
   hermes: "HM",
   opencode: "OC",
+  antigravity: "AG",
 };
 
 // Hermes Agent と OpenCode は MIT ライセンスで配られているアイコンを同梱し、デスクトップアプリが無くても出す。
@@ -67,21 +69,16 @@ function press(e: MouseEvent, session: SessionState, actions: RowActions): void 
   else actions.select(session);
 }
 
-export interface PanelLimits {
-  claude: RateLimits | null;
-  codex: CodexRateLimits | null;
-}
-
 export function renderPanel(
   { panel, rows, limits, order }: PanelElements,
   view: PanelView,
-  rateLimits: PanelLimits,
+  rateLimits: LimitSources,
   icons: AppIcons,
   now: number,
   actions: RowActions,
   todayOpen: boolean,
 ): void {
-  const line = limitLine(rateLimits.claude, rateLimits.codex, now);
+  const line = limitLine(rateLimits, now);
   if (line) renderLimits(limits, line, icons);
   let children: HTMLElement[];
   if (!hasContent(view)) {

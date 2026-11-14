@@ -23,6 +23,7 @@ const STATE: SettingsState = {
   scale: 1.5,
   autostart: false,
   usage_refresh_minutes: 10,
+  usage_tools: { claude: true, codex: false, antigravity: true },
 };
 
 describe("opacityPercent", () => {
@@ -71,6 +72,9 @@ describe("formValues", () => {
       scale: "1.5",
       autostart: false,
       usage_refresh_minutes: "10",
+      usage_claude: true,
+      usage_codex: false,
+      usage_antigravity: true,
     });
   });
 
@@ -105,6 +109,7 @@ describe("requestFor", () => {
         { kind: "usage-refresh", minutes: 15 },
       ],
       ["bad usage refresh", control("usage_refresh_minutes", "-1"), "change", null],
+      ["usage tool", control("usage_antigravity"), "change", { kind: "usage-tools", patch: { antigravity: false } }],
       ["unknown control", control("other"), "change", null],
     ];
     for (const [label, c, phase, expected] of cases) {

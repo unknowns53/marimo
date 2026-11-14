@@ -39,6 +39,7 @@ pub enum Provider {
     Codex,
     Hermes,
     Opencode,
+    Antigravity,
 }
 
 pub fn aggregate<I: IntoIterator<Item = Status>>(statuses: I) -> Status {
@@ -305,8 +306,9 @@ pub struct SessionState {
     /// このプロセスが消えた作業中の行を待機へ戻すのに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<HostProcess>,
-    /// Claude Code の会話ログ。会話をバックグラウンドへ移すと、Claude Code は元のセッションに SessionEnd も
-    /// Stop も送らず、プロセスも残ったまま新しい session_id で続けるので、ログに残るマーカーからそれを見分けるのに使う。
+    /// Claude Code と Antigravity の会話ログ。会話をバックグラウンドへ移すと、Claude Code は元のセッションに
+    /// SessionEnd も Stop も送らず、プロセスも残ったまま新しい session_id で続けるので、ログに残るマーカーから
+    /// それを見分けるのに使う。Antigravity では、会話の DB の場所を求めるのに使う。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcript_path: Option<String>,
     /// 親の会話だけで決まる状態。status、activity、status_reason は、これに動いているサブエージェントを
@@ -427,12 +429,14 @@ pub struct Snapshot {
     pub rate_limits: Option<RateLimits>,
     #[serde(default)]
     pub codex_rate_limits: Option<CodexRateLimits>,
+    #[serde(default)]
+    pub antigravity_rate_limits: Option<RateLimits>,
 }
 
 /// 項目名は https://code.claude.com/docs/en/hooks の Common input fields と、
 /// 各イベントの input の節に従う。Codex のフックの入力も同じ名前の項目を持つ
-/// （codex-rs/hooks/src/schema.rs の各 CommandInput）。Hermes と OpenCode の入力は hermes.rs と
-/// opencode.rs がこの形に読み替える。
+/// （codex-rs/hooks/src/schema.rs の各 CommandInput）。Hermes、OpenCode、Antigravity の入力は
+/// hermes.rs、opencode.rs、antigravity.rs がこの形に読み替える。
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct HookInput {
     /// 入力には含まれず、どのサブコマンドで受けたかで決まる。
@@ -517,6 +521,8 @@ impl HookInput {
             Provider::Hermes => &[],
             // OpenCode の使用量は、プラグインがステップの終わりごとに知らせてくる。
             Provider::Opencode => &[],
+            // Antigravity の使用量は、marimo-hook が transcript から読んで別に書く。
+            Provider::Antigravity => &[],
         };
         self.subagent().is_none()
             && events.contains(&self.hook_event_name.as_str())

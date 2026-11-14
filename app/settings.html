@@ -63,8 +63,11 @@
 
       <section>
         <h2>利用制限</h2>
+        <label class="check"><input type="checkbox" name="usage_claude" />Claude Code</label>
+        <label class="check"><input type="checkbox" name="usage_codex" />Codex</label>
+        <label class="check"><input type="checkbox" name="usage_antigravity" />Antigravity</label>
         <div class="field">
-          <label class="name" for="usage-refresh" title="Claude Code と Codex に、利用制限を再取得させる間隔です">再取得の間隔</label>
+          <label class="name" for="usage-refresh" title="チェックしたツールに、利用制限を再取得させる間隔です">再取得の間隔</label>
           <select id="usage-refresh" name="usage_refresh_minutes"></select>
         </div>
       </section>

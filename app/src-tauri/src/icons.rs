@@ -13,15 +13,17 @@ pub struct AppIcons {
     pub codex: Option<String>,
     pub hermes: Option<String>,
     pub opencode: Option<String>,
+    pub antigravity: Option<String>,
 }
 
 pub fn load() -> AppIcons {
-    let [claude, codex, opencode] = platform_pngs();
+    let [claude, codex, opencode, antigravity] = platform_pngs();
     AppIcons {
         claude: claude.map(data_url),
         codex: codex.map(data_url),
         hermes: None,
         opencode: opencode.map(data_url),
+        antigravity: antigravity.map(data_url),
     }
 }
 
@@ -33,31 +35,33 @@ fn data_url(png: Vec<u8>) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn platform_pngs() -> [Option<Vec<u8>>; 3] {
+fn platform_pngs() -> [Option<Vec<u8>>; 4] {
     // Codex のデスクトップアプリは ChatGPT.app として入り、bundle id は com.openai.codex である。
     // OpenCode のデスクトップアプリ（OpenCode.app）の bundle id は ai.opencode.desktop である。
+    // Antigravity のデスクトップアプリは Gemini.app に同梱され、bundle id は com.google.GeminiMacOS である。
     [
         "com.anthropic.claudefordesktop",
         "com.openai.codex",
         "ai.opencode.desktop",
+        "com.google.GeminiMacOS",
     ]
     .map(mac::app_icon_png)
 }
 
-// OpenCode のデスクトップアプリを MSIX のパッケージとして読む手がかりが無いので、文字のマークで出す。
+// OpenCode と Antigravity のデスクトップアプリを MSIX のパッケージとして読む手がかりが無いので、文字のマークで出す。
 #[cfg(windows)]
-fn platform_pngs() -> [Option<Vec<u8>>; 3] {
+fn platform_pngs() -> [Option<Vec<u8>>; 4] {
     let mut logos = marimo_core::appicon::package_logos(
         &["Claude_pzs8sxrjxfjjc", "OpenAI.Codex_2p2nqsd0c76g0"],
         ICON_PX as f32,
     )
     .into_iter();
-    [logos.next().flatten(), logos.next().flatten(), None]
+    [logos.next().flatten(), logos.next().flatten(), None, None]
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
-fn platform_pngs() -> [Option<Vec<u8>>; 3] {
-    [None, None, None]
+fn platform_pngs() -> [Option<Vec<u8>>; 4] {
+    [None, None, None, None]
 }
 
 #[cfg(target_os = "macos")]
