@@ -9,6 +9,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::sync::atomic::{self, AtomicBool};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -17,7 +18,9 @@ use marimo_core::{MarimoHome, store};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+
+use crate::AppState;
 
 // GitHub Actions がビルドのときに入れるので、フォークの CI でビルドしたものはフォークのリリースを探す。
 const REPO: &str = match option_env!("GITHUB_REPOSITORY") {
@@ -25,18 +28,33 @@ const REPO: &str = match option_env!("GITHUB_REPOSITORY") {
     None => "unknowns53/marimo",
 };
 const PROGRESS_EVENT: &str = "update-progress";
+/// 確認するたびに、UpdateStatus の全体を送る。
+const STATUS_EVENT: &str = "update-status";
 const LOG_FILE: &str = "update.log";
 const MAC_ARCHIVE: &str = "marimo-macos-arm64.tar.gz";
 const WINDOWS_ARCHIVE: &str = "marimo-windows-x64.zip";
+const FIRST_CHECK_DELAY: Duration = Duration::from_secs(3);
+const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 static INSTALLING: AtomicBool = AtomicBool::new(false);
+static STATUS: Mutex<Option<Checked>> = Mutex::new(None);
 
+/// 最後の確認の結果。設定のウィンドウはこれを出し、トレイのメニューは latest が新しいときだけ項目を出す。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct UpdateInfo {
+pub struct UpdateStatus {
     current: String,
-    latest: String,
+    /// まだ確認していないときと、確認に失敗したときは None。
+    latest: Option<String>,
     newer: bool,
-    url: String,
+    /// 確認した時刻（UNIX 時刻のミリ秒）。まだ確認していないときは None。
+    checked_at: Option<u64>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct Checked {
+    result: Result<String, String>,
+    at: u64,
 }
 
 #[derive(Clone, Serialize)]
@@ -45,29 +63,80 @@ struct Progress {
     message: String,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct Release {
-    tag: String,
-    url: String,
+fn current_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+fn status_of(checked: Option<&Checked>) -> UpdateStatus {
+    let current = current_version();
+    let latest = checked.and_then(|c| c.result.as_ref().ok()).cloned();
+    UpdateStatus {
+        current: current.to_string(),
+        newer: latest.as_deref().is_some_and(|l| is_newer(l, current)),
+        latest,
+        checked_at: checked.map(|c| c.at),
+        error: checked.and_then(|c| c.result.as_ref().err()).cloned(),
+    }
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// GitHub に問い合わせて結果を覚え、トレイのメニューと設定のウィンドウへ知らせる。
+fn check_now(app: &AppHandle) -> UpdateStatus {
+    let result = latest_release().map(|tag| tag.strip_prefix('v').unwrap_or(&tag).to_string());
+    let checked = Checked {
+        result,
+        at: now_millis(),
+    };
+    let status = status_of(Some(&checked));
+    *STATUS.lock().unwrap_or_else(|e| e.into_inner()) = Some(checked);
+    if let Some(state) = app.try_state::<AppState>()
+        && let Some(tray) = state.tray.get()
+    {
+        tray.set_update(status.latest.as_deref().filter(|_| status.newer));
+    }
+    if let Err(e) = app.emit(STATUS_EVENT, &status) {
+        eprintln!("marimo: cannot emit update status: {e}");
+    }
+    status
+}
+
+/// 起動の少しあとと、そのあと一日ごとに、新しいバージョンがあるかを確かめる。
+pub fn spawn_checker(app: AppHandle) {
+    let spawned = std::thread::Builder::new()
+        .name("update-check".into())
+        .spawn(move || {
+            std::thread::sleep(FIRST_CHECK_DELAY);
+            loop {
+                check_now(&app);
+                std::thread::sleep(CHECK_INTERVAL);
+            }
+        });
+    if let Err(e) = spawned {
+        eprintln!("marimo: cannot start the update check: {e}");
+    }
+}
+
+/// 設定のウィンドウを開いたときに、最後の確認の結果を出すために使う。
+#[tauri::command]
+pub fn update_status() -> UpdateStatus {
+    status_of(STATUS.lock().unwrap_or_else(|e| e.into_inner()).as_ref())
 }
 
 #[tauri::command]
-pub async fn check_update() -> Result<UpdateInfo, String> {
-    let release = blocking(latest_release).await?;
-    let current = env!("CARGO_PKG_VERSION");
-    let latest = release.tag.strip_prefix('v').unwrap_or(&release.tag);
-    Ok(UpdateInfo {
-        current: current.to_string(),
-        latest: latest.to_string(),
-        newer: is_newer(latest, current),
-        url: release.url,
-    })
+pub async fn check_update(app: AppHandle) -> Result<UpdateStatus, String> {
+    blocking(move || Ok(check_now(&app))).await
 }
 
 /// 補助のスクリプトを起動できたらアプリを終了する。それより前に失敗したときは、
 /// 入っているアプリにも ~/.marimo にも触れずに Err を返す。
+/// version は確認のダイアログに出したバージョンで、その後に別のリリースが出ていたら入れずに Err を返す。
 #[tauri::command]
-pub async fn install_update(app: AppHandle) -> Result<(), String> {
+pub async fn install_update(app: AppHandle, version: String) -> Result<(), String> {
     if in_source_tree() {
         return Err("開発中の実行ファイルからは更新できません。".into());
     }
@@ -75,7 +144,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         return Err("更新はすでに実行中です。".into());
     }
     let handle = app.clone();
-    match blocking(move || prepare(&handle)).await {
+    match blocking(move || prepare(&handle, &version)).await {
         Ok(()) => {
             app.exit(0);
             Ok(())
@@ -181,7 +250,7 @@ impl Drop for Work {
     }
 }
 
-fn prepare(app: &AppHandle) -> Result<(), String> {
+fn prepare(app: &AppHandle, version: &str) -> Result<(), String> {
     let target = Target::current()?;
     let home = MarimoHome::resolve().ok_or("marimo のフォルダの場所を特定できませんでした。")?;
     let log = home.root().join(LOG_FILE);
@@ -191,15 +260,20 @@ fn prepare(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("{} に書き込めません（{e}）。", log.display()))?;
 
     progress(app, "download", "最新の正式なリリースを調べています");
-    let release = latest_release()?;
+    let tag = latest_release()?;
+    if tag.strip_prefix('v').unwrap_or(&tag) != version {
+        return Err(format!(
+            "最新の正式なリリースが {tag} に変わりました。もう一度確認してください。"
+        ));
+    }
     let mut work = Work::create()?;
     let archive = target.archive();
     progress(
         app,
         "download",
-        format!("正式なリリース {} をダウンロードしています", release.tag),
+        format!("正式なリリース {tag} をダウンロードしています"),
     );
-    download(app, &work.path, &release.tag, archive)?;
+    download(app, &work.path, &tag, archive)?;
 
     progress(app, "verify", "チェックサムを検証しています");
     verify(&work.path, archive)?;
@@ -217,7 +291,7 @@ fn prepare(app: &AppHandle) -> Result<(), String> {
                 work: work_str,
                 app_dest: path_str(app_dest)?,
                 pid,
-                tag: &release.tag,
+                tag: &tag,
                 bundle_id: &app.config().identifier,
             });
             Helper::Mac { script }
@@ -228,7 +302,7 @@ fn prepare(app: &AppHandle) -> Result<(), String> {
                 work: work_str,
                 log: log_str,
                 pid,
-                tag: &release.tag,
+                tag: &tag,
                 installer: path_str(&installer)?,
                 hook: path_str(&hook)?,
             });
@@ -249,10 +323,10 @@ fn path_str(path: &Path) -> Result<&str, String> {
 
 /// プレリリースを入れるのは tools/update.sh の --pre だけにし、アプリからの更新はどのバージョンからでも正式なバージョンだけを
 /// 更新先にする。プレリリースを入れたアプリも、それより新しい正式なバージョンが出ればそちらへ移る。
-fn latest_release() -> Result<Release, String> {
+fn latest_release() -> Result<String, String> {
     let (code, body) = fetch_text(&releases_api(REPO))?;
     match code {
-        200 => newest_release(&body, REPO)
+        200 => newest_release(&body)
             .ok_or_else(|| "GitHub に更新先のリリースがまだありません。".into()),
         _ => Err(format!(
             "GitHub で最新のリリースを調べられませんでした（HTTP {code}）。"
@@ -556,38 +630,28 @@ fn download_base(repo: &str, tag: &str) -> String {
     format!("https://github.com/{repo}/releases/download/{tag}")
 }
 
-/// リリースの一覧から、v で始まる正式なバージョンのうち最も新しいものを選ぶ。プレリリース、build- のタグ、下書きは選ばない。
-fn newest_release(body: &[u8], repo: &str) -> Option<Release> {
+/// リリースの一覧から、v で始まる正式なバージョンのうち最も新しいもののタグを選ぶ。プレリリース、build- のタグ、下書きは選ばない。
+fn newest_release(body: &[u8]) -> Option<String> {
     let json: Value = serde_json::from_slice(body).ok()?;
     json.as_array()?
         .iter()
         .filter(|r| r.get("draft").and_then(Value::as_bool) == Some(false))
         .filter(|r| r.get("prerelease").and_then(Value::as_bool) == Some(false))
-        .filter_map(|r| parse_release(r, repo))
-        .filter(|r| r.tag.starts_with('v'))
-        .filter_map(|r| parse_version(&r.tag).map(|v| (v, r)))
+        .filter_map(release_tag)
+        .filter(|tag| tag.starts_with('v'))
+        .filter_map(|tag| parse_version(tag).map(|v| (v, tag)))
         .max_by(|(a, _), (b, _)| compare_versions(a, b))
-        .map(|(_, r)| r)
+        .map(|(_, tag)| tag.to_string())
 }
 
 /// タグは URL とスクリプトに埋め込むので、バージョンの名前に使う文字だけでできたものに限る。
-fn parse_release(json: &Value, repo: &str) -> Option<Release> {
+fn release_tag(json: &Value) -> Option<&str> {
     let tag = json.get("tag_name")?.as_str()?;
     let safe = !tag.is_empty()
         && tag
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'+'));
-    if !safe {
-        return None;
-    }
-    let url = json.get("html_url").and_then(Value::as_str).map_or_else(
-        || format!("https://github.com/{repo}/releases/tag/{tag}"),
-        str::to_string,
-    );
-    Some(Release {
-        tag: tag.to_string(),
-        url,
-    })
+    safe.then_some(tag)
 }
 
 /// sha256sum の出力の、ファイル名の前にバイナリを示す * が付いた行も読む。
@@ -949,11 +1013,8 @@ mod tests {
 
     #[test]
     fn picks_newest_formal_v_release() {
-        let repo = "owner/repo";
         let release = |tag: &str, prerelease: bool, draft: bool| {
-            format!(
-                r#"{{"tag_name": "{tag}", "prerelease": {prerelease}, "draft": {draft}, "html_url": "https://example.com/{tag}"}}"#
-            )
+            format!(r#"{{"tag_name": "{tag}", "prerelease": {prerelease}, "draft": {draft}}}"#)
         };
         let body = format!(
             "[{}]",
@@ -975,22 +1036,11 @@ mod tests {
             (r#"{"message": "Not Found"}"#, None),
             ("not json", None),
         ] {
-            let got = newest_release(body.as_bytes(), repo);
-            assert_eq!(got.as_ref().map(|r| r.tag.as_str()), want, "{body:?}");
+            let got = newest_release(body.as_bytes());
+            assert_eq!(got.as_deref(), want, "{body:?}");
         }
-        // html_url が無ければリポジトリとタグから組み立てる。
         assert_eq!(
-            newest_release(
-                br#"[{"tag_name": "v0.3.0", "prerelease": false, "draft": false}]"#,
-                repo
-            ),
-            Some(Release {
-                tag: "v0.3.0".into(),
-                url: "https://github.com/owner/repo/releases/tag/v0.3.0".into(),
-            })
-        );
-        assert_eq!(
-            download_base(repo, "v0.2.0"),
+            download_base("owner/repo", "v0.2.0"),
             "https://github.com/owner/repo/releases/download/v0.2.0"
         );
     }

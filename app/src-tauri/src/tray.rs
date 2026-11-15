@@ -34,6 +34,7 @@ const STYLE_COUNTS: &str = "tray:style-counts";
 // 並べ方の項目の ID は、この接頭辞に RowOrder の保存名を続けたものにする。
 const ORDER_PREFIX: &str = "tray:order-";
 const MARK_ALL_READ: &str = "tray:mark-all-read";
+const UPDATE: &str = "tray:update";
 const SETTINGS: &str = "tray:settings";
 const QUIT: &str = "tray:quit";
 
@@ -49,6 +50,8 @@ pub struct Tray {
     counts: CheckMenuItem<Wry>,
     orders: Vec<(RowOrder, CheckMenuItem<Wry>)>,
     mark_all_read: MenuItem<Wry>,
+    // 新しいバージョンがあるときだけ「設定…」の上に差し込む項目。
+    update: Mutex<Option<MenuItem<Wry>>>,
 }
 
 /// フロントエンドの panelModel.ts の TrayItem と同じ形。key は sessionKey である。
@@ -110,6 +113,40 @@ impl Tray {
     }
 
     // 途中で失敗しても、メニューに残っている項目だけを leading に残し、次の差し替えで外せるようにする。
+    /// latest が Some のときは「X に更新できます」を出し、None のときは外す。
+    pub fn set_update(&self, latest: Option<&str>) {
+        if let Err(e) = self.replace_update(latest) {
+            eprintln!("marimo: cannot update the tray menu: {e}");
+        }
+    }
+
+    fn replace_update(&self, latest: Option<&str>) -> tauri::Result<()> {
+        let mut current = self.update.lock().unwrap_or_else(|e| e.into_inner());
+        match (latest, current.as_ref()) {
+            (Some(version), Some(item)) => item.set_text(update_label(version)),
+            (Some(version), None) => {
+                let app = self.menu.app_handle();
+                let item =
+                    MenuItem::with_id(app, UPDATE, update_label(version), true, None::<&str>)?;
+                let at = self
+                    .menu
+                    .items()?
+                    .iter()
+                    .position(|i| i.id() == SETTINGS)
+                    .unwrap_or(0);
+                self.menu.insert(&item, at)?;
+                *current = Some(item);
+                Ok(())
+            }
+            (None, Some(item)) => {
+                self.menu.remove(item)?;
+                *current = None;
+                Ok(())
+            }
+            (None, None) => Ok(()),
+        }
+    }
+
     fn replace_sessions(
         &self,
         leading: &mut Vec<MenuItemKind<Wry>>,
@@ -302,7 +339,12 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         counts,
         orders,
         mark_all_read,
+        update: Mutex::new(None),
     })
+}
+
+fn update_label(version: &str) -> String {
+    format!("{version} に更新できます")
 }
 
 fn order_label(order: RowOrder) -> &'static str {
@@ -346,6 +388,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
             }
         }
         SETTINGS => crate::settings::open(app),
+        UPDATE => crate::settings::open_section(app, "update"),
         QUIT => app.exit(0),
         id if id.starts_with(SESSION_PREFIX) => {
             let key = &id[SESSION_PREFIX.len()..];

@@ -1,4 +1,3 @@
-import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 
@@ -17,13 +16,15 @@ import {
 } from "./settingsForm";
 import {
   MAIN_WINDOW,
+  SECTION_EVENT,
   SETTINGS_REQUEST_EVENT,
   SETTINGS_STATE_EVENT,
   UPDATE_PROGRESS_EVENT,
+  UPDATE_STATUS_EVENT,
   type SettingsRequest,
   type SettingsState,
-  type UpdateInfo,
   type UpdateProgress,
+  type UpdateStatus,
 } from "./settingsProtocol";
 
 const SCALE_STEP = 0.1;
@@ -33,19 +34,25 @@ const form = $<HTMLFormElement>("settings");
 const opacityInput = $<HTMLInputElement>("panel-opacity");
 const scaleInput = $<HTMLInputElement>("scale");
 const bubbleSecondsSelect = $<HTMLSelectElement>("bubble-seconds");
-const characterSelect = $<HTMLSelectElement>("character");
+const characterSelect = $<HTMLSelectElement>("character-select");
 const usageRefreshSelect = $<HTMLSelectElement>("usage-refresh");
+const sectionButtons = [...document.querySelectorAll<HTMLButtonElement>("#sections [data-section]")];
 const versionNode = $("version");
+const latestNode = $("latest");
+const checkedAtNode = $("checked-at");
+const checkedAtLabel = $("checked-at-label");
+const updateSummary = $("update-summary");
 const checkButton = $<HTMLButtonElement>("check-update");
 const installButton = $<HTMLButtonElement>("install-update");
 const updateStatus = $("update-status");
 const confirmDialog = $<HTMLDialogElement>("confirm-update");
-const confirmText = $("confirm-update-text");
+const confirmTitle = $("confirm-update-title");
 
 let state: SettingsState | null = null;
 // つまみを動かしている間のスライダー。前の値の反映が遅れて届いても、つまみを引き戻さない。
 const dragging = new Set<string>();
-let update: UpdateInfo | null = null;
+let update: UpdateStatus | null = null;
+let installing = false;
 
 function request(r: SettingsRequest): void {
   void emitTo(MAIN_WINDOW, SETTINGS_REQUEST_EVENT, r).catch((e) => console.error("settings request", e));
@@ -126,67 +133,103 @@ function bindForm(): void {
   });
 }
 
+function showSection(id: string): void {
+  if (!sectionButtons.some((b) => b.dataset.section === id)) id = sectionButtons[0].dataset.section ?? "";
+  for (const button of sectionButtons) {
+    const current = button.dataset.section === id;
+    button.setAttribute("aria-current", String(current));
+    $(`section-${button.dataset.section ?? ""}`).hidden = !current;
+  }
+}
+
+function bindSections(): void {
+  for (const button of sectionButtons) {
+    button.addEventListener("click", () => showSection(button.dataset.section ?? ""));
+  }
+  // トレイの「X に更新できます」から開いたときは settings.html#update で開く。
+  showSection(location.hash.slice(1));
+}
+
 function showStatus(text: string, error = false): void {
   updateStatus.textContent = text;
   updateStatus.classList.toggle("error", error);
 }
 
+function clock(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function renderUpdate(status: UpdateStatus): void {
+  update = status;
+  versionNode.textContent = status.current;
+  latestNode.textContent = status.latest ?? (status.error ? "不明" : "確認していません");
+  checkedAtNode.textContent = status.checked_at === null ? "" : clock(status.checked_at);
+  checkedAtNode.hidden = checkedAtLabel.hidden = status.checked_at === null;
+  const target = status.newer ? status.latest : null;
+  installButton.hidden = target === null;
+  installButton.textContent = target ? `${target} に更新` : "";
+  updateSummary.textContent = target ? `${target} に更新できます` : "現在のバージョンと確認";
+  updateSummary.classList.toggle("note", target !== null);
+  if (!installing) showStatus(status.error ?? "", status.error !== null);
+}
+
 async function checkUpdate(): Promise<void> {
   checkButton.disabled = true;
-  installButton.hidden = true;
-  update = null;
-  showStatus("確認しています");
+  checkButton.textContent = "確認しています…";
   try {
-    const info = await invoke<UpdateInfo>("check_update");
-    versionNode.textContent = info.current;
-    update = info.newer ? info : null;
-    installButton.hidden = !info.newer;
-    showStatus(info.newer ? `新しいバージョン ${info.latest} があります` : "最新のバージョンです");
+    renderUpdate(await invoke<UpdateStatus>("check_update"));
   } catch (e) {
     showStatus(String(e), true);
   } finally {
     checkButton.disabled = false;
+    checkButton.textContent = "更新を確認";
   }
 }
 
 // 成功するとアプリが終了して起動し直すので、install_update は戻ってこないことがある。
-async function installUpdate(): Promise<void> {
+async function installUpdate(version: string): Promise<void> {
+  installing = true;
   checkButton.disabled = true;
   installButton.disabled = true;
   showStatus("");
   try {
-    await invoke("install_update");
+    await invoke("install_update", { version });
   } catch (e) {
     showStatus(String(e), true);
     checkButton.disabled = false;
     installButton.disabled = false;
+    installing = false;
   }
 }
 
 function bindUpdate(): void {
   checkButton.addEventListener("click", () => void checkUpdate());
   installButton.addEventListener("click", () => {
-    if (!update) return;
-    confirmText.textContent = `marimo を終了して ${update.latest} に更新します`;
+    if (!update?.newer || !update.latest) return;
+    confirmTitle.textContent = `${update.latest} に更新`;
+    confirmDialog.dataset.version = update.latest;
     confirmDialog.returnValue = "";
     confirmDialog.showModal();
   });
   confirmDialog.addEventListener("close", () => {
-    if (confirmDialog.returnValue === "ok") void installUpdate();
+    const version = confirmDialog.dataset.version;
+    if (confirmDialog.returnValue === "ok" && version) void installUpdate(version);
   });
 }
 
 async function start(): Promise<void> {
+  bindSections();
   bindForm();
   bindUpdate();
   await listen<SettingsState>(SETTINGS_STATE_EVENT, (e) => render(e.payload));
   await listen<UpdateProgress>(UPDATE_PROGRESS_EVENT, (e) => showStatus(e.payload.message));
+  await listen<UpdateStatus>(UPDATE_STATUS_EVENT, (e) => renderUpdate(e.payload));
+  await listen<string>(SECTION_EVENT, (e) => showSection(e.payload));
   // 聞き始めてから求めないと、返ってきた状態を取りこぼす。
   request({ kind: "sync" });
-  versionNode.textContent = await getVersion().catch((e) => {
-    console.error("version", e);
-    return "";
-  });
+  renderUpdate(await invoke<UpdateStatus>("update_status"));
 }
 
 void start();

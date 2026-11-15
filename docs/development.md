@@ -273,7 +273,7 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 - **`claude -p "/usage" --no-session-persistence --settings '{"disableAllHooks": true}'`** 設定のウィンドウの「再取得の間隔」を選んだときだけ、保存している Claude の値がその間隔より古ければ、`~/.marimo` を作業フォルダにして起動します。`/usage` は Claude Code の中で処理され、モデルへのリクエストは送られません。`--no-session-persistence` で会話ログを残さず、`disableAllHooks` で marimo を含むフックを動かしません。60 秒で終わらなければ止めます。
 - **`agy -p /usage --output-format json --log-file ~/.marimo/logs/agy-usage.log`** 設定のウィンドウの「再取得の間隔」を選んだときだけ、保存している Antigravity の値がその間隔より古ければ、`~/.marimo` を作業フォルダにして起動します。`/usage` は agy の中で処理され、会話を作らず、モデルへのリクエストも送りません。Antigravity への認証は agy 自身が行い、marimo は agy の資格情報を読みません。60 秒で終わらなければ止めます。
 
-どのコマンドも、設定のウィンドウの「利用制限」の見出しでそのツールのチェックを外していれば起動しません。GUI のアプリは端末の PATH を引き継がないので、PATH のほかに `~/.local/bin`、macOS では `/opt/homebrew/bin` と `/usr/local/bin` からも探し、`codex` は macOS の ChatGPT のデスクトップアプリが同梱する `Contents/Resources/codex-cli/bin` からも探します。npm で入れた `codex` は `node` で動くので、見つけたコマンドのフォルダを子プロセスの PATH の先頭に足します。
+どのコマンドも、設定のウィンドウの「利用制限」でそのツールのチェックを外していれば起動しません。GUI のアプリは端末の PATH を引き継がないので、PATH のほかに `~/.local/bin`、macOS では `/opt/homebrew/bin` と `/usr/local/bin` からも探し、`codex` は macOS の ChatGPT のデスクトップアプリが同梱する `Contents/Resources/codex-cli/bin` からも探します。npm で入れた `codex` は `node` で動くので、見つけたコマンドのフォルダを子プロセスの PATH の先頭に足します。
 
 ### marimo が書くもの
 
@@ -283,7 +283,7 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 
 ### marimo が送るもの
 
-marimo は、状態ファイルも会話の内容も、ローカルのコンピュータの外へ送りません。アプリもフックも、ネットワークへの通信をしません。OpenCode のプラグインは、OpenCode のプラグインの仕組みを通して OpenCode に尋ねることと、`marimo-hook` を起動して標準入力にイベントを渡すことだけをします。
+marimo は、状態ファイルも会話の内容も、ローカルのコンピュータの外へ送りません。フックはネットワークへの通信をしません。アプリが通信するのは GitHub だけで、起動の 3 秒後と 1 日ごとと「更新を確認」を押したときにリリースの一覧を API で読み、更新するときにリリースのファイルを取ってきます（[更新を確認する](usage.md#更新を確認する)を参照）。どちらも送るのはリクエストだけで、marimo の状態は含みません。OpenCode のプラグインは、OpenCode のプラグインの仕組みを通して OpenCode に尋ねることと、`marimo-hook` を起動して標準入力にイベントを渡すことだけをします。
 
 ## リポジトリの構成
 

@@ -1,162 +1,386 @@
-/* 色はパネルの style.css に揃える。暗い配色はパネルの背景と文字の色、明るい配色はその反転にする。 */
+/* 配色の変数、文字、部品の形は Mashu のデスクトップアプリの style.css に揃える。 */
 :root {
   color-scheme: light dark;
-  --bg: #f4f4f5;
-  --fg: #1c1c22;
-  --muted: rgba(28, 28, 34, 0.6);
-  --rule: rgba(28, 28, 34, 0.12);
-  --accent: #6366f1;
-  --error: #dc2626;
+  --bg: #f6f6f4;
+  --surface: #ffffff;
+  --hover: rgba(0, 0, 0, 0.04);
+  --line: #e6e6e1;
+  --line-strong: #d3d3cd;
+  --text: #1f1f1c;
+  --text-2: #5d5d58;
+  --text-3: #8c8c85;
+  --accent: #2f5bd3;
+  --accent-hover: #264ab3;
+  --accent-soft: #e9effd;
+  --danger: #c2372c;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.08);
+  --on-accent: #fff;
+  --font: "Segoe UI Variable Text", "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Meiryo UI", system-ui, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1c22;
-    --fg: #f4f4f5;
-    --muted: rgba(244, 244, 245, 0.6);
-    --rule: rgba(255, 255, 255, 0.12);
-    --accent: #a5b4fc;
-    --error: #f87171;
+    --bg: #18181a;
+    --surface: #1e1e21;
+    --hover: rgba(255, 255, 255, 0.05);
+    --line: #2d2d31;
+    --line-strong: #3c3c41;
+    --text: #ececea;
+    --text-2: #a6a6a0;
+    --text-3: #75756f;
+    --accent: #7d9dff;
+    --accent-hover: #98b1ff;
+    --accent-soft: #232a40;
+    --danger: #ff8b7e;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+    --on-accent: #0f1320;
   }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 html,
 body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
+  height: 100%;
 }
 
 body {
-  font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
-  font-size: 13px;
-  line-height: 1.5;
+  margin: 0;
+  display: flex;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.6 var(--font);
+  -webkit-font-smoothing: antialiased;
   accent-color: var(--accent);
+  overflow: hidden;
   cursor: default;
 }
 
-#settings {
-  padding: 4px 20px 20px;
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
-section {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--rule);
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
-section:last-child {
-  border-bottom: none;
+/* 左の項目の一覧 */
+.list-pane {
+  width: 200px;
+  flex: none;
+  overflow-y: auto;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
 }
 
-h2 {
-  margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
 }
 
-label,
-input,
-select,
-button {
+.item {
+  position: relative;
+  display: block;
+  width: calc(100% - 12px);
+  margin: 1px 6px;
+  padding: 9px 10px 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
   font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--hover);
+}
+
+.item[aria-current="true"] {
+  background: var(--accent-soft);
+}
+
+.item[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.item .primary {
+  display: block;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.item .secondary {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item .secondary.note {
+  color: var(--accent);
+}
+
+/* 右の内容 */
+.detail-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--surface);
+}
+
+.detail {
+  max-width: 560px;
+  margin: 0;
+  padding: 22px 28px 40px;
+}
+
+h1.title {
+  margin: 0 0 14px;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.field {
+  display: block;
+  margin-top: 16px;
+}
+
+.field .label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* 桁が変わっても値の幅が揺れないようにする。 */
+.field .label output {
+  color: var(--text-3);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  margin: 4px 0 0;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.sub {
+  margin: 4px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
 }
 
 .check {
   display: flex;
   align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.check input {
+  margin: 0;
+}
+
+.checks {
+  display: grid;
   gap: 6px;
-  padding: 3px 0;
-}
-
-.check input,
-.choices input {
-  margin: 0;
-}
-
-.field {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 0;
-}
-
-.field .name {
-  flex: none;
-  width: 8.5em;
-}
-
-.choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-}
-
-.choices label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.range {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.range input {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-}
-
-/* 桁が変わってもスライダーの幅が揺れないようにする。 */
-.range output {
-  flex: none;
-  min-width: 3.5em;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 select {
-  min-width: 10em;
+  width: 100%;
+  max-width: 280px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input[type="range"] {
+  width: 100%;
+  margin: 0;
+}
+
+.radio-list {
+  display: grid;
+  gap: 6px;
+}
+
+.radio-list label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.radio-list label:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.radio-list input {
+  margin: 4px 0 0;
+}
+
+.radio-list .what {
+  display: block;
+  font-weight: 500;
+}
+
+.radio-list .why {
+  display: block;
+  color: var(--text-2);
+  font-size: 12.5px;
 }
 
 .check:has(:disabled),
-.field:has(:disabled) {
+.field:has(:disabled),
+.radio-list label:has(:disabled) {
   opacity: 0.5;
+  cursor: default;
 }
 
-.buttons {
+/* 更新 */
+.fields {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 10px 18px;
+  margin: 0;
+}
+
+.fields dt {
+  color: var(--text-3);
+  font-size: 13px;
+  padding-top: 1px;
+}
+
+.fields dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 4px 0;
+  align-items: center;
+  margin: 18px 0 4px;
 }
 
 #update-status {
-  min-height: 1.5em;
-  margin: 4px 0 0;
-  color: var(--muted);
+  min-height: 1.6em;
+  white-space: pre-wrap;
 }
 
 #update-status.error {
-  color: var(--error);
+  color: var(--danger);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--hover);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn.primary:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
 }
 
 dialog {
-  max-width: 320px;
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--fg);
+  width: min(400px, calc(100vw - 48px));
+  padding: 22px 24px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+dialog h1 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 dialog p {
-  margin: 0 0 12px;
+  margin: 6px 0;
+  color: var(--text-2);
 }
 
-dialog .buttons {
+.form-actions {
+  display: flex;
   justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
 }

@@ -328,6 +328,7 @@ fn main() {
             settings::open_settings,
             app_icons,
             set_hit_regions,
+            update::update_status,
             update::check_update,
             update::install_update,
             quit
@@ -364,6 +365,7 @@ fn main() {
             limits::spawn_antigravity(home.clone());
             hit::spawn(app.handle().clone(), window, hits.clone());
             follow_autostart_path(app.handle());
+            update::spawn_checker(app.handle().clone());
             Ok(())
         })
         .build(context)
