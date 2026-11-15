@@ -79,8 +79,8 @@ pub fn spawn_pruner(home: MarimoHome) {
     });
 }
 
-// agy の承認待ちはフックで届かないので、会話の DB を読みに行く。承認の画面が出てから行が変わるまでの遅れを
-// この間隔に収める。DB を開くのは、作業中か承認待ちの Antigravity の行があるときだけである。
+// agy の承認待ちと、モデルの応答を待つ間に止めたターンはフックで届かないので、会話の DB を読みに行く。
+// 承認の画面が出てから行が変わるまでの遅れをこの間隔に収める。DB を開くのは、作業中か承認待ちの Antigravity の行があるときだけである。
 const ANTIGRAVITY_STEP_INTERVAL: Duration = Duration::from_secs(1);
 
 pub fn spawn_antigravity_steps(home: MarimoHome) {
@@ -101,6 +101,8 @@ pub fn spawn_antigravity_steps(home: MarimoHome) {
 // 一つの応答で複数のツールを呼ぶと、承認を待つ step の後ろに順番を待つ step が並びうるので、最後のモデルの応答
 // （step_type が 15 の PLANNER_RESPONSE）より後の step のうち、承認を待つ（status が 9 の）ものを先に選ぶ。
 // 前のターンで承認を待ったまま agy が終わった step は、この範囲に入らない。
+// 終わっていない step を探す範囲は、最後の利用者の入力（step_type が 14 の USER_INPUT）から後にする。agy が
+// 途中で終わった昔のターンの step は、RUNNING のまま残っていることがある。
 fn read_last_step(db: &Path) -> Option<antigravity::Step> {
     let mut wal = db.as_os_str().to_owned();
     wal.push("-wal");
@@ -118,10 +120,19 @@ fn read_last_step(db: &Path) -> Option<antigravity::Step> {
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<Vec<u8>>>(1)?)),
         )
         .ok()?;
-    Some(antigravity::step(
-        status,
-        metadata.as_deref().unwrap_or_default(),
-    ))
+    let turn_busy = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM steps \
+             WHERE idx >= (SELECT COALESCE(MAX(idx), 0) FROM steps WHERE step_type = 14) \
+             AND status IN (1, 2, 8, 9))",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .ok()?;
+    Some(antigravity::Step {
+        turn_busy,
+        ..antigravity::step(status, metadata.as_deref().unwrap_or_default())
+    })
 }
 
 // macOS の FSEvents は /var を /private/var のように実体のパスで報告するので、

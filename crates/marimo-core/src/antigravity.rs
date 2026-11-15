@@ -326,6 +326,11 @@ const DECLINE_GRACE_MS: u64 = 2_000;
 // RUNNING に戻ってこの時間がたったら承認されたとみなす。断ったときも RUNNING を通るが、数ミリ秒で終わる。
 const APPROVE_GRACE_MS: u64 = 1_000;
 
+// モデルの応答を待っている間に利用者が止めると、agy は Stop も PostInvocation も出さず、DB にも止めた step を
+// 残さない。応答を待つ間も step は増えないので、止めた会話と考えている会話は、フックが来ない時間の長さでしか
+// 見分けられない。agy 1.5.9 の会話の DB では、step が増えないまま応答を待った時間は最長 46 秒だった。
+const SILENT_TURN_MS: u64 = 3 * 60 * 1000;
+
 /// 会話の DB の最後の step。
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Step {
@@ -333,6 +338,9 @@ pub struct Step {
     pub tool: Option<ToolCall>,
     /// 今の状態になった時刻。
     pub since_ms: Option<u64>,
+    /// 今のターン（最後の利用者の入力から後）に、PENDING（1）、RUNNING（2）、GENERATING（8）、WAITING（9）の
+    /// どれかのままの step がある。バックグラウンドで動くコマンドの step は、最後の step より前で RUNNING のまま残る。
+    pub turn_busy: bool,
 }
 
 /// 会話の DB（`<agy のデータのフォルダ>/conversations/<会話の ID>.db`）の場所を、transcript の場所
@@ -394,6 +402,7 @@ pub fn step(status: i64, metadata: &[u8]) -> Step {
         status,
         tool,
         since_ms,
+        turn_busy: false,
     }
 }
 
@@ -460,13 +469,15 @@ fn timestamp_ms(b: &[u8]) -> Option<u64> {
     Some(get(1)? * 1000 + get(2).unwrap_or(0) / 1_000_000)
 }
 
-/// agy は承認を求めている間に呼ぶフックを持たず、利用者が断ったときも PostToolUse や Stop を出さずにターンを
-/// 止める。そこで、会話の DB の最後の step の状態を Claude Code のフックの入力に読み替える。`agent` が
-/// Some なら、`step` はその ID のサブエージェントの会話のものである。状態を変えないときは None を返す。
+/// agy は承認を求めている間に呼ぶフックを持たず、利用者が承認を断ったときや、モデルの応答を待っている間に止めた
+/// ときも、PostToolUse や Stop を出さずにターンを止める。そこで、会話の DB の最後の step の状態と、最後の
+/// フックからの時間を、Claude Code のフックの入力に読み替える。`agent` が Some なら、`step` はその ID の
+/// サブエージェントの会話のものである。`step` が None なのは DB を読めなかったときで、agy がその会話の DB を
+/// 開いていないときもこれにあたる。状態を変えないときは None を返す。
 pub fn step_event(
     session: &SessionState,
     agent: Option<&str>,
-    step: &Step,
+    step: Option<&Step>,
     now_ms: u64,
 ) -> Option<HookInput> {
     let base = |name: &str| {
@@ -477,13 +488,29 @@ pub fn step_event(
             agent_id: agent.map(str::to_owned),
             ..HookInput::default()
         };
-        if let Some(call) = step.tool.as_ref() {
+        if let Some(call) = step.and_then(|s| s.tool.as_ref()) {
             let (name, args) = tool(&call.name, &call.args);
             h.tool_name = Some(name);
             h.tool_input = Some(args);
         }
         h
     };
+    let own = session.own_status.unwrap_or(session.status);
+    // PreToolUse の後はツールが動いているので数えない。サブエージェントが動いている間は、その会話が
+    // 応答を待っていても親の行のフックは来ない。
+    let silent = agent.is_none()
+        && own == Status::Working
+        && session.agents.is_empty()
+        && matches!(
+            session.last_event.as_deref(),
+            Some("UserPromptSubmit" | "PostToolUse")
+        )
+        && step.is_none_or(|s| !s.turn_busy)
+        && session.updated_at.saturating_add(SILENT_TURN_MS) <= now_ms;
+    if silent {
+        return Some(base("Interrupt"));
+    }
+    let step = step?;
     let ended = matches!(step.status, STEP_ERROR | STEP_CANCELED | STEP_INTERRUPTED);
     if let Some(agent) = agent {
         let pending = session.agents.get(agent)?.pending.is_some();
@@ -493,7 +520,6 @@ pub fn step_event(
             _ => None,
         };
     }
-    let own = session.own_status.unwrap_or(session.status);
     let lasted = |ms: u64| {
         step.since_ms
             .is_some_and(|t| t.saturating_add(ms) <= now_ms)
@@ -884,6 +910,7 @@ mod tests {
                 status: 9,
                 tool: tool.clone(),
                 since_ms: Some(102_005),
+                turn_busy: false,
             }
         );
         let cut = step(9, &metadata[..metadata.len() - 3]);
@@ -930,19 +957,36 @@ mod tests {
             name: "run_command".to_owned(),
             args: json!({"CommandLine": "echo hi"}),
         };
-        let at = |status, tool: Option<&ToolCall>, since| Step {
-            status,
-            tool: tool.cloned(),
-            since_ms: Some(since),
+        let at = |status, tool: Option<&ToolCall>, since| {
+            Some(Step {
+                status,
+                tool: tool.cloned(),
+                since_ms: Some(since),
+                turn_busy: false,
+            })
         };
+        // 最後のフックから SILENT_TURN_MS たった、サブエージェントの無い作業中の行。
+        let silent = |last: &str, quiet: u64| SessionState {
+            last_event: Some(last.to_owned()),
+            updated_at: NOW - quiet,
+            ..with(Status::Working, None)
+        };
+        let thinking = silent("UserPromptSubmit", SILENT_TURN_MS);
+        let resumed = silent("PostToolUse", SILENT_TURN_MS);
+        let recent = silent("UserPromptSubmit", SILENT_TURN_MS - 1);
+        let tooling = silent("PreToolUse", SILENT_TURN_MS);
+        let busy = Some(Step {
+            turn_busy: true,
+            ..at(3, None, NOW).unwrap()
+        });
         // (行, サブエージェント, 最後の step, 読み替え先のイベント名とツール名)
         type Case<'a> = (
             &'a SessionState,
             Option<&'a str>,
-            Step,
+            Option<Step>,
             Option<(&'a str, Option<&'a str>)>,
         );
-        let cases: [Case; 12] = [
+        let cases: [Case; 19] = [
             (
                 &working,
                 None,
@@ -985,9 +1029,16 @@ mod tests {
             ),
             (&waiting, Some("c2"), at(9, Some(&call), NOW), None),
             (&working, Some("zz"), at(9, Some(&call), NOW), None),
+            (&working, Some("c2"), None, None),
+            (&thinking, None, at(3, None, NOW), Some(("Interrupt", None))),
+            (&thinking, None, None, Some(("Interrupt", None))),
+            (&resumed, None, None, Some(("Interrupt", None))),
+            (&recent, None, None, None),
+            (&tooling, None, None, None),
+            (&thinking, None, busy, None),
         ];
         for (session, agent, step, expected) in cases {
-            let got = step_event(session, agent, &step, NOW);
+            let got = step_event(session, agent, step.as_ref(), NOW);
             let row = got
                 .as_ref()
                 .map(|h| (h.hook_event_name.as_str(), h.tool_name.as_deref()));

@@ -714,8 +714,9 @@ pub fn refresh_antigravity_steps(
             .chain(session.agents.keys().map(|k| Some(k.as_str())))
             .filter_map(|agent| {
                 let id = agent.unwrap_or(&session.session_id);
-                let step = read_step(&antigravity::conversation_db(Path::new(transcript), id)?)?;
-                antigravity::step_event(&session, agent, &step, now_ms)
+                let step = antigravity::conversation_db(Path::new(transcript), id)
+                    .and_then(|db| read_step(&db));
+                antigravity::step_event(&session, agent, step.as_ref(), now_ms)
             })
             .collect();
         if events.is_empty() {
