@@ -709,6 +709,8 @@ fn main_update(
         }
         // Codex で利用者がターンを中断したときに届く。中断では Stop が発火しないので、ここで待機へ戻す。
         "Interrupt" => (Status::Idle, Act::Keep),
+        // Antigravity の作業中のモデルの呼び出しの前に届く。状態は変えず、最後のフックとその時刻だけを書く。
+        "PreInvocation" if cur_status == Some(Status::Working) => (Status::Working, Act::Keep),
         "StopFailure" => {
             let text = input
                 .last_assistant_message
@@ -1097,6 +1099,8 @@ mod tests {
             ),
             (ev("Interrupt"), Some(Working), Some(Idle)),
             (ev("Interrupt"), Some(Waiting), Some(Idle)),
+            (ev("PreInvocation"), Some(Working), Some(Working)),
+            (ev("PreInvocation"), Some(Idle), None),
             (ev("SubagentStop"), Some(Working), None),
             (ev("SomeFutureEvent"), Some(Working), None),
         ];

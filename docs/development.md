@@ -517,11 +517,11 @@ OpenCode v2 のプラグイン（`install` が OpenCode の設定のフォルダ
 - **対象** プラグインは OpenCode v2 のプラグインの仕組み（`setup` で受け取る `ctx` の `ctx.event.subscribe`）でイベントを購読します。プラグインは、端末の画面（TUI）ではなく、会話を動かすサービスの中で読み込まれます。対象にしているのは、端末の画面がつなぐバックグラウンドのサービス、`--standalone` で起動した専用のサーバー、`opencode serve` のサーバーです。v1 のデスクトップアプリには対応しません。
 - **応答を待つ間に止めたターン** モデルの応答を待っている間に利用者が止めると、agy は Stop も PostInvocation も出さず、会話の DB にも止めた step を残しません。ターンの最初の応答の前でも、ツールを使ったあとの応答の前でも同じで、agy 1.5.9 の CLI で Esc を押して確かめました。応答を待つ間も step は増えないので、止めた会話と、モデルが考えている会話は、フックが来ない時間の長さでしか見分けられません。そこで、承認待ちを調べるのと同じ 1 秒ごとの見回りで、次のすべてに当てはまる行を Interrupt に読み替え、待機へ戻します。
   - 作業中で、動いているサブエージェントが無い
-  - 最後のフックが UserPromptSubmit か PostToolUse である。PreToolUse の後はツールが動いているので数えない
-  - 今のターン（最後の利用者の入力の step から後）に、PENDING（1）、RUNNING（2）、GENERATING（8）、WAITING（9）の step が無い。バックグラウンドで動くコマンドの step は、ここで RUNNING として見つかる。agy が DB を開いておらず読めないときは、この条件を調べない
+  - 最後のフックが UserPromptSubmit か PreInvocation である。止めたターンは、最後のフックがこのどちらかのまま止まる。PreToolUse の後はツールが動いており、`fullyIdle` が false の Stop（PostToolUse に読み替えたもの）の後はバックグラウンドの作業を待っているので数えない
+  - 今のターン（最後の利用者の入力の step から後）に、PENDING（1）、RUNNING（2）、GENERATING（8）、WAITING（9）の step が無い。応答を生成している間は、応答の step が GENERATING になる。agy が DB を開いておらず読めないときは、この条件を調べない
   - 最後のフックから 3 分たった
 
-  agy 1.5.9 の CLI の会話の DB では、step が増えないまま応答を待った時間は最長 46 秒でした。誤って待機に戻しても、次の PreToolUse か PostToolUse で作業中に、Stop で完了に戻ります。Gemini のデスクトップアプリの agy は、止めたあとの会話の DB を開いておらず、ターンの途中で開いたままにしているかは確かめていません。
+  agy 1.5.9 の会話の DB では、step が増えないまま応答を待った時間は最長 46 秒、考え始めてから応答の step が終わるまでは最長 89 秒でした。誤って待機に戻しても、次の PreToolUse か PostToolUse で作業中に、Stop で完了に戻ります。Gemini のデスクトップアプリの agy は、止めたあとの会話の DB を開いておらず、ターンの途中で開いたままにしているかは確かめていません。
 - **Claude Code から任された会話** プラグインを読み込んだプロセスの環境変数 `CLAUDECODE` が `1` で、そのプロセスがバックグラウンドのサービス（引数に `--service` を持つ `opencode serve`）でないときは、イベントを購読せず、行を作りません。Claude Code はツールから起動したプロセスの環境に `CLAUDECODE=1` を入れ、`opencode run --standalone` が立てる専用のサーバーはそれを受け継ぎます。任せた側の Claude Code の行がすでに作業中を示しているので、同じ作業を別の行として並べないためです。バックグラウンドのサービスは、Claude Code の中から最初に起動されると `CLAUDECODE=1` を持ったまま、利用者が端末の画面から開いた会話も動かすので、この見分けに使いません。OpenCode の会話の記録には、Codex の `originator` のように会話を始めたクライアントを表す値が無いので、`--standalone` を付けずにサービスへ頼んだ `opencode run` の会話は見分けられず、行が出ます。
 - **サブエージェント** 親を持つセッションは、プラグインが作成のイベントで親を覚えて、自分の行を作らせません。作成のイベントを見ていないセッションは、OpenCode に親を尋ねてから決めます。`opencode-hook` も、親を持つ `session.created` を無視します。親の行は、サブエージェントを動かすツール（`subagent`）を使っている作業中として出ます。サブエージェントのターンの始まりの `session.execution.started` と、`permission.asked`、`permission.replied`、`form.created`、`form.replied`、`form.cancelled` と、ターンの終わりの `session.execution.succeeded`、`session.execution.failed`、`session.execution.interrupted` だけは、親をたどった先の親を持たないセッションの ID を `parent` に足して渡し、ほかのイベントは渡しません。`opencode-hook` はこれを、その行の中で動く Claude Code のサブエージェントのイベントと同じに扱います。ターンの始まりは SubagentStart として、動いているサブエージェントに数えます。実行許可や質問の答えを待つ間は承認待ちとして出し、答えが済んだらサブエージェントが動いている作業中として出し、サブエージェントのターンが終わったら（`reason` が `superseded` の中断を除きます）親の会話の状態に戻します。バックグラウンドで動かしたサブエージェントが、親の応答が終わった後に答えを求めたときも同じです。
 - **途中から見たセッション** プラグインを読み込む前から続いているセッションのように、作成のイベントを見ていないセッションを初めて見たときは、OpenCode にそのセッションのタイトルと作業フォルダも尋ねて、イベントに足して渡します。
@@ -539,6 +539,7 @@ agy のフック（`install` が `~/.gemini/config/hooks.json` に登録する�
 | agy のイベント | 読み替え先 | 状態 |
 | --- | --- | --- |
 | `PreInvocation`（`invocationNum` が 0） | UserPromptSubmit | 作業中。ターンの最初のモデルの呼び出しの前に届く |
+| `PreInvocation`（作業中の行で、`invocationNum` が 1 以上か、サブエージェントの返事を受けて動き直したときの 0） | PreInvocation | 作業中のまま。最後のフックとその時刻だけを書き換える |
 | `PreToolUse` | PreToolUse | 作業中。ツールの名前と引数を Claude Code のものに置き換える |
 | `PostToolUse` | PostToolUse | 作業中 |
 | `Stop`（`terminationReason` が `NO_TOOL_CALL` などの正常な終わりで、`fullyIdle` が true） | Stop | 完了。transcript の最後の応答の文章を要約に使う |

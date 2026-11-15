@@ -277,6 +277,9 @@ pub fn translate(
         "PreInvocation" if input.invocation_num == Some(0) && own != Some(Status::Working) => {
             hook(id, "UserPromptSubmit")
         }
+        // 作業中のモデルの呼び出しは、状態を変えずに最後のフックとして残す。応答を待つ間に止めたターンは、最後の
+        // フックがこれか UserPromptSubmit のまま止まる。バックグラウンドの作業を待つ会話は、最後が Stop になる。
+        "PreInvocation" if own == Some(Status::Working) => hook(id, "PreInvocation"),
         "PreToolUse" => with_tool(hook(id, "PreToolUse")),
         "PostToolUse" => hook(id, "PostToolUse"),
         "Stop" => stop(input, transcript, hook(id, "Stop")),
@@ -328,7 +331,8 @@ const APPROVE_GRACE_MS: u64 = 1_000;
 
 // モデルの応答を待っている間に利用者が止めると、agy は Stop も PostInvocation も出さず、DB にも止めた step を
 // 残さない。応答を待つ間も step は増えないので、止めた会話と考えている会話は、フックが来ない時間の長さでしか
-// 見分けられない。agy 1.5.9 の会話の DB では、step が増えないまま応答を待った時間は最長 46 秒だった。
+// 見分けられない。agy 1.5.9 の会話の DB では、step が増えないまま応答を待った時間は最長 46 秒、考え始めてから
+// 応答の step が終わるまでは最長 89 秒だった。DB を読めないときは後者が次のフックまでの時間になる。
 const SILENT_TURN_MS: u64 = 3 * 60 * 1000;
 
 /// 会話の DB の最後の step。
@@ -496,14 +500,15 @@ pub fn step_event(
         h
     };
     let own = session.own_status.unwrap_or(session.status);
-    // PreToolUse の後はツールが動いているので数えない。サブエージェントが動いている間は、その会話が
-    // 応答を待っていても親の行のフックは来ない。
+    // 数えるのは、最後のフックがモデルの呼び出しの始まりの行だけにする。PreToolUse の後はツールが動いており、
+    // fullyIdle が false の Stop（PostToolUse に読み替えたもの）の後はバックグラウンドの作業を待っている。
+    // サブエージェントが動いている間は、その会話が応答を待っていても親の行のフックは来ない。
     let silent = agent.is_none()
         && own == Status::Working
         && session.agents.is_empty()
         && matches!(
             session.last_event.as_deref(),
-            Some("UserPromptSubmit" | "PostToolUse")
+            Some("UserPromptSubmit" | "PreInvocation")
         )
         && step.is_none_or(|s| !s.turn_busy)
         && session.updated_at.saturating_add(SILENT_TURN_MS) <= now_ms;
@@ -673,7 +678,7 @@ mod tests {
             Option<&'a Transcript>,
             Option<Row<'a>>,
         );
-        let cases: [Case; 11] = [
+        let cases: [Case; 12] = [
             (
                 ev("PreInvocation", json!({"invocationNum": 0})),
                 None,
@@ -684,7 +689,13 @@ mod tests {
                 ev("PreInvocation", json!({"invocationNum": 0})),
                 Some(&working),
                 Some(&top),
-                None,
+                Some(("PreInvocation", None, None, None)),
+            ),
+            (
+                ev("PreInvocation", json!({"invocationNum": 1})),
+                Some(&working),
+                Some(&top),
+                Some(("PreInvocation", None, None, None)),
             ),
             (
                 ev("PreInvocation", json!({"invocationNum": 1})),
@@ -972,7 +983,8 @@ mod tests {
             ..with(Status::Working, None)
         };
         let thinking = silent("UserPromptSubmit", SILENT_TURN_MS);
-        let resumed = silent("PostToolUse", SILENT_TURN_MS);
+        let invoking = silent("PreInvocation", SILENT_TURN_MS);
+        let backgrounded = silent("PostToolUse", SILENT_TURN_MS);
         let recent = silent("UserPromptSubmit", SILENT_TURN_MS - 1);
         let tooling = silent("PreToolUse", SILENT_TURN_MS);
         let busy = Some(Step {
@@ -986,7 +998,7 @@ mod tests {
             Option<Step>,
             Option<(&'a str, Option<&'a str>)>,
         );
-        let cases: [Case; 19] = [
+        let cases: [Case; 20] = [
             (
                 &working,
                 None,
@@ -1032,7 +1044,8 @@ mod tests {
             (&working, Some("c2"), None, None),
             (&thinking, None, at(3, None, NOW), Some(("Interrupt", None))),
             (&thinking, None, None, Some(("Interrupt", None))),
-            (&resumed, None, None, Some(("Interrupt", None))),
+            (&invoking, None, None, Some(("Interrupt", None))),
+            (&backgrounded, None, None, None),
             (&recent, None, None, None),
             (&tooling, None, None, None),
             (&thinking, None, busy, None),

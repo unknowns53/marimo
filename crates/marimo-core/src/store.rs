@@ -680,10 +680,10 @@ fn release_interrupted(
     interrupt(session, |a| a.last_seen > at_ms, now_ms).filter(|next| next != session)
 }
 
-/// agy は承認を求めている間に呼ぶフックを持たず、利用者が承認を断ったときもフックを出さずにターンを止めるので、
-/// 作業中か承認待ちの Antigravity の行について、会話の DB の最後の step を読んで行に書く
-/// （`antigravity::step_event` を参照）。アプリが短い間隔で呼ぶ。`read_step` は DB の場所を受け取り、
-/// 最後の step を読む。
+/// agy は承認を求めている間に呼ぶフックを持たず、利用者が承認を断ったときや、モデルの応答を待つ間に止めたときも
+/// フックを出さずにターンを止めるので、作業中か承認待ちの Antigravity の行について、会話の DB の最後の step と
+/// 最後のフックからの時間を読んで行に書く（`antigravity::step_event` を参照）。アプリが短い間隔で呼ぶ。
+/// `read_step` は DB の場所を受け取り、最後の step を読む。読めなければ None を返す。
 pub fn refresh_antigravity_steps(
     home: &MarimoHome,
     now_ms: u64,
