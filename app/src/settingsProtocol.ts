@@ -45,14 +45,21 @@ export type SettingsRequest =
   | { kind: "usage-refresh"; minutes: number }
   | { kind: "usage-tools"; patch: Partial<UsageTools> };
 
-/** アプリの更新のコマンド check_update が返す形。 */
-export interface UpdateInfo {
+/** 開いているウィンドウに、左の一覧のどの項目を出すかを送る。settings.rs の SECTION_EVENT と揃える。 */
+export const SECTION_EVENT = "settings-section";
+
+/** update.rs の UpdateStatus と同じ形。update_status と check_update が返し、確認のたびに UPDATE_STATUS_EVENT でも届く。 */
+export interface UpdateStatus {
   current: string;
-  latest: string;
+  /** まだ確認していないときと、確認に失敗したときは null。 */
+  latest: string | null;
   newer: boolean;
-  url: string;
+  /** 確認した時刻（UNIX 時刻のミリ秒）。 */
+  checked_at: number | null;
+  error: string | null;
 }
 
+export const UPDATE_STATUS_EVENT = "update-status";
 export const UPDATE_PROGRESS_EVENT = "update-progress";
 
 export interface UpdateProgress {

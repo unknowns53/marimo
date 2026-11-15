@@ -3,5 +3,5 @@
   "identifier": "settings",
   "description": "Permissions for the settings window",
   "windows": ["settings"],
-  "permissions": ["core:event:default", "core:app:allow-version"]
+  "permissions": ["core:event:default"]
 }
