@@ -519,18 +519,25 @@ pub fn step_event(
     }
     let step = step?;
     let ended = matches!(step.status, STEP_ERROR | STEP_CANCELED | STEP_INTERRUPTED);
-    if let Some(agent) = agent {
-        let pending = session.agents.get(agent)?.pending.is_some();
-        return match step.status {
-            STEP_WAITING if !pending => Some(base("PermissionRequest")),
-            _ if pending && (ended || step.status == STEP_DONE) => Some(base("PostToolUse")),
-            _ => None,
-        };
-    }
     let lasted = |ms: u64| {
         step.since_ms
             .is_some_and(|t| t.saturating_add(ms) <= now_ms)
     };
+    if let Some(agent) = agent {
+        let pending = session.agents.get(agent)?.pending.is_some();
+        // 質問のツールは PreToolUse で承認待ちにしてあり、WAITING になる前に RUNNING のまま数秒たつことがある。
+        // サブエージェントのフックは last_event に残らないので、親の会話のようにフックでは見分けられず、
+        // ツールの名前で除く。
+        let asking = step.tool.as_ref().is_some_and(|c| c.name == "ask_question");
+        return match step.status {
+            STEP_WAITING if !pending => Some(base("PermissionRequest")),
+            _ if pending && (ended || step.status == STEP_DONE) => Some(base("PostToolUse")),
+            STEP_RUNNING if pending && !asking && lasted(APPROVE_GRACE_MS) => {
+                Some(base("PostToolUse"))
+            }
+            _ => None,
+        };
+    }
     match step.status {
         // ツールの名前が読めなければ、PreToolUse で書いた作業の要約をそのまま使う。
         STEP_WAITING if own == Status::Working => Some(match step.tool {
@@ -970,6 +977,10 @@ mod tests {
             name: "run_command".to_owned(),
             args: json!({"CommandLine": "echo hi"}),
         };
+        let question = ToolCall {
+            name: "ask_question".to_owned(),
+            args: json!({}),
+        };
         let at = |status, tool: Option<&ToolCall>, since| {
             Some(Step {
                 status,
@@ -1000,7 +1011,7 @@ mod tests {
             Option<Step>,
             Option<(&'a str, Option<&'a str>)>,
         );
-        let cases: [Case; 20] = [
+        let cases: [Case; 23] = [
             (
                 &working,
                 None,
@@ -1042,6 +1053,19 @@ mod tests {
                 Some(("PostToolUse", None)),
             ),
             (&waiting, Some("c2"), at(9, Some(&call), NOW), None),
+            (
+                &waiting,
+                Some("c2"),
+                at(2, Some(&call), NOW - 1_000),
+                Some(("PostToolUse", Some("Bash"))),
+            ),
+            (&waiting, Some("c2"), at(2, Some(&call), NOW - 10), None),
+            (
+                &waiting,
+                Some("c2"),
+                at(2, Some(&question), NOW - 9_000),
+                None,
+            ),
             (&working, Some("zz"), at(9, Some(&call), NOW), None),
             (&working, Some("c2"), None, None),
             (&thinking, None, at(3, None, NOW), Some(("Interrupt", None))),
