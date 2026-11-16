@@ -140,7 +140,7 @@ cd ..
 ./target/release/marimo-hook install
 ```
 
-インストール終了後、実行中のツールを再起動してください。Codex では、さらに Codex CLI の `/hooks` で marimo のフックを信頼してください。Hermes Agent は `install` では登録しないので、[Hermes のフック](docs/development.md#hermes-)のフックの手順で手動登録します。
+インストール終了後、実行中のツールを再起動してください。Codex では、さらに Codex CLI の `/hooks` で marimo のフックを信頼してください。Hermes Agent は `install` では登録しないので、[Hermes のフック](docs/development.md#hermes-のフック)の手順で手動登録します。
 
 ### 3. アプリを起動する
 
@@ -182,7 +182,7 @@ pwsh -ExecutionPolicy Bypass -File .\tools\update.ps1
 
 状態ファイルや会話ログを添付する場合、個人情報が含まれていないことを確認してください。settings.json の書き換え、OpenCode のプラグインの配置、会話ログの読み取りなど、安全に関わる問題は、公開の Issue ではなく GitHub の Security Advisories から非公開で報告してください。
 
-プルリクエストを送ると場合は、[テストと検査](docs/development.md#テストと検査)のコマンドがすべて通ることを確認し、挙動を変更する修正ではその挙動を確認するテストを追加してください。
+プルリクエストを送る場合は、[テストと検査](docs/development.md#テストと検査)のコマンドがすべて通ることを確認し、挙動を変更する修正ではその挙動を確認するテストを追加してください。
 
 ## ライセンス
 
