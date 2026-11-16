@@ -1,6 +1,6 @@
 import { BUBBLE_SECONDS_CHOICES } from "./bubbleSettings";
 import { DEFAULT_PANEL_OPACITY, PANEL_OPACITY_MAX, PANEL_OPACITY_MIN, PANEL_STYLES, ROW_ORDERS } from "./panelModel";
-import { LANG_SETTINGS, t } from "./i18n";
+import { LANGUAGES, t } from "./i18n";
 import type { SettingsRequest, SettingsState } from "./settingsProtocol";
 
 // スライダーは百分率の整数で持つ。小数の刻みにすると値の文字列に 0.35000000000000003 のような誤差が出る。
@@ -96,7 +96,7 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
   if (phase !== "change") return null;
   switch (name) {
     case "language": {
-      const setting = LANG_SETTINGS.find((s) => s === value);
+      const setting = LANGUAGES.find((l) => l === value);
       return setting ? { kind: "language", setting } : null;
     }
     case "show_character":

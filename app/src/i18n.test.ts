@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LANG_SETTINGS, langSettingLabel, plural, setLang, translateDocument } from "./i18n";
+import { plural, setLang, translateDocument } from "./i18n";
 
 afterEach(() => setLang("ja"));
 
@@ -56,14 +56,6 @@ describe("translateDocument", () => {
     setLang("ja");
     translateDocument(root);
     expect(read()).toEqual(["表示", "設定の項目", "閉じる", "Claude Code"]);
-  });
-});
-
-describe("langSettingLabel", () => {
-  it("names each language in itself and the automatic choice in the current language", () => {
-    expect(LANG_SETTINGS.map(langSettingLabel)).toEqual(["自動（システムの言語）", "日本語", "English"]);
-    setLang("en");
-    expect(LANG_SETTINGS.map(langSettingLabel)).toEqual(["Automatic (system language)", "日本語", "English"]);
   });
 });
 

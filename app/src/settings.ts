@@ -2,9 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 
 import {
-  LANG_SETTINGS,
+  LANGUAGES,
   LANGUAGE_EVENT,
-  langSettingLabel,
+  LANGUAGE_NAMES,
   setLang,
   t,
   translateDocument,
@@ -70,7 +70,7 @@ function request(r: SettingsRequest): void {
 
 function render(next: SettingsState): void {
   state = next;
-  fillSelect(languageSelect, LANG_SETTINGS.map((s) => [s, langSettingLabel(s)]));
+  fillSelect(languageSelect, LANGUAGES.map((l) => [l, LANGUAGE_NAMES[l]]));
   fillSelect(
     bubbleSecondsSelect,
     bubbleSecondsOptions(next.bubble.bubble_seconds).map((s) => [String(s), bubbleSecondsLabel(s)]),

@@ -1,5 +1,5 @@
 import type { BubbleSettings } from "./bubbleSettings";
-import type { LangSetting } from "./i18n";
+import type { Lang } from "./i18n";
 import type { PanelDisplay } from "./panelModel";
 import type { UsageTools } from "./types";
 
@@ -31,8 +31,8 @@ export interface SettingsState {
   /** Claude Code、Codex、Antigravity に利用制限を再取得させる間隔（分）。0 は再取得しない。 */
   usage_refresh_minutes: number;
   usage_tools: UsageTools;
-  /** display.json の language。表示に使う言語は LANGUAGE_EVENT と get_language で届く。 */
-  language: LangSetting;
+  /** 表示に使っている言語。display.json に language が無いときは、OS の言語から決まったもの。 */
+  language: Lang;
 }
 
 export type SettingsRequest =
@@ -47,7 +47,7 @@ export type SettingsRequest =
   | { kind: "autostart"; enabled: boolean }
   | { kind: "usage-refresh"; minutes: number }
   | { kind: "usage-tools"; patch: Partial<UsageTools> }
-  | { kind: "language"; setting: LangSetting };
+  | { kind: "language"; setting: Lang };
 
 /** 開いているウィンドウに、左の一覧のどの項目を出すかを送る。settings.rs の SECTION_EVENT と揃える。 */
 export const SECTION_EVENT = "settings-section";

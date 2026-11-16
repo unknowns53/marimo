@@ -18,7 +18,7 @@ import { BubbleModel, type BubbleView } from "./bubbleModel";
 import { bubbleEnabled, DEFAULT_BUBBLE_SETTINGS, type BubbleSettings } from "./bubbleSettings";
 import { categoryFor, mergeDialogue } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
-import { lang, LANGUAGE_EVENT, setLang, t, type LangSetting, type LanguageState } from "./i18n";
+import { lang, LANGUAGE_EVENT, setLang, t, type LanguageState } from "./i18n";
 import type { Point } from "./expander";
 import { characterCandidates, characterInfo, characterName, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
 import { onScrollbar, READ_KEY, renderPanel } from "./panel";
@@ -74,7 +74,6 @@ const acknowledged = new Acknowledged((keys) =>
 let bubbleSettings: BubbleSettings = DEFAULT_BUBBLE_SETTINGS;
 let usageRefreshMinutes = 0;
 let usageTools: UsageTools = DEFAULT_USAGE_TOOLS;
-let languageSetting: LangSetting = "auto";
 const bubbleModel = new BubbleModel(acknowledged, undefined, (status) => bubbleEnabled(bubbleSettings, status));
 // 知らせの吹き出しは、押すとその行を押したのと同じ操作になる。移動せずに閉じたいときは行と同じ修飾キーを使う。
 const bubble = new Bubble(bubbleNode, (e) => {
@@ -497,7 +496,7 @@ function settingsState(): SettingsState {
     autostart: autostart ?? null,
     usage_refresh_minutes: usageRefreshMinutes,
     usage_tools: usageTools,
-    language: languageSetting,
+    language: lang(),
   };
 }
 
@@ -657,8 +656,7 @@ function queueLanguage(language: LanguageState): void {
 // 言語を変えたときは、文言を持つものをすべて作り直す。スナップショットと同じ列に並べ、セリフを読み直している間に
 // 届いたスナップショットが古い言語のセリフで吹き出しを出さないようにする。
 async function applyLanguage(language: LanguageState): Promise<void> {
-  if (language.lang === lang() && language.setting === languageSetting) return;
-  languageSetting = language.setting;
+  if (language.lang === lang()) return;
   setLang(language.lang);
   if (characterId) defaultDialogue = await loadDefaultDialogue(characterBase(characterId));
   await reloadDialogue();
@@ -677,10 +675,7 @@ async function start(): Promise<void> {
     console.error("language", e);
     return null;
   });
-  if (language) {
-    languageSetting = language.setting;
-    setLang(language.lang);
-  }
+  if (language) setLang(language.lang);
   bindWindowControls();
   bindRowOrder();
   // トレイのメニューで選んだ表示は Rust が保存してから届くので、反映だけをする。起動中に選ばれたものを

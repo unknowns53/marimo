@@ -13,7 +13,8 @@ export interface LanguageState {
 /** 言語を変えたときに、Rust から全部のウィンドウへ届く。 */
 export const LANGUAGE_EVENT = "language";
 
-export const LANG_SETTINGS: readonly LangSetting[] = ["auto", "ja", "en"];
+// 設定で選べるのは二つの言語だけにする。display.json に language が無いあいだは OS の言語に従う。
+export const LANGUAGES: readonly Lang[] = ["ja", "en"];
 
 // 英語版より前のテストは日本語の文言を前提にしているので、届くまでは日本語にしておく。
 let current: Lang = "ja";
@@ -37,16 +38,7 @@ export function plural(n: number, one: string, many: string): string {
 }
 
 // 言語の名前は、選ぶ人が読める言語で書く。
-export function langSettingLabel(setting: LangSetting): string {
-  switch (setting) {
-    case "auto":
-      return t("自動（システムの言語）", "Automatic (system language)");
-    case "ja":
-      return "日本語";
-    case "en":
-      return "English";
-  }
-}
+export const LANGUAGE_NAMES: Record<Lang, string> = { ja: "日本語", en: "English" };
 
 /**
  * HTML の地の文は日本語で書き、英語を data-en に持たせる。最初に切り替えるときに日本語を data-ja へ残し、

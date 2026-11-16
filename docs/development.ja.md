@@ -255,7 +255,7 @@ marimo のデータはすべて `~/.marimo` に保存されます。環境変数
 
 | 項目 | 内容 | 値が無いとき、正しくないとき |
 | --- | --- | --- |
-| `language` | 画面、吹き出しの既定のセリフ、作業の要約、`marimo-hook` と更新用のスクリプトの出力の言語。`"auto"`、`"ja"`、`"en"`。アプリのほかに、フック、`marimo-hook`、更新用のスクリプトも読みます | `"auto"`。OS の言語が日本語なら日本語、それ以外は英語 |
+| `language` | 画面、吹き出しの既定のセリフ、作業の要約、`marimo-hook` と更新用のスクリプトの出力の言語。`"ja"` か `"en"`。アプリのほかに、フック、`marimo-hook`、更新用のスクリプトも読みます | なし。OS の言語が日本語なら日本語、それ以外は英語。`"auto"` も同じ |
 | `stage_scale` | 立ち絵の倍率（0.6 から 4.0 までの数） | 以前の `scale`（立ち絵の領域の幅を 180 ピクセルとした倍率）を同じ大きさに読み替えて使用し、次に倍率を保存したときに `scale` を削除 |
 | `show_character` | 立ち絵を表示するか | |
 | `panel_style` | パネルの表示方法。`"detail"` か `"counts"` | |
@@ -312,7 +312,7 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 - **Antigravity の会話の DB** 作業中か承認待ちの Antigravity のセッションがある間、アプリが 1 秒ごとに、その会話と、そのセッションの中で動作しているサブエージェントの会話の DB（agy のデータのフォルダの `conversations/<会話の ID>.db`）を読み取り専用で開き、最後の step の状態、ツールの名前と引数、状態が変わった時刻、現在のターンに終わっていない step があるかのみを取り出します。承認待ち、承認を断って止まったターン、モデルの応答を待つ間に止めたターンを区別するためです（[Antigravity のフックから記録するもの](#antigravity-のフックから記録するもの)を参照）。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）、API の応答を待った時間の累計（`cost.total_api_duration_ms`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。statusLine は応答が届いたときのほかに、prompt cache（会話の前半を API 側に一時的に保存しておく仕組み）が期限を迎えたときにも呼ばれ、そのときの入力にはそのセッションが最後に応答を受け取ったときの古い利用制限が入っています。このため、利用制限は、前回の呼び出しから新しい応答が届いていたときのみ保存します（`statusline_responses.json` を参照）。
 - **Claude Code の `~/.claude.json`** アプリが 30 秒ごとに更新時刻を確認し、変わっていたら読んで、Claude Code が取得した利用制限の `cachedUsageUtilization` と、ログイン中のアカウントの `oauthAccount.accountUuid` のみを取り出します。アカウントの ID は、別のアカウントで取得された値を使わないために照合するのみで、記録しません。Claude Code のトークンを含む資格情報は読みません。
-- **OS の言語** 「言語」が「自動（システムの言語）」のとき、表示の言語を決めるために、macOS では優先する言語の一覧の先頭を、Windows では表示言語を OS に問い合わせます。
+- **OS の言語** 「言語」を選択していないとき、表示の言語を決めるために、macOS では優先する言語の一覧の先頭を、Windows では表示言語を OS に問い合わせます。
 - **アプリのアイコン** パネルのマークに使用するため、起動時に一度だけ、Claude、Codex、OpenCode、Gemini のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop`、`com.openai.codex`、`ai.opencode.desktop`、`com.google.GeminiMacOS`（Antigravity を同梱しているアプリ）のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。Windows では OpenCode と Antigravity のアイコンを問い合わせません。受け取ったアイコンはメモリに保持するのみで、ファイルには書き込みません。Hermes Agent のアイコンと、OpenCode のデスクトップアプリのアイコンを受け取れなかったときの OpenCode のアイコンは、`app/src/assets/providers/` に同梱した画像を使用します（出典と許諾は `LICENSE-ASSETS` に記載しています）。
 
 ### marimo が起動するもの

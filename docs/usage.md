@@ -76,7 +76,7 @@ The left side of the window lists six sections: **Display**, **Bubbles**, **Char
 
 | Section | Setting | What it does |
 | --- | --- | --- |
-| Display | Language | Chooses the interface language from **Automatic (system language)**, **日本語**, and **English**. The default is **Automatic (system language)** (see [Language](#language)) |
+| Display | Language | Chooses the interface language, **日本語** or **English**. Until you choose one, marimo follows the OS language (see [Language](#language)) |
 | Display | Show character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
 | Display | Panel | Chooses how the panel is shown: **Details** or **Counts** (see [Switching the display](#switching-the-display)) |
 | Display | Sort order | Chooses how the panel orders sessions: **Start time**, **Status**, or **Last update** (see [Sort order](#sort-order)) |
@@ -91,7 +91,7 @@ The left side of the window lists six sections: **Display**, **Bubbles**, **Char
 
 ### Language
 
-With the default **Automatic (system language)**, marimo uses Japanese if your OS language is Japanese, and English otherwise. The OS language is the first of your preferred languages under Language & Region in System Settings on macOS, and the display language on Windows. Choosing **日本語** or **English** uses that language regardless of the OS language. The choice takes effect immediately and is saved as `language` in `display.json` (see [Files and data](development.md#files-and-data)).
+Until you choose a language, marimo uses Japanese if your OS language is Japanese, and English otherwise, and **Language** shows the language in use. The OS language is the first of your preferred languages under Language & Region in System Settings on macOS, and the display language on Windows. Choosing **日本語** or **English** uses that language regardless of the OS language. The choice takes effect immediately and is saved as `language` in `display.json` (see [Files and data](development.md#files-and-data)). To follow the OS language again, quit marimo, delete `language` from `display.json`, and start marimo.
 
 The chosen language is used for the following.
 
@@ -100,7 +100,7 @@ The chosen language is used for the following.
 - The activity summary on the second line of each panel row. A summary is written in the language in effect when the hook writes it to the state file, so summaries written before you change the language stay in the previous language until the session's next hook arrives.
 - The output of `marimo-hook install` and `uninstall`, and of the update scripts
 
-If you change the OS language while **Automatic (system language)** is selected, marimo's interface switches at its next start. Hooks, `marimo-hook`, and the update scripts read the OS language every time they run.
+If you change the OS language before choosing a language, marimo's interface switches at its next start. Hooks, `marimo-hook`, and the update scripts read the OS language every time they run.
 
 ### Checking for updates
 
