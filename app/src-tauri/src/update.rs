@@ -1461,6 +1461,26 @@ mod tests {
         }
     }
 
+    // アプリが起動するのは Windows PowerShell 5.1 なので、それで読む。ファイルは install_update と同じく BOM を付けて書く。
+    #[cfg(windows)]
+    #[test]
+    fn windows_script_parses_as_powershell() {
+        for lang in [Lang::Ja, Lang::En] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("update.ps1");
+            fs::write(&path, format!("\u{feff}{}", sample_windows_script(lang))).unwrap();
+            let check = format!(
+                "$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile({}, [ref]$null, [ref]$e); if ($e) {{ $e | Out-String | Write-Host; exit 1 }}",
+                ps_quote(&path.to_string_lossy())
+            );
+            let status = Command::new(powershell_program())
+                .args(["-NoProfile", "-NonInteractive", "-Command", check.as_str()])
+                .status()
+                .unwrap();
+            assert!(status.success(), "{lang:?}");
+        }
+    }
+
     #[test]
     fn mac_script_braces_variables_before_non_ascii() {
         for lang in [Lang::Ja, Lang::En] {
