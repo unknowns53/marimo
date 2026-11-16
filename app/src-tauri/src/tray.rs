@@ -290,7 +290,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         .iter()
         .map(|(_, item)| item as &dyn IsMenuItem<Wry>)
         .collect();
-    let order_menu = Submenu::with_items(app, "行の並べ方", true, &order_items)?;
+    let order_menu = Submenu::with_items(app, "並べ方", true, &order_items)?;
     let mark_all_read =
         MenuItem::with_id(app, MARK_ALL_READ, "すべて既読にする", false, None::<&str>)?;
     let menu = Menu::with_items(

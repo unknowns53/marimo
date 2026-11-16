@@ -290,7 +290,7 @@ function renderSummary(s: SessionState, summary: string): HTMLElement {
 function markReadButton(s: SessionState, actions: RowActions): HTMLElement {
   const button = el("button", "row-read", "✓");
   button.type = "button";
-  button.title = `既読にする（アプリは開きません。${READ_KEY} を押しながら行をクリックしても同じです）`;
+  button.title = `既読にする（アプリは開きません。${READ_KEY} を押しながらセッションをクリックしても同じです）`;
   button.setAttribute("aria-label", "既読にする");
   button.addEventListener("click", (e) => {
     e.stopPropagation();

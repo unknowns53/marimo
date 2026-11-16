@@ -554,7 +554,7 @@ async function openMenu(): Promise<void> {
         ),
       )),
       await Submenu.new({
-        text: "行の並べ方",
+        text: "並べ方",
         items: await Promise.all(
           ROW_ORDERS.map((order) =>
             CheckMenuItem.new({
