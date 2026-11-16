@@ -396,7 +396,26 @@ jobs:
               --generate-notes
           fi
 
-      # build- で始まるプレリリースだけを消し、v で始まるリリースとプレリリースを含むほかのリリースとタグには触れない。
+      # 正式なリリースを出したら、そのバージョン以前の v で始まるプレリリースはもう選ばれないので、タグごと消す。
+      # - より前の部分を sort -V で比べ、v0.2.0 を出したときに v0.2.0-beta.1 や v0.1.9-rc.1 を消し、v0.2.1-beta.1 は残す。
+      - name: Delete released prereleases
+        if: needs.target.outputs.formal == 'true' && !contains(github.ref_name, '-')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          released="${TAG#v}"
+          gh release list --limit 200 --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease and (.tagName | startswith("v"))) | .tagName' |
+            while read -r pre; do
+              base="${pre#v}"
+              base="${base%%-*}"
+              if [[ "$(printf '%s\n%s\n' "$base" "$released" | sort -V | tail -n 1)" == "$released" ]]; then
+                echo "リリース済みのプレリリース $pre を消します"
+                gh release delete "$pre" --yes --cleanup-tag
+              fi
+            done
+
+      # build- で始まるプレリリースだけを消し、v で始まるリリースとプレリリースには触れない。
       - name: Delete old builds
         run: |
           gh release list --limit 200 --json tagName,isPrerelease,createdAt \
