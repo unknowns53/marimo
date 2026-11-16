@@ -1,6 +1,8 @@
 # marimo の開発
 
-marimo のビルド、`install` が変更する内容、データの保存先、仕組みを記載しています。概要と導入の手順は [README](../README.md) を参照してください。
+[English](development.md) | 日本語
+
+marimo のビルド、`install` が変更する内容、データの保存先、仕組みを記載しています。概要と導入の手順は [README](../README.ja.md) を参照してください。
 
 - [ソースからビルドする](#ソースからビルドする)
 - [フックと statusLine の登録](#フックと-statusline-の登録)
@@ -15,7 +17,7 @@ marimo のビルド、`install` が変更する内容、データの保存先、
 
 ## ソースからビルドする
 
-ビルドのコマンドは、README の [1. ビルドする](../README.md#1-ビルドする)に記載しています。
+ビルドのコマンドは、README の [1. ビルドする](../README.ja.md#1-ビルドする)に記載しています。
 
 ### 必要なもの
 
@@ -43,7 +45,7 @@ Node.js のバージョンは、ビルドツールの Vite と、テストツー
 
 ## フックと statusLine の登録
 
-登録の手順は、README の [2. 各ツールに登録する](../README.md#2-各ツールに登録する)に記載しています。
+登録の手順は、README の [2. 各ツールに登録する](../README.ja.md#2-各ツールに登録する)に記載しています。
 
 ### install が行うこと
 
@@ -64,7 +66,7 @@ Node.js のバージョンは、ビルドツールの Vite と、テストツー
    }
    ```
 
-   `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを経由せずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを経由しないため、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form に対応した Claude Code のバージョンは、README の[動作環境](../README.md#動作環境)に記載しています。
+   `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを経由せずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを経由しないため、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form に対応した Claude Code のバージョンは、README の[動作環境](../README.ja.md#動作環境)に記載しています。
 
    `~/.marimo/bin/marimo-hook hook` という文字列をシェルに渡す形のフックが登録されている場合は、同じグループの同じ位置のまま exec form へ書き換えます。
 
@@ -97,7 +99,7 @@ Windows の Claude Code は、Git Bash があれば Git Bash で、無ければ 
 
 - 書き換える前に、同じフォルダへ `settings.json.marimo-backup-<日時>` や `hooks.json.marimo-backup-<日時>` のように、ファイル名に `.marimo-backup-<日時>` を付けた名前でバックアップを作成します。日時は UTC（協定世界時）の `YYYYMMDD-HHMMSS` の形で、同じ名前があれば末尾に `-1` などの番号が付きます。ファイルが無かった場合は、バックアップを作成せずに新規作成します。
 - 既存のフックや marimo に関係しない項目は、キーの順序も含めてそのまま残します。settings.json では、ファイルの権限も引き継ぎ、シンボリックリンクならリンク先のファイルを書き換えます。
-- 何度実行しても結果は同じです。登録済みであれば「変更はありません（すでにインストール済みです）」と表示し、ファイルにもバックアップにも手を付けません。再ビルド後に実行すると、`~/.marimo/bin/marimo-hook` のみが新しいものに入れ替わります。シェルに渡す形のフックが残っていた場合のみ、exec form へ書き換えます。[更新用のスクリプト](usage.md#更新する)も、アプリを入れ替えたあとに、新しい `marimo-hook` でこの `install` を実行します。
+- 何度実行しても結果は同じです。登録済みであれば「変更はありません（すでにインストール済みです）」と表示し、ファイルにもバックアップにも手を付けません。再ビルド後に実行すると、`~/.marimo/bin/marimo-hook` のみが新しいものに入れ替わります。シェルに渡す形のフックが残っていた場合のみ、exec form へ書き換えます。[更新用のスクリプト](usage.ja.md#更新する)も、アプリを入れ替えたあとに、新しい `marimo-hook` でこの `install` を実行します。
 - settings.json が JSON（データを文字で書き表す形式）として読めないときなどは、何も変更せずに理由を表示し、0 以外の終了コードで終了します。
 
 ### サブコマンドと設定ファイルの場所
@@ -253,6 +255,7 @@ marimo のデータはすべて `~/.marimo` に保存されます。環境変数
 
 | 項目 | 内容 | 値が無いとき、正しくないとき |
 | --- | --- | --- |
+| `language` | 画面、吹き出しの既定のセリフ、作業の要約、`marimo-hook` と更新用のスクリプトの出力の言語。`"auto"`、`"ja"`、`"en"`。アプリのほかに、フック、`marimo-hook`、更新用のスクリプトも読みます | `"auto"`。OS の言語が日本語なら日本語、それ以外は英語 |
 | `stage_scale` | 立ち絵の倍率（0.6 から 4.0 までの数） | 以前の `scale`（立ち絵の領域の幅を 180 ピクセルとした倍率）を同じ大きさに読み替えて使用し、次に倍率を保存したときに `scale` を削除 |
 | `show_character` | 立ち絵を表示するか | |
 | `panel_style` | パネルの表示方法。`"detail"` か `"counts"` | |
@@ -309,6 +312,7 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 - **Antigravity の会話の DB** 作業中か承認待ちの Antigravity のセッションがある間、アプリが 1 秒ごとに、その会話と、そのセッションの中で動作しているサブエージェントの会話の DB（agy のデータのフォルダの `conversations/<会話の ID>.db`）を読み取り専用で開き、最後の step の状態、ツールの名前と引数、状態が変わった時刻、現在のターンに終わっていない step があるかのみを取り出します。承認待ち、承認を断って止まったターン、モデルの応答を待つ間に止めたターンを区別するためです（[Antigravity のフックから記録するもの](#antigravity-のフックから記録するもの)を参照）。
 - **statusLine の入力** コンテキスト使用率、利用制限の値、セッションの名前（`session_name`）、API の応答を待った時間の累計（`cost.total_api_duration_ms`）を取り出します。入力そのものは、元の statusLine のコマンドへそのまま渡します。statusLine は応答が届いたときのほかに、prompt cache（会話の前半を API 側に一時的に保存しておく仕組み）が期限を迎えたときにも呼ばれ、そのときの入力にはそのセッションが最後に応答を受け取ったときの古い利用制限が入っています。このため、利用制限は、前回の呼び出しから新しい応答が届いていたときのみ保存します（`statusline_responses.json` を参照）。
 - **Claude Code の `~/.claude.json`** アプリが 30 秒ごとに更新時刻を確認し、変わっていたら読んで、Claude Code が取得した利用制限の `cachedUsageUtilization` と、ログイン中のアカウントの `oauthAccount.accountUuid` のみを取り出します。アカウントの ID は、別のアカウントで取得された値を使わないために照合するのみで、記録しません。Claude Code のトークンを含む資格情報は読みません。
+- **OS の言語** 「言語」が「自動（システムの言語）」のとき、表示の言語を決めるために、macOS では優先する言語の一覧の先頭を、Windows では表示言語を OS に問い合わせます。
 - **アプリのアイコン** パネルのマークに使用するため、起動時に一度だけ、Claude、Codex、OpenCode、Gemini のデスクトップアプリのアイコンを OS から受け取ります。macOS では NSWorkspace に bundle id `com.anthropic.claudefordesktop`、`com.openai.codex`、`ai.opencode.desktop`、`com.google.GeminiMacOS`（Antigravity を同梱しているアプリ）のアプリのアイコンを、Windows では PackageManager にパッケージ `Claude_pzs8sxrjxfjjc` と `OpenAI.Codex_2p2nqsd0c76g0` のロゴを問い合わせ、アプリの中のファイルを直接は開きません。Windows では OpenCode と Antigravity のアイコンを問い合わせません。受け取ったアイコンはメモリに保持するのみで、ファイルには書き込みません。Hermes Agent のアイコンと、OpenCode のデスクトップアプリのアイコンを受け取れなかったときの OpenCode のアイコンは、`app/src/assets/providers/` に同梱した画像を使用します（出典と許諾は `LICENSE-ASSETS` に記載しています）。
 
 ### marimo が起動するもの
@@ -323,29 +327,29 @@ marimo は、対応しているツールの作業を一切妨げないことを�
 
 - アプリとフックは、`~/.marimo` の中のファイルに書き込みます（[ファイルとデータ](#ファイルとデータ)を参照）。状態ファイルには、実行したコマンド、ファイルのパス、応答の冒頭などの要約が最大 500 文字まで入ります。リポジトリ名と、チャットのタイトルも最大 200 文字まで入ります。
 - `install` と `uninstall` は、Claude Code の settings.json とそのバックアップに書き込みます。Codex と Antigravity の設定のフォルダがある場合は、それぞれの `hooks.json` とそのバックアップにも書き込みます。OpenCode の設定のフォルダがある場合は、`plugins/marimo.js` を作成するか削除します。
-- 「ログイン時に起動」を有効にすると、macOS では LaunchAgent の plist を、Windows ではレジストリの値を書き込みます（場所は[ログイン時に起動する](usage.md#ログイン時に起動する)を参照）。
+- 「ログイン時に起動」を有効にすると、macOS では LaunchAgent の plist を、Windows ではレジストリの値を書き込みます（場所は[ログイン時に起動する](usage.ja.md#ログイン時に起動する)を参照）。
 
 ### marimo が送るもの
 
-marimo は、状態ファイルも会話の内容も、ローカルのコンピュータの外へ送りません。フックはネットワークへの通信をしません。アプリが通信するのは GitHub のみで、起動の 3 秒後、1 日ごと、「更新を確認」を押したときにリリースの一覧を API で読み、更新するときにリリースのファイルを取得します（[更新を確認する](usage.md#更新を確認する)を参照）。いずれも送るのはリクエストのみで、marimo の状態は含みません。吹き出しのセリフは用意した候補から選ぶため、大規模言語モデル（LLM）は呼びません。OpenCode のプラグインは、OpenCode のプラグインの仕組みを通して OpenCode に問い合わせることと、`marimo-hook` を起動して標準入力にイベントを渡すことのみを行います。
+marimo は、状態ファイルも会話の内容も、ローカルのコンピュータの外へ送りません。フックはネットワークへの通信をしません。アプリが通信するのは GitHub のみで、起動の 3 秒後、1 日ごと、「更新を確認」を押したときにリリースの一覧を API で読み、更新するときにリリースのファイルを取得します（[更新を確認する](usage.ja.md#更新を確認する)を参照）。いずれも送るのはリクエストのみで、marimo の状態は含みません。吹き出しのセリフは用意した候補から選ぶため、大規模言語モデル（LLM）は呼びません。OpenCode のプラグインは、OpenCode のプラグインの仕組みを通して OpenCode に問い合わせることと、`marimo-hook` を起動して標準入力にイベントを渡すことのみを行います。
 
 ## リポジトリの構成
 
 | パス | 内容 |
 | --- | --- |
-| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、各ツールの入力の読み替えと記録の読み取り（Claude Code の会話ログ、Codex の rollout と session_index.jsonl、Hermes のセッションの一覧、OpenCode のイベント、Antigravity の transcript）、ターンを動かしているプロセスの生存確認、リポジトリ名の判定、Windows でセッションのウィンドウを検索して前面に表示する処理、MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
+| `crates/marimo-core` | 状態のモデル、全体の状態の集約、状態ファイルの読み書き、各ツールの入力の読み替えと記録の読み取り（Claude Code の会話ログ、Codex の rollout と session_index.jsonl、Hermes のセッションの一覧、OpenCode のイベント、Antigravity の transcript）、ターンを動かしているプロセスの生存確認、リポジトリ名の判定、Windows でセッションのウィンドウを検索して前面に表示する処理、MSIX（Windows のアプリのパッケージ形式）のパッケージからアプリのロゴを読む処理、表示の言語の決定を持つ Rust のライブラリ。Windows の API を呼ぶコードはすべてここに置きます |
 | `crates/marimo-hook` | 各ツールから呼ばれるコマンド。サブコマンドは[サブコマンドと設定ファイルの場所](#サブコマンドと設定ファイルの場所)を参照。`install` が配置する OpenCode のプラグインの雛形 `src/opencode_plugin.js` もここにあり、ビルド時に実行ファイルへ埋め込まれます |
 | `app/src-tauri` | Tauri v2 のアプリ本体（Rust 側）。ファイルの監視、Claude Code、Codex、Antigravity からの利用制限の取得、ウィンドウの制御、メニューバーと通知領域のアイコン、クリックの透過、セッションへの移動、macOS でのアプリのアイコンの読み取りを担当します |
 | `app/src` | 画面部分（TypeScript）。フレームワークは使用していません |
-| `assets/character/index.json` | 組み込みのキャラクターの一覧（[自分のキャラクターを作る](customize.md#自分のキャラクターを作る)を参照） |
-| `assets/character/koharu` | 小春の素材。24 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` |
-| `assets/character/clawd` | Clawd の素材。23 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` |
+| `assets/character/index.json` | 組み込みのキャラクターの一覧（[自分のキャラクターを作る](customize.ja.md#自分のキャラクターを作る)を参照） |
+| `assets/character/koharu` | 小春の素材。32 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` と英語の `dialogue.en.json` |
+| `assets/character/clawd` | Clawd の素材。22 枚の PNG、`manifest.json`、既定のセリフの `dialogue.json` と英語の `dialogue.en.json` |
 | `art/koharu` | 小春の素材の元になった画像 |
 | `tools/character` | 小春の素材を作成するスクリプト `build.py` とその設定 `koharu.json`、Clawd の素材を描くスクリプト `clawd.py`、Python の依存 `requirements.txt` |
 | `tools/tray_icon.py` | メニューバーと通知領域のアイコンを描くスクリプト |
 | `tools/app_icon.py` | アプリのアイコンを描くスクリプト |
 | `tools/release.sh` | リリースを作成する macOS 用のスクリプト（[リリースを作る](#リリースを作る)を参照） |
-| `tools/update.sh`、`tools/update.ps1` | 更新用のスクリプト。`update.sh` は macOS 用、`update.ps1` は Windows 用（[更新する](usage.md#更新する)を参照） |
+| `tools/update.sh`、`tools/update.ps1` | 更新用のスクリプト。`update.sh` は macOS 用、`update.ps1` は Windows 用（[更新する](usage.ja.md#更新する)を参照） |
 
 ## テストと検査
 
@@ -381,7 +385,7 @@ npm run build
 
 GitHub Actions の CI（`.github/workflows/ci.yml`）は、main への push と pull request のたびに、macOS と Windows の両方で上の検査を実行します。画面部分のビルドとテスト、clippy、`cargo test --workspace` を実行し、`cargo fmt --check` は macOS のみで実行します。clippy は警告も失敗として扱います。Windows 向けのコードも Windows の上でビルドしてテストするため、上の型検査のみでは分からない食い違いもここで見つかります。
 
-main への push では、両方の OS で検査が通ったあとに、更新用のスクリプトが取得するビルドを作成して公開します。macOS では GitHub が用意する arm64 の Mac の上で `marimo.app` と `marimo-hook` をビルドし、シンボリックリンクと実行の権限が保たれるよう tar で `marimo-macos-arm64.tar.gz` にまとめます。Windows では x64 の Windows の上で NSIS（Windows 向けのインストーラを作成する仕組み）のインストーラと `marimo-hook.exe` をビルドし、`marimo-windows-x64.zip` にまとめます。両方のビルドが成功したときのみ、二つのファイルとそのチェックサムを記載した `SHA256SUMS` を、GitHub のプレリリースとして公開します。プレリリースには、そのコミットを指す `build-<コミットのハッシュの先頭 12 文字>` という名前のタグを付けます。更新用のスクリプトは、`--main` や `--no-pull` を付けたときに、この名前でビルドを検索します（[更新する](usage.md#更新する)を参照）。失敗した実行を再実行したときは、同じプレリリースのファイルを差し替えます。
+main への push では、両方の OS で検査が通ったあとに、更新用のスクリプトが取得するビルドを作成して公開します。macOS では GitHub が用意する arm64 の Mac の上で `marimo.app` と `marimo-hook` をビルドし、シンボリックリンクと実行の権限が保たれるよう tar で `marimo-macos-arm64.tar.gz` にまとめます。Windows では x64 の Windows の上で NSIS（Windows 向けのインストーラを作成する仕組み）のインストーラと `marimo-hook.exe` をビルドし、`marimo-windows-x64.zip` にまとめます。両方のビルドが成功したときのみ、二つのファイルとそのチェックサムを記載した `SHA256SUMS` を、GitHub のプレリリースとして公開します。プレリリースには、そのコミットを指す `build-<コミットのハッシュの先頭 12 文字>` という名前のタグを付けます。更新用のスクリプトは、`--main` や `--no-pull` を付けたときに、この名前でビルドを検索します（[更新する](usage.ja.md#更新する)を参照）。失敗した実行を再実行したときは、同じプレリリースのファイルを差し替えます。
 
 公開のあとに、`build-` で始まるプレリリースを作成順に並べ、新しい 3 件を残して、それより古いものをタグごと削除します。`build-` で始まらないリリースとタグには触れないため、`v` で始まるリリースとプレリリースは削除されません。main のビルドは古いものから削除されるため、main が進んだあとに古いコミットへ戻して更新しようとしても、そのビルドが無いことがあります。そのときは `--build` でローカルでビルドします。
 
@@ -391,14 +395,14 @@ pull request と、main と `v` で始まるタグ以外での手動の実行（
 
 ## 動作確認の状況
 
-ツールと画面ごとに、確認した内容と制約をまとめています。必要なバージョンは、README の[動作環境](../README.md#動作環境)に記載しています。
+ツールと画面ごとに、確認した内容と制約をまとめています。必要なバージョンは、README の[動作環境](../README.ja.md#動作環境)に記載しています。
 
 | ツール | 使い方 | 確認の状況 | 確認した内容と制約 |
 | --- | --- | --- | --- |
 | Claude Code | macOS のターミナルの CLI | 確認済み | すべての機能。フックと statusLine の両方の動作と、更新用のスクリプトによるローカルでのビルドと更新を確認しています。パネルのセッションを押して移動する機能は Terminal.app と Ghostty で確認しており、Ghostty では Claude Code の background session からも移動できます。iTerm2 と VS Code の統合ターミナルでの区別のしかたは、それぞれのアプリの文書に基づいています |
-| Claude Code | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine は呼ばれません（[利用制限の表示](usage.md#利用制限の表示)を参照） |
+| Claude Code | macOS のデスクトップアプリの Code タブ | 確認済み | フックは承認待ちを含めて届きます。statusLine は呼ばれません（[利用制限の表示](usage.ja.md#利用制限の表示)を参照） |
 | Claude Code | VS Code の拡張機能 | 未確認 | statusLine が動作するかを確認していません |
-| Claude Code | Windows | 一部確認済み | Windows 11 で、ビルド、NSIS のインストーラによる導入、更新用のスクリプトによるローカルでのビルドと更新、`install`、フックの発火、自動起動、クリックの透過、通知領域のアイコンからウィンドウを隠して再表示する操作を確認しています。statusLine が無い場合の `install` による登録が Git Bash と PowerShell のどちらでも動作することと、既存の statusLine を `install` がラップしても元の表示が変わらず、CLI のセッションでコンテキスト使用率がパーセントで表示されることも確認しています（[statusLine のラップのしかた](#statusline-のラップのしかた)を参照）。パネルのセッションを押して移動する機能は、デスクトップアプリの Code タブ、Windows Terminal、conhost、VS Code の統合ターミナルのいずれでも確認しています（[セッションへ移動する](usage.md#セッションへ移動する)を参照） |
+| Claude Code | Windows | 一部確認済み | Windows 11 で、ビルド、NSIS のインストーラによる導入、更新用のスクリプトによるローカルでのビルドと更新、`install`、フックの発火、自動起動、クリックの透過、通知領域のアイコンからウィンドウを隠して再表示する操作を確認しています。statusLine が無い場合の `install` による登録が Git Bash と PowerShell のどちらでも動作することと、既存の statusLine を `install` がラップしても元の表示が変わらず、CLI のセッションでコンテキスト使用率がパーセントで表示されることも確認しています（[statusLine のラップのしかた](#statusline-のラップのしかた)を参照）。パネルのセッションを押して移動する機能は、デスクトップアプリの Code タブ、Windows Terminal、conhost、VS Code の統合ターミナルのいずれでも確認しています（[セッションへ移動する](usage.ja.md#セッションへ移動する)を参照） |
 | Claude Code | Linux | 未確認 | 動作を確認していません |
 | Claude Code | クラウドで動くセッション（スマートフォンの Code タブなど） | 対象外 | ローカルの `~/.claude/settings.json` を読まないため、フックが届きません |
 | Claude Code | Cowork | 対象外 | settings.json のフックが発火しないという報告があります |
@@ -415,7 +419,7 @@ pull request と、main と `v` で始まるタグ以外での手動の実行（
 
 ## リリースを作る
 
-正式なリリースは、`vX.Y.Z` という名前のタグを main のコミットに付けて作成します。最初の正式なリリースは `v0.1.0` です。更新用のスクリプトは、既定でこの正式なリリースのうち最新のものを導入します（[更新する](usage.md#更新する)を参照）。
+正式なリリースは、`vX.Y.Z` という名前のタグを main のコミットに付けて作成します。最初の正式なリリースは `v0.1.0` です。更新用のスクリプトは、既定でこの正式なリリースのうち最新のものを導入します（[更新する](usage.ja.md#更新する)を参照）。
 
 macOS では、`tools/release.sh` にバージョンを一つ渡すと、以下の手順をまとめて実行します。
 
@@ -444,9 +448,9 @@ git push origin v0.1.0
 
 ## アイコンを描き直す
 
-アイコンを描くスクリプトは、[素材を作り直す](customize.md#素材を作り直す)の手順で作成した Python の仮想環境で実行します。アイコンはビルド時にアプリへ埋め込まれるため、描き直したらアプリを再ビルドします。
+アイコンを描くスクリプトは、[素材を作り直す](customize.ja.md#素材を作り直す)の手順で作成した Python の仮想環境で実行します。アイコンはビルド時にアプリへ埋め込まれるため、描き直したらアプリを再ビルドします。
 
-メニューバーと通知領域のアイコンは、`tools/tray_icon.py` が Pillow のみでまりもの形に描きます。実行すると `app/src-tauri/icons/` へ四つの PNG を書き出します。`tray-template.png` は macOS の通常のアイコンで、メニューバーの明るさに合わせて macOS が白か黒で描くテンプレート画像です。Windows の通知領域はこの描き分けをしないため、`tray-color.png` を Windows の通常のアイコンにしています。`tray-waiting.png` と `tray-error.png` は、承認待ちとエラーのときに両方の OS で使用するアイコンです（見え方は[メニューバーと通知領域のアイコン](usage.md#メニューバーと通知領域のアイコン)を参照）。メニューバーは画像の高さを 18 ポイントに縮めて配置するため、いずれも 2 倍の画面で等倍になる 36×36 ピクセルにしています。
+メニューバーと通知領域のアイコンは、`tools/tray_icon.py` が Pillow のみでまりもの形に描きます。実行すると `app/src-tauri/icons/` へ四つの PNG を書き出します。`tray-template.png` は macOS の通常のアイコンで、メニューバーの明るさに合わせて macOS が白か黒で描くテンプレート画像です。Windows の通知領域はこの描き分けをしないため、`tray-color.png` を Windows の通常のアイコンにしています。`tray-waiting.png` と `tray-error.png` は、承認待ちとエラーのときに両方の OS で使用するアイコンです（見え方は[メニューバーと通知領域のアイコン](usage.ja.md#メニューバーと通知領域のアイコン)を参照）。メニューバーは画像の高さを 18 ポイントに縮めて配置するため、いずれも 2 倍の画面で等倍になる 36×36 ピクセルにしています。
 
 アプリのアイコンは、`tools/app_icon.py` が水槽の中の顔のあるまりもを描きます。毛並みは乱数で置いた短い線を数万本重ねて描き、乱数の種を固定しているため、何度実行しても同じ画像になります。実行すると `app/src-tauri/icons/` へ `icon.icns`、`icon.ico`、`icon.png`、`32x32.png`、`128x128.png`、`128x128@2x.png` を書き出します。macOS 用の `icon.icns` は、1024×1024 ピクセルの画像の中央 824 ピクセルに角丸の正方形を描いて周りを透明にし、Dock に並ぶ他のアプリと大きさを揃えます。Windows と Linux 用の残りのファイルは、同じ絵から角丸の正方形のみを切り出して画像いっぱいに描きます。
 
