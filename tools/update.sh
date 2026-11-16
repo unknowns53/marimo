@@ -133,10 +133,10 @@ if [[ $no_pull -eq 0 && ($main -eq 1 || $build -eq 1) ]]; then
   git pull --ff-only
 elif [[ $no_pull -eq 1 && $build -eq 1 ]]; then
   branch="$(git branch --show-current || true)"
-  msg "--no-pull が指定されたので、今のチェックアウト（$branch）をそのままビルドします" "--no-pull was given, so building the current checkout ($branch) as is"
+  msg "--no-pull が指定されたので、今のチェックアウト（${branch}）をそのままビルドします" "--no-pull was given, so building the current checkout ($branch) as is"
 elif [[ $no_pull -eq 1 ]]; then
   branch="$(git branch --show-current || true)"
-  msg "--no-pull が指定されたので、今のチェックアウト（$branch）のコミットのビルドを取ってきます" "--no-pull was given, so downloading the build of the current checkout ($branch)"
+  msg "--no-pull が指定されたので、今のチェックアウト（${branch}）のコミットのビルドを取ってきます" "--no-pull was given, so downloading the build of the current checkout ($branch)"
 fi
 
 # フォークから使ったときに、フォーク自身のリリースを取りに行けるよう、origin が GitHub ならそこから決める。
