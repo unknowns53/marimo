@@ -480,6 +480,9 @@ fn claude_config_dir_sets_the_default_settings_path() {
         .args(["install", "--dry-run"])
         .env("MARIMO_HOME", &env.home)
         .env("CLAUDE_CONFIG_DIR", env.settings.parent().unwrap())
+        // Antigravity の設定は ~/.gemini/config から探すので、利用者の本物のホームを読ませない。
+        .env("HOME", env.dir.path())
+        .env("USERPROFILE", env.dir.path())
         .env("CODEX_HOME", &env.codex)
         .env("XDG_CONFIG_HOME", &env.xdg)
         .output()
