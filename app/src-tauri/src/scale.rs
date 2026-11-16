@@ -1,7 +1,7 @@
 use std::fs;
 use std::io;
 
-use marimo_core::{MarimoHome, store};
+use marimo_core::{LangSetting, MarimoHome, store};
 use serde::{Deserialize, Serialize};
 
 use crate::window_pos::{Corner, StageRect};
@@ -217,6 +217,10 @@ struct Display {
     character: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stage_aspect: Option<f64>,
+    // 読むのは marimo_core::LangSetting::load で、フックと CLI も同じ規則で読む。ここに持つのは、
+    // ほかの項目を保存するときに消さないためである。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    language: Option<String>,
 }
 
 fn read_display(home: &MarimoHome) -> Display {
@@ -399,6 +403,12 @@ pub fn load_aspect(home: &MarimoHome) -> f64 {
 pub fn save_aspect(home: &MarimoHome, aspect: f64) -> io::Result<()> {
     let mut d = read_display(home);
     d.stage_aspect = Some(clamp_aspect(aspect));
+    store::write_json_durable(&home.display_file(), &d)
+}
+
+pub fn save_language(home: &MarimoHome, setting: LangSetting) -> io::Result<()> {
+    let mut d = read_display(home);
+    d.language = Some(setting.as_str().to_owned());
     store::write_json_durable(&home.display_file(), &d)
 }
 

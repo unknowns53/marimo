@@ -1,5 +1,6 @@
 import type { HitMask } from "./hitArea";
-import type { StandingManifest } from "./manifest";
+import { t } from "./i18n";
+import type { LocalizedName, StandingManifest } from "./manifest";
 import type { Status } from "./types";
 import { StandingRenderer } from "./standing";
 
@@ -30,7 +31,7 @@ export interface CharacterRenderer {
 export interface SpriteManifest {
   mode: "sprite";
   name?: string;
-  display_name?: string;
+  display_name?: LocalizedName;
   pixelated?: boolean;
   sheet: string;
   columns: number;
@@ -51,6 +52,6 @@ export function createRenderer(manifest: Manifest, baseUrl: string): CharacterRe
     case "standing":
       return new StandingRenderer(manifest, baseUrl);
     case "sprite":
-      throw new Error("SD モード（sprite）の描画は実装されていません");
+      throw new Error(t("SD モード（sprite）の描画は実装されていません", "Sprite mode is not implemented"));
   }
 }

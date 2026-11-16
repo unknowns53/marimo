@@ -1,26 +1,33 @@
 import { MARKABLE, sessionKey } from "./acknowledged";
-import { chatTitle, folderName, formatAge, formatClock, formatTokens, STATUS_LABEL } from "./format";
+import { chatTitle, folderName, formatAge, formatClock, formatTokens, formatUpdated } from "./format";
+import { plural, t } from "./i18n";
 import { limitLine, type LimitLine, type LimitSources } from "./limits";
 import {
+  countLabel,
   hasContent,
   nextRowOrder,
-  ROW_ORDER_DESCRIPTION,
-  ROW_ORDER_LABEL,
+  rowOrderDescription,
+  rowOrderLabel,
   type PanelPlan,
   type PanelView,
   type RowOrder,
 } from "./panelModel";
 import type { AppIcons, Provider, SessionState, Status } from "./types";
 
-const FALLBACK_SUMMARY: Record<Status, string> = {
-  idle: "",
-  working: "考え中…",
-  waiting: "確認待ち",
-  done: "完了",
-  error: "エラー",
-};
-
-const EMPTY_LIST_TEXT = "進行中のセッションはありません";
+function fallbackSummary(status: Status): string {
+  switch (status) {
+    case "idle":
+      return "";
+    case "working":
+      return t("考え中…", "Thinking…");
+    case "waiting":
+      return t("確認待ち", "Needs your input");
+    case "done":
+      return t("完了", "Done");
+    case "error":
+      return t("エラー", "Error");
+  }
+}
 
 export interface PanelElements {
   panel: HTMLElement;
@@ -84,7 +91,7 @@ export function renderPanel(
   if (!hasContent(view)) {
     // 件数だけの表示は件数の行に重ねる詳細でだけ今日の既読を見せるので、件数が無ければ出さない。
     const today = view.style === "detail" ? todayChildren(view.plan, icons, now, actions, todayOpen) : [];
-    children = [el("div", "empty", EMPTY_LIST_TEXT), ...today];
+    children = [el("div", "empty", t("進行中のセッションはありません", "No active sessions")), ...today];
   } else if (view.style === "counts") children = [renderCounts(view, icons, now, actions, todayOpen)];
   else children = detailChildren(view.plan, icons, now, actions, todayOpen);
   const kept = keepScroll(rows);
@@ -102,8 +109,12 @@ export function renderPanel(
 function renderOrder(group: HTMLElement, order: RowOrder): void {
   const button = group.querySelector("button");
   if (!button) return;
-  button.textContent = ROW_ORDER_LABEL[order];
-  button.title = `${ROW_ORDER_DESCRIPTION[order]}に並べています。押すと${ROW_ORDER_LABEL[nextRowOrder(order)]}に切り替えます`;
+  const next = rowOrderLabel(nextRowOrder(order));
+  button.textContent = rowOrderLabel(order);
+  button.title = t(
+    `${rowOrderDescription(order)}に並べています。押すと${next}に切り替えます`,
+    `Sorted: ${rowOrderDescription(order)}. Click to sort by ${next}.`,
+  );
 }
 
 interface KeptScroll {
@@ -178,10 +189,17 @@ function todayChildren(
 ): HTMLElement[] {
   if (plan.today.length === 0) return [];
   const line = el("div", "today-line");
-  line.title = "今日完了かエラーになって既読にしたセッション";
+  line.title = t(
+    "今日完了かエラーになって既読にしたセッション",
+    "Sessions that finished or failed today and were marked read",
+  );
   line.setAttribute("role", "button");
   line.setAttribute("aria-expanded", String(open));
-  line.append(el("span", "today-marker", open ? "▾" : "▸"), el("span", "", `今日の既読 ${plan.today.length} 件`));
+  const count = plan.today.length;
+  line.append(
+    el("span", "today-marker", open ? "▾" : "▸"),
+    el("span", "", t(`今日の既読 ${count} 件`, `Read today: ${count}`)),
+  );
   line.addEventListener("click", (e) => {
     e.stopPropagation();
     actions.toggleToday();
@@ -207,7 +225,7 @@ function renderCounts(
 ): HTMLElement {
   const line = () => {
     const node = el("div", "counts-line");
-    const items = view.counts.map((c) => countItem("counts-item", c.status, `${STATUS_LABEL[c.status]} ${c.count}`));
+    const items = view.counts.map((c) => countItem("counts-item", c.status, countLabel(c)));
     items.forEach((item, i) => {
       if (i > 0) node.append(el("span", "counts-sep", "·"));
       node.append(item);
@@ -245,7 +263,7 @@ function renderRow(
   actions: RowActions,
 ): HTMLElement {
   const row = el("div", read ? "row read" : "row");
-  const summary = s.activity?.summary || FALLBACK_SUMMARY[s.status];
+  const summary = s.activity?.summary || fallbackSummary(s.status);
   const detail = s.activity?.detail ?? "";
   const place = [s.title, s.cwd ?? s.session_id].filter(Boolean).join("\n");
   row.title = [place, summary, detail].filter(Boolean).join("\n\n");
@@ -279,8 +297,8 @@ function renderSummary(s: SessionState, summary: string): HTMLElement {
   const line = el("div", "row-summary");
   const agents = Object.keys(s.agents ?? {}).length;
   if (agents > 0) {
-    const badge = el("span", "row-agents", `サブ ${agents}`);
-    badge.title = `サブエージェント ${agents} 件が動いています`;
+    const badge = el("span", "row-agents", t(`サブ ${agents}`, `Sub ${agents}`));
+    badge.title = t(`サブエージェント ${agents} 件が動いています`, `${plural(agents, "subagent", "subagents")} running`);
     line.append(badge);
   }
   line.append(summary);
@@ -290,8 +308,11 @@ function renderSummary(s: SessionState, summary: string): HTMLElement {
 function markReadButton(s: SessionState, actions: RowActions): HTMLElement {
   const button = el("button", "row-read", "✓");
   button.type = "button";
-  button.title = `既読にする（アプリは開きません。${READ_KEY} を押しながらセッションをクリックしても同じです）`;
-  button.setAttribute("aria-label", "既読にする");
+  button.title = t(
+    `既読にする（アプリは開きません。${READ_KEY} を押しながらセッションをクリックしても同じです）`,
+    `Mark as read without opening the app (same as ${READ_KEY}-clicking the session)`,
+  );
+  button.setAttribute("aria-label", t("既読にする", "Mark as read"));
   button.addEventListener("click", (e) => {
     e.stopPropagation();
     actions.markRead(s);
@@ -301,7 +322,7 @@ function markReadButton(s: SessionState, actions: RowActions): HTMLElement {
 
 function renderAge(updatedAt: number, now: number): HTMLElement {
   const age = el("span", "row-age", formatAge(updatedAt, now));
-  age.title = `${formatClock(updatedAt)} 更新`;
+  age.title = formatUpdated(updatedAt);
   return age;
 }
 
@@ -325,7 +346,7 @@ export function renderContext(s: SessionState): HTMLElement {
   if (ctx?.used_percentage != null) {
     const pct = Math.max(0, Math.min(100, ctx.used_percentage));
     const wrap = el("span", "ctx");
-    wrap.title = `コンテキスト ${Math.round(pct)}%`;
+    wrap.title = t(`コンテキスト ${Math.round(pct)}%`, `Context ${Math.round(pct)}%`);
     const bar = el("span", "ctx-bar");
     const fill = el("i", pct >= 80 ? "high" : "");
     fill.style.width = `${pct}%`;
@@ -335,7 +356,11 @@ export function renderContext(s: SessionState): HTMLElement {
   }
   if (ctx?.total_input_tokens != null) {
     const tokens = el("span", "ctx-tokens", formatTokens(ctx.total_input_tokens));
-    tokens.title = `コンテキスト ${ctx.total_input_tokens.toLocaleString()} トークン（上限が不明なため % は表示していません）`;
+    const count = ctx.total_input_tokens.toLocaleString();
+    tokens.title = t(
+      `コンテキスト ${count} トークン（上限が不明なため % は表示していません）`,
+      `Context ${count} tokens (limit unknown, so no %)`,
+    );
     return tokens;
   }
   return el("span", "ctx-none");
@@ -349,14 +374,16 @@ function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons):
     values = el("span", "limit-values marked");
     for (const g of line.groups) {
       const group = el("span", !allStale && g.stale ? "limit-group stale" : "limit-group");
-      group.title = `${PROVIDER_NAME[g.provider]} ${formatClock(g.updatedAt)} 更新`;
+      const name = PROVIDER_NAME[g.provider];
+      const clock = formatClock(g.updatedAt);
+      group.title = t(`${name} ${clock} 更新`, `${name} updated ${clock}`);
       group.append(providerMarker(g.provider, icons), el("span", "", g.text));
       values.append(group);
     }
   } else {
     values = el("span", "limit-values", line.groups.map((g) => g.text).join(" · "));
   }
-  container.replaceChildren(values, el("span", "limit-time", `${formatClock(line.updatedAt)} 更新`));
+  container.replaceChildren(values, el("span", "limit-time", formatUpdated(line.updatedAt)));
   container.classList.toggle("stale", allStale);
 }
 

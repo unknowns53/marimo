@@ -1,4 +1,5 @@
 import { folderName } from "./format";
+import { t } from "./i18n";
 import type { Dialogue, SessionState, Status } from "./types";
 
 const SHORT_MS = 2 * 60 * 1000;
@@ -48,11 +49,12 @@ function parent(category: string): string | null {
 
 export function formatDuration(ms: number): string {
   const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return "1 分足らず";
-  if (minutes < 60) return `${minutes} 分`;
+  if (minutes < 1) return t("1 分足らず", "under a minute");
+  if (minutes < 60) return t(`${minutes} 分`, `${minutes} min`);
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return rest === 0 ? `${hours} 時間` : `${hours} 時間 ${rest} 分`;
+  if (rest === 0) return t(`${hours} 時間`, `${hours} hr`);
+  return t(`${hours} 時間 ${rest} 分`, `${hours} hr ${rest} min`);
 }
 
 export function fillTemplate(template: string, s: SessionState | null): string {

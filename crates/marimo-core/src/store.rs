@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 
 use crate::antigravity;
 use crate::codex::RolloutTail;
+use crate::lang::Lang;
 use crate::paths::MarimoHome;
 use crate::process;
 use crate::repo::repo_name;
@@ -234,7 +235,11 @@ fn apply_session(
     let transition = if extras.hidden {
         Transition::Delete
     } else {
-        transition(input, current.as_ref(), now_ms())
+        let input = HookInput {
+            lang: Lang::resolve(home),
+            ..input.clone()
+        };
+        transition(&input, current.as_ref(), now_ms())
     };
     match transition {
         Transition::Write(mut next) => {
@@ -573,6 +578,7 @@ pub fn prune_stale_sessions(
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
         Err(e) => return Err(e),
     };
+    let lang = Lang::resolve(home);
     let now = UNIX_EPOCH + Duration::from_millis(now_ms);
     let max_age_ms = u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX);
     let mut removed = 0;
@@ -599,9 +605,9 @@ pub fn prune_stale_sessions(
             } || turn == LastTurn::Moved
                 || session.as_ref().is_some_and(abandoned);
             let next = session.filter(|_| !stale).and_then(|s| {
-                release_orphan(&s, now_ms)
-                    .or_else(|| release_interrupted(&s, turn, now_ms))
-                    .or_else(|| expire_agents(&s, now_ms))
+                release_orphan(&s, lang, now_ms)
+                    .or_else(|| release_interrupted(&s, turn, lang, now_ms))
+                    .or_else(|| expire_agents(&s, lang, now_ms))
             });
             (read, stale, next)
         } else {
@@ -643,13 +649,13 @@ fn last_turn(session: &SessionState) -> LastTurn {
         .unwrap_or(LastTurn::Other)
 }
 
-fn release_orphan(session: &SessionState, now_ms: u64) -> Option<SessionState> {
+fn release_orphan(session: &SessionState, lang: Lang, now_ms: u64) -> Option<SessionState> {
     let busy = matches!(session.status, Status::Working | Status::Waiting);
     if !busy || !session.host.as_ref().is_some_and(process::has_exited) {
         return None;
     }
     // サブエージェントも同じプロセスの中で動くので、一緒に終わっている。
-    interrupt(session, |_| false, now_ms)
+    interrupt(session, |_| false, lang, now_ms)
 }
 
 // Claude Code がバックグラウンドで用意しておく予備のプロセス（claude bg-spare）は、自分の session_id で SessionStart を
@@ -665,6 +671,7 @@ fn abandoned(session: &SessionState) -> bool {
 fn release_interrupted(
     session: &SessionState,
     turn: LastTurn,
+    lang: Lang,
     now_ms: u64,
 ) -> Option<SessionState> {
     let LastTurn::Interrupted { at_ms } = turn else {
@@ -677,7 +684,7 @@ fn release_interrupted(
     {
         return None;
     }
-    interrupt(session, |a| a.last_seen > at_ms, now_ms).filter(|next| next != session)
+    interrupt(session, |a| a.last_seen > at_ms, lang, now_ms).filter(|next| next != session)
 }
 
 /// agy は承認を求めている間に呼ぶフックを持たず、利用者が承認を断ったときや、モデルの応答を待つ間に止めたときも
@@ -727,8 +734,13 @@ pub fn refresh_antigravity_steps(
         if !lock.is_held() || read_file(&path).ok().as_deref() != Some(read.as_slice()) {
             continue;
         }
+        let lang = Lang::resolve(home);
         let mut next = session;
         for event in &events {
+            let event = &HookInput {
+                lang,
+                ..event.clone()
+            };
             if let Transition::Write(s) = transition(event, Some(&next), now_ms) {
                 next = *s;
             }
@@ -743,6 +755,7 @@ pub fn refresh_antigravity_steps(
 fn interrupt(
     session: &SessionState,
     keep: impl Fn(&AgentRun) -> bool,
+    lang: Lang,
     now_ms: u64,
 ) -> Option<SessionState> {
     // 完了とエラーは、まだ読んでいない結果なので残す。
@@ -750,12 +763,13 @@ fn interrupt(
         session.own_status.unwrap_or(session.status),
         Status::Done | Status::Error
     ) {
-        return Some(without_agents(session, keep, now_ms));
+        return Some(without_agents(session, keep, lang, now_ms));
     }
     let input = HookInput {
         provider: session.provider,
         session_id: session.session_id.clone(),
         hook_event_name: "Interrupt".to_owned(),
+        lang,
         ..HookInput::default()
     };
     let mut ended = session.clone();

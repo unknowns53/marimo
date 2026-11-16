@@ -18,8 +18,9 @@ import { BubbleModel, type BubbleView } from "./bubbleModel";
 import { bubbleEnabled, DEFAULT_BUBBLE_SETTINGS, type BubbleSettings } from "./bubbleSettings";
 import { categoryFor, mergeDialogue } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
+import { lang, LANGUAGE_EVENT, setLang, t, type LangSetting, type LanguageState } from "./i18n";
 import type { Point } from "./expander";
-import { characterCandidates, characterInfo, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
+import { characterCandidates, characterInfo, characterName, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
 import { onScrollbar, READ_KEY, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
 import { RowHover } from "./rowHover";
@@ -28,7 +29,7 @@ import {
   PANEL_STYLES,
   panelView,
   nextRowOrder,
-  ROW_ORDER_LABEL,
+  rowOrderLabel,
   ROW_ORDERS,
   trayList,
   type PanelDisplay,
@@ -73,6 +74,7 @@ const acknowledged = new Acknowledged((keys) =>
 let bubbleSettings: BubbleSettings = DEFAULT_BUBBLE_SETTINGS;
 let usageRefreshMinutes = 0;
 let usageTools: UsageTools = DEFAULT_USAGE_TOOLS;
+let languageSetting: LangSetting = "auto";
 const bubbleModel = new BubbleModel(acknowledged, undefined, (status) => bubbleEnabled(bubbleSettings, status));
 // 知らせの吹き出しは、押すとその行を押したのと同じ操作になる。移動せずに閉じたいときは行と同じ修飾キーを使う。
 const bubble = new Bubble(bubbleNode, (e) => {
@@ -172,7 +174,15 @@ async function reloadDialogue(): Promise<void> {
 function showSpeech(): void {
   const view = panelDisplay.show_character ? bubbleModel.view : null;
   scheduleExpiry(view);
-  if (view) bubble.show(view.text, `クリックするとセッションへ移動します（${READ_KEY} を押しながらクリックすると閉じます）`);
+  if (view) {
+    bubble.show(
+      view.text,
+      t(
+        `クリックするとセッションへ移動します（${READ_KEY} を押しながらクリックすると閉じます）`,
+        `Click to go to the session (${READ_KEY}-click to dismiss)`,
+      ),
+    );
+  }
   else bubble.hide();
   placeBubble();
   hits.schedule();
@@ -354,9 +364,7 @@ async function showCharacter(id: string): Promise<"shown" | "failed" | "supersed
   const superseded = () => request !== characterRequest;
   const entry = characters.find((c) => c.info.id === id);
   const base = characterBase(id);
-  const nextDialogue = await fetch(new URL("dialogue.json", base))
-    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : {}))
-    .catch(() => ({}));
+  const nextDialogue = await loadDefaultDialogue(base);
   if (superseded()) return "superseded";
   let next: CharacterRenderer | undefined;
   try {
@@ -386,6 +394,18 @@ async function showCharacter(id: string): Promise<"shown" | "failed" | "supersed
   await reloadDialogue();
   hits.schedule();
   return "shown";
+}
+
+async function fetchDialogue(base: string, file: string): Promise<Dialogue | null> {
+  return fetch(new URL(file, base))
+    .then((r) => (r.ok ? (r.json() as Promise<Dialogue>) : null))
+    .catch(() => null);
+}
+
+// 英語のセリフを持たないキャラクターでも黙らないよう、日本語の既定へ戻す。
+async function loadDefaultDialogue(base: string): Promise<Dialogue> {
+  const localized = lang() === "en" ? await fetchDialogue(base, "dialogue.en.json") : null;
+  return localized ?? (await fetchDialogue(base, "dialogue.json")) ?? {};
 }
 
 async function switchCharacter(id: string): Promise<void> {
@@ -471,12 +491,13 @@ function settingsState(): SettingsState {
   return {
     display: panelDisplay,
     bubble: bubbleSettings,
-    characters: characters.map(({ info }) => ({ id: info.id, name: info.displayName })),
+    characters: characters.map(({ info, manifest }) => ({ id: info.id, name: characterName(info.id, manifest) })),
     character: characterId ?? null,
     scale: scale?.current ?? null,
     autostart: autostart ?? null,
     usage_refresh_minutes: usageRefreshMinutes,
     usage_tools: usageTools,
+    language: languageSetting,
   };
 }
 
@@ -527,38 +548,47 @@ async function handleSettingsRequest(request: SettingsRequest): Promise<void> {
       redrawPanel();
       await invoke("set_usage_tools", { tools: usageTools }).catch((e) => console.error("usage tools", e));
       break;
+    case "language": {
+      // 反映は全部のウィンドウへ届く LANGUAGE_EVENT でもするが、戻り値でも反映して、届く順によらず揃える。
+      const language = await invoke<LanguageState>("set_language", { setting: request.setting }).catch((e) => {
+        console.error("language", e);
+        return null;
+      });
+      if (language) queueLanguage(language);
+      return;
+    }
   }
   publishSettings();
 }
 
-const PANEL_STYLE_LABEL: Record<PanelStyle, string> = {
-  detail: "詳細を表示",
-  counts: "件数だけ表示",
-};
+// 英語はトレイのメニュー（tray.rs）と揃える。
+function panelStyleLabel(style: PanelStyle): string {
+  return style === "detail" ? t("詳細を表示", "Show Details") : t("件数だけ表示", "Show Counts Only");
+}
 
 async function openMenu(): Promise<void> {
   const menu = await Menu.new({
     items: [
       await CheckMenuItem.new({
-        text: "立ち絵を表示",
+        text: t("立ち絵を表示", "Show Character"),
         checked: panelDisplay.show_character,
         action: () => setShowCharacter(!panelDisplay.show_character),
       }),
       ...(await Promise.all(
         PANEL_STYLES.map((style) =>
           CheckMenuItem.new({
-            text: PANEL_STYLE_LABEL[style],
+            text: panelStyleLabel(style),
             checked: style === panelDisplay.panel_style,
             action: () => setPanelStyle(style),
           }),
         ),
       )),
       await Submenu.new({
-        text: "並べ方",
+        text: t("並べ方", "Sort Order"),
         items: await Promise.all(
           ROW_ORDERS.map((order) =>
             CheckMenuItem.new({
-              text: ROW_ORDER_LABEL[order],
+              text: rowOrderLabel(order),
               checked: order === panelDisplay.row_order,
               action: () => setRowOrder(order),
             }),
@@ -567,16 +597,16 @@ async function openMenu(): Promise<void> {
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
-        text: "すべて既読にする",
+        text: t("すべて既読にする", "Mark All as Read"),
         enabled: unreadMarkable(snapshot, acknowledged).length > 0,
         action: markAllRead,
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
       await MenuItem.new({
-        text: "設定…",
+        text: t("設定…", "Settings…"),
         action: () => void invoke("open_settings").catch((e) => console.error("open settings", e)),
       }),
-      await MenuItem.new({ text: "終了", action: () => void invoke("quit") }),
+      await MenuItem.new({ text: t("終了", "Quit"), action: () => void invoke("quit") }),
     ],
   });
   await menu.popup();
@@ -620,7 +650,37 @@ function bindWindowControls(): void {
   });
 }
 
+function queueLanguage(language: LanguageState): void {
+  applying = applying.then(() => applyLanguage(language)).catch((e) => console.error("language", e));
+}
+
+// 言語を変えたときは、文言を持つものをすべて作り直す。スナップショットと同じ列に並べ、セリフを読み直している間に
+// 届いたスナップショットが古い言語のセリフで吹き出しを出さないようにする。
+async function applyLanguage(language: LanguageState): Promise<void> {
+  if (language.lang === lang() && language.setting === languageSetting) return;
+  languageSetting = language.setting;
+  setLang(language.lang);
+  if (characterId) defaultDialogue = await loadDefaultDialogue(characterBase(characterId));
+  await reloadDialogue();
+  bubbleModel.reword(shown, dialogue);
+  showSpeech();
+  traySessionsSent = undefined;
+  syncTraySessions();
+  redrawPanel();
+  publishSettings();
+}
+
 async function start(): Promise<void> {
+  // パネルや吹き出しを描く前に言語を決める。
+  await listen<LanguageState>(LANGUAGE_EVENT, (e) => queueLanguage(e.payload));
+  const language = await invoke<LanguageState>("get_language").catch((e) => {
+    console.error("language", e);
+    return null;
+  });
+  if (language) {
+    languageSetting = language.setting;
+    setLang(language.lang);
+  }
   bindWindowControls();
   bindRowOrder();
   // トレイのメニューで選んだ表示は Rust が保存してから届くので、反映だけをする。起動中に選ばれたものを

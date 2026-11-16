@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::activity::{self, Activity};
+use crate::lang::Lang;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -442,6 +443,9 @@ pub struct HookInput {
     /// 入力には含まれず、どのサブコマンドで受けたかで決まる。
     #[serde(skip)]
     pub provider: Provider,
+    /// 要約を書く言語。入力には含まれず、store が display.json と OS の言語から決めて入れる。
+    #[serde(skip)]
+    pub lang: Lang,
     pub session_id: String,
     pub hook_event_name: String,
     #[serde(default)]
@@ -591,7 +595,13 @@ pub fn transition(input: &HookInput, current: Option<&SessionState>, now_ms: u64
     if next.started_at == 0 {
         next.started_at = now_ms;
     }
-    settle(&mut next, current.map(|c| c.status), now_ms, now_ms);
+    settle(
+        &mut next,
+        current.map(|c| c.status),
+        input.lang,
+        now_ms,
+        now_ms,
+    );
     next.updated_at = now_ms;
     Transition::Write(Box::new(next))
 }
@@ -611,7 +621,7 @@ fn main_update(
         let name = input.tool_name.as_deref().unwrap_or("");
         (
             name,
-            activity::tool_activity(name, input.tool_input.as_ref(), cwd),
+            activity::tool_activity(input.lang, name, input.tool_input.as_ref(), cwd),
         )
     };
     let agent_pending = current.is_some_and(|c| c.agents.values().any(|a| a.pending.is_some()));
@@ -833,6 +843,7 @@ fn subagent_update(
         _ if asks_permission => {
             let name = input.tool_name.as_deref().unwrap_or("");
             run.pending = Some(activity::tool_activity(
+                input.lang,
                 name,
                 input.tool_input.as_ref(),
                 cwd.as_deref(),
@@ -848,18 +859,19 @@ fn subagent_update(
 pub fn without_agents(
     state: &SessionState,
     keep: impl Fn(&AgentRun) -> bool,
+    lang: Lang,
     now_ms: u64,
 ) -> SessionState {
     let mut next = state.clone();
     next.fill_own();
     next.agents.retain(|_, a| keep(a));
-    settle(&mut next, Some(state.status), now_ms, now_ms);
+    settle(&mut next, Some(state.status), lang, now_ms, now_ms);
     next
 }
 
 /// `AGENT_STALE_MS` のあいだイベントのないサブエージェントを外す。表示が変わるなら新しい状態を返す。
 /// updated_at は変えない。セッションを消すまでの 24 時間を、最後のフックから数え続けるためである。
-pub fn expire_agents(state: &SessionState, now_ms: u64) -> Option<SessionState> {
+pub fn expire_agents(state: &SessionState, lang: Lang, now_ms: u64) -> Option<SessionState> {
     let last_stale = state
         .agents
         .values()
@@ -873,6 +885,7 @@ pub fn expire_agents(state: &SessionState, now_ms: u64) -> Option<SessionState> 
     settle(
         &mut next,
         Some(state.status),
+        lang,
         now_ms,
         last_stale.max(state.status_since),
     );
@@ -886,7 +899,13 @@ fn is_stale(agent: &AgentRun, now_ms: u64) -> bool {
 // 期限切れのサブエージェントを外してから、親の会話の状態とサブエージェントを重ねて表示用の値を決める。
 // 承認待ちをいちばん優先し、親の会話の承認待ちを先に見せる。親が完了や待機でも、サブエージェントが
 // 動いていれば作業中として見せる。
-fn settle(next: &mut SessionState, before: Option<Status>, now_ms: u64, changed_at: u64) {
+fn settle(
+    next: &mut SessionState,
+    before: Option<Status>,
+    lang: Lang,
+    now_ms: u64,
+    changed_at: u64,
+) {
     next.agents.retain(|_, a| !is_stale(a, now_ms));
     let own = next.own();
     let pending = next
@@ -899,14 +918,16 @@ fn settle(next: &mut SessionState, before: Option<Status>, now_ms: u64, changed_
         Some(p) if own != Status::Waiting => {
             (Status::Waiting, Some(p), Some("permission".to_owned()))
         }
-        _ if matches!(own, Status::Idle | Status::Done) => match agents_activity(&next.agents) {
-            Some(a) => (Status::Working, Some(a), None),
-            None => (
-                own,
-                next.own_activity.clone(),
-                next.own_status_reason.clone(),
-            ),
-        },
+        _ if matches!(own, Status::Idle | Status::Done) => {
+            match agents_activity(lang, &next.agents) {
+                Some(a) => (Status::Working, Some(a), None),
+                None => (
+                    own,
+                    next.own_activity.clone(),
+                    next.own_status_reason.clone(),
+                ),
+            }
+        }
         _ => (
             own,
             next.own_activity.clone(),
@@ -922,7 +943,7 @@ fn settle(next: &mut SessionState, before: Option<Status>, now_ms: u64, changed_
 }
 
 // 親の会話の Agent ツールの一行表示と同じ形で、動いているサブエージェントの種類を並べる。
-fn agents_activity(agents: &BTreeMap<String, AgentRun>) -> Option<Activity> {
+fn agents_activity(lang: Lang, agents: &BTreeMap<String, AgentRun>) -> Option<Activity> {
     if agents.is_empty() {
         return None;
     }
@@ -935,7 +956,7 @@ fn agents_activity(agents: &BTreeMap<String, AgentRun>) -> Option<Activity> {
         }
     }
     let input = (!types.is_empty()).then(|| json!({ "description": types.join(", ") }));
-    Some(activity::tool_activity("Agent", input.as_ref(), None))
+    Some(activity::tool_activity(lang, "Agent", input.as_ref(), None))
 }
 
 #[cfg(test)]
@@ -1708,9 +1729,9 @@ mod tests {
         assert_eq!(s.status, Status::Working);
 
         // 見回りからも外す。表示が変わる時刻は最後に動いた時刻にし、updated_at は変えない。
-        assert_eq!(expire_agents(&s, t + 1), None);
+        assert_eq!(expire_agents(&s, Lang::Ja, t + 1), None);
         let later = t + AGENT_STALE_MS + 60_000;
-        let e = expire_agents(&s, later).unwrap();
+        let e = expire_agents(&s, Lang::Ja, later).unwrap();
         assert!(e.agents.is_empty());
         assert_eq!(
             (e.status, e.status_since, e.updated_at),

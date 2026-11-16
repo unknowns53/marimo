@@ -3,79 +3,83 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>marimo の設定</title>
+    <title data-en="marimo Settings">marimo の設定</title>
     <link rel="stylesheet" href="/src/settings.css" />
   </head>
   <body>
-    <nav class="list-pane" aria-label="設定の項目">
+    <nav class="list-pane" aria-label="設定の項目" data-en-aria-label="Settings sections">
       <ul class="list" id="sections">
-        <li><button type="button" class="item" data-section="display"><span class="primary">表示</span><span class="secondary">立ち絵、パネル、背景</span></button></li>
-        <li><button type="button" class="item" data-section="bubble"><span class="primary">吹き出し</span><span class="secondary">出す状態と表示時間</span></button></li>
-        <li><button type="button" class="item" data-section="character"><span class="primary">キャラクター</span><span class="secondary">立ち絵の選択と大きさ</span></button></li>
-        <li><button type="button" class="item" data-section="usage"><span class="primary">利用制限</span><span class="secondary">出すツールと再取得の間隔</span></button></li>
-        <li><button type="button" class="item" data-section="startup"><span class="primary">起動</span><span class="secondary">ログイン時の起動</span></button></li>
-        <li><button type="button" class="item" data-section="update"><span class="primary">更新</span><span class="secondary" id="update-summary">現在のバージョンと確認</span></button></li>
+        <li><button type="button" class="item" data-section="display"><span class="primary" data-en="Display">表示</span><span class="secondary" data-en="Character, panel, background">立ち絵、パネル、背景</span></button></li>
+        <li><button type="button" class="item" data-section="bubble"><span class="primary" data-en="Bubbles">吹き出し</span><span class="secondary" data-en="When to show and for how long">出す状態と表示時間</span></button></li>
+        <li><button type="button" class="item" data-section="character"><span class="primary" data-en="Character">キャラクター</span><span class="secondary" data-en="Choice and size">立ち絵の選択と大きさ</span></button></li>
+        <li><button type="button" class="item" data-section="usage"><span class="primary" data-en="Usage limits">利用制限</span><span class="secondary" data-en="Tools and refresh interval">出すツールと再取得の間隔</span></button></li>
+        <li><button type="button" class="item" data-section="startup"><span class="primary" data-en="Startup">起動</span><span class="secondary" data-en="Launch at login">ログイン時の起動</span></button></li>
+        <li><button type="button" class="item" data-section="update"><span class="primary" data-en="Updates">更新</span><span class="secondary" id="update-summary" data-en="Current version and checks">現在のバージョンと確認</span></button></li>
       </ul>
     </nav>
 
     <main class="detail-pane">
       <form id="settings" class="detail">
         <section id="section-display">
-          <h1 class="title">表示</h1>
-          <label class="check"><input type="checkbox" name="show_character" />立ち絵を表示</label>
+          <h1 class="title" data-en="Display">表示</h1>
           <div class="field">
-            <span class="label">パネル</span>
+            <label class="label" for="language" data-en="Language">言語</label>
+            <select id="language" name="language"></select>
+          </div>
+          <label class="check"><input type="checkbox" name="show_character" /><span data-en="Show character">立ち絵を表示</span></label>
+          <div class="field">
+            <span class="label" data-en="Panel">パネル</span>
             <div class="radio-list">
-              <label><input type="radio" name="panel_style" value="detail" /><span><span class="what">詳細</span><span class="why">セッションを 1 件ずつ</span></span></label>
-              <label><input type="radio" name="panel_style" value="counts" /><span><span class="what">件数</span><span class="why">状態ごとの件数だけ</span></span></label>
+              <label><input type="radio" name="panel_style" value="detail" /><span><span class="what" data-en="Details">詳細</span><span class="why" data-en="One row per session">セッションを 1 件ずつ</span></span></label>
+              <label><input type="radio" name="panel_style" value="counts" /><span><span class="what" data-en="Counts">件数</span><span class="why" data-en="Only the number of sessions in each status">状態ごとの件数だけ</span></span></label>
             </div>
           </div>
           <div class="field">
-            <span class="label">並べ方</span>
+            <span class="label" data-en="Sort order">並べ方</span>
             <div class="radio-list">
-              <label><input type="radio" name="row_order" value="started" /><span><span class="what">開始順</span><span class="why">始まった時刻の新しい順</span></span></label>
-              <label><input type="radio" name="row_order" value="status" /><span><span class="what">状態順</span><span class="why">承認待ち、エラー、作業中、完了の順</span></span></label>
-              <label><input type="radio" name="row_order" value="updated" /><span><span class="what">更新順</span><span class="why">最後に更新された時刻の新しい順</span></span></label>
+              <label><input type="radio" name="row_order" value="started" /><span><span class="what" data-en="Start time">開始順</span><span class="why" data-en="Most recently started first">始まった時刻の新しい順</span></span></label>
+              <label><input type="radio" name="row_order" value="status" /><span><span class="what" data-en="Status">状態順</span><span class="why" data-en="Waiting, error, working, then done">承認待ち、エラー、作業中、完了の順</span></span></label>
+              <label><input type="radio" name="row_order" value="updated" /><span><span class="what" data-en="Last update">更新順</span><span class="why" data-en="Most recently updated first">最後に更新された時刻の新しい順</span></span></label>
             </div>
           </div>
           <div class="field">
-            <label class="label" for="panel-opacity">背景の不透明度<output for="panel-opacity" data-for="panel_opacity"></output></label>
+            <label class="label" for="panel-opacity"><span data-en="Background opacity">背景の不透明度</span><output for="panel-opacity" data-for="panel_opacity"></output></label>
             <input id="panel-opacity" type="range" name="panel_opacity" />
           </div>
         </section>
 
         <section id="section-bubble" hidden>
-          <h1 class="title">吹き出し</h1>
+          <h1 class="title" data-en="Bubbles">吹き出し</h1>
           <div class="field">
-            <span class="label">出す状態</span>
+            <span class="label" data-en="Show for">出す状態</span>
             <div class="checks">
-              <label class="check"><input type="checkbox" name="bubble_waiting" />承認待ち</label>
-              <label class="check"><input type="checkbox" name="bubble_done" />完了</label>
-              <label class="check"><input type="checkbox" name="bubble_error" />エラー</label>
+              <label class="check"><input type="checkbox" name="bubble_waiting" /><span data-en="Waiting">承認待ち</span></label>
+              <label class="check"><input type="checkbox" name="bubble_done" /><span data-en="Done">完了</span></label>
+              <label class="check"><input type="checkbox" name="bubble_error" /><span data-en="Error">エラー</span></label>
             </div>
           </div>
           <div class="field">
-            <label class="label" for="bubble-seconds">表示時間</label>
+            <label class="label" for="bubble-seconds" data-en="Display time">表示時間</label>
             <select id="bubble-seconds" name="bubble_seconds"></select>
           </div>
         </section>
 
         <section id="section-character" hidden>
-          <h1 class="title">キャラクター</h1>
+          <h1 class="title" data-en="Character">キャラクター</h1>
           <div class="field">
-            <label class="label" for="character-select">キャラクター</label>
+            <label class="label" for="character-select" data-en="Character">キャラクター</label>
             <select id="character-select" name="character"></select>
           </div>
           <div class="field">
-            <label class="label" for="scale">大きさ<output for="scale" data-for="scale"></output></label>
+            <label class="label" for="scale"><span data-en="Size">大きさ</span><output for="scale" data-for="scale"></output></label>
             <input id="scale" type="range" name="scale" />
           </div>
         </section>
 
         <section id="section-usage" hidden>
-          <h1 class="title">利用制限</h1>
+          <h1 class="title" data-en="Usage limits">利用制限</h1>
           <div class="field">
-            <span class="label">出すツール</span>
+            <span class="label" data-en="Show for">出すツール</span>
             <div class="checks">
               <label class="check"><input type="checkbox" name="usage_claude" />Claude Code</label>
               <label class="check"><input type="checkbox" name="usage_codex" />Codex</label>
@@ -83,30 +87,30 @@
             </div>
           </div>
           <div class="field">
-            <label class="label" for="usage-refresh">再取得の間隔</label>
+            <label class="label" for="usage-refresh" data-en="Refresh interval">再取得の間隔</label>
             <select id="usage-refresh" name="usage_refresh_minutes"></select>
-            <p class="hint">チェックしたツールに利用制限を再取得させる間隔</p>
+            <p class="hint" data-en="How often the checked tools refresh their usage limits">チェックしたツールに利用制限を再取得させる間隔</p>
           </div>
         </section>
 
         <section id="section-startup" hidden>
-          <h1 class="title">起動</h1>
-          <label class="check"><input type="checkbox" name="autostart" />ログイン時に起動</label>
+          <h1 class="title" data-en="Startup">起動</h1>
+          <label class="check"><input type="checkbox" name="autostart" /><span data-en="Launch at login">ログイン時に起動</span></label>
         </section>
 
         <section id="section-update" hidden>
-          <h1 class="title">更新</h1>
+          <h1 class="title" data-en="Updates">更新</h1>
           <dl class="fields">
-            <dt>現在のバージョン</dt>
+            <dt data-en="Current version">現在のバージョン</dt>
             <dd id="version"></dd>
-            <dt>最新のリリース</dt>
+            <dt data-en="Latest release">最新のリリース</dt>
             <dd id="latest"></dd>
-            <dt id="checked-at-label">確認した時刻</dt>
+            <dt id="checked-at-label" data-en="Last checked">確認した時刻</dt>
             <dd id="checked-at"></dd>
           </dl>
           <div class="actions">
             <button type="button" class="btn primary" id="install-update" hidden></button>
-            <button type="button" class="btn" id="check-update">更新を確認</button>
+            <button type="button" class="btn" id="check-update" data-en="Check for Updates">更新を確認</button>
           </div>
           <p id="update-status" class="sub" role="status" aria-live="polite"></p>
         </section>
@@ -116,10 +120,10 @@
     <dialog id="confirm-update">
       <form method="dialog">
         <h1 id="confirm-update-title"></h1>
-        <p>marimo を終了して差し替え、新しいバージョンで起動し直します。</p>
+        <p data-en="marimo will quit, install the update and restart with the new version.">marimo を終了して差し替え、新しいバージョンで起動し直します。</p>
         <div class="form-actions">
-          <button value="cancel" class="btn">キャンセル</button>
-          <button value="ok" class="btn primary">更新</button>
+          <button value="cancel" class="btn" data-en="Cancel">キャンセル</button>
+          <button value="ok" class="btn primary" data-en="Update">更新</button>
         </div>
       </form>
     </dialog>

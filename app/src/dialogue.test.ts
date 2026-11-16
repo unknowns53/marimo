@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { categoryFor, fillTemplate, formatDuration, linesFor, mergeDialogue } from "./dialogue";
+import { setLang } from "./i18n";
 import { session } from "./testFixtures";
 import type { SessionState, Status } from "./types";
 
@@ -9,6 +10,8 @@ const MIN = 60_000;
 function s(status: Status, extra: Partial<SessionState> = {}): SessionState {
   return { ...session("marimo", status, 100 * MIN), ...extra };
 }
+
+afterEach(() => setLang("ja"));
 
 describe("categoryFor", () => {
   it("picks the category from the reason and the turn duration", () => {
@@ -63,6 +66,19 @@ describe("fillTemplate", () => {
     );
     expect(fillTemplate("{folder} だよ {duration}", s("done"))).toBe("marimo だよ ");
     expect(fillTemplate("呼んだ？", null)).toBe("呼んだ？");
+  });
+
+  it("writes the duration in English", () => {
+    setLang("en");
+    const durations: [number, string][] = [
+      [30_000, "under a minute"],
+      [25 * MIN + 59_000, "25 min"],
+      [60 * MIN, "1 hr"],
+      [70 * MIN, "1 hr 10 min"],
+    ];
+    for (const [ms, expected] of durations) {
+      expect(formatDuration(ms), `${ms} ms`).toBe(expected);
+    }
   });
 });
 

@@ -40,6 +40,9 @@ impl Env {
         let home = dir.path().join(marimo_dir_name);
         let claude = dir.path().join("claude");
         fs::create_dir_all(&claude).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        // 出力の言語を OS の言語に左右させない。日本語の文言を確かめるテストが多いので、既定は日本語にする。
+        fs::write(home.join("display.json"), r#"{"language":"ja"}"#).unwrap();
         Self {
             home,
             settings: claude.join("settings.json"),
@@ -72,6 +75,11 @@ impl Env {
             .stdin(Stdio::null())
             .output()
             .unwrap()
+    }
+
+    fn set_language(&self, language: &str) {
+        let text = json!({ "language": language }).to_string();
+        fs::write(self.home.join("display.json"), text).unwrap();
     }
 
     fn with_codex(hooks_json: Option<&str>) -> Self {
@@ -482,6 +490,81 @@ fn claude_config_dir_sets_the_default_settings_path() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(stdout(&out).contains(&env.settings.display().to_string()));
+}
+
+// 言語は --settings で指した settings.json ではなく、MARIMO_HOME の display.json で決まる。
+#[test]
+fn output_follows_the_language_in_marimo_home() {
+    let env = Env::with_codex(None);
+    fs::create_dir_all(env.xdg.join("opencode")).unwrap();
+    env.set_language("en");
+    let out = env.run(&["install"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.contains("Settings file: "), "{text}");
+    assert!(text.contains("Hooks to add: SessionStart"), "{text}");
+    assert!(text.contains("opencode service restart"), "{text}");
+    #[cfg(unix)]
+    {
+        assert!(
+            text.contains("statusLine: Not set, so it will be added"),
+            "{text}"
+        );
+        assert!(text.contains("trust them again with /hooks"), "{text}");
+    }
+    #[cfg(windows)]
+    {
+        assert!(text.contains("usage limits"), "{text}");
+        assert!(text.contains("Skipped the Codex hooks"), "{text}");
+    }
+    // 一時フォルダのパスを除けば、日本語が混ざっていない。
+    let tmp = env.dir.path().display().to_string();
+    assert!(text.replace(&tmp, "").is_ascii(), "{text}");
+
+    let out = env.run(&["install"]);
+    assert!(out.status.success());
+    assert!(stdout(&out).contains("No changes (already installed)."));
+
+    let out = env.run(&["uninstall"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("Hooks to remove: "), "{text}");
+    assert!(text.contains("Removed the plugin."), "{text}");
+    assert!(
+        text.contains("The executable and data were kept."),
+        "{text}"
+    );
+
+    // marimo のものではない statusLine の理由も英語で出る。
+    fs::write(
+        &env.settings,
+        r#"{"statusLine": {"type": "static", "text": "hi"}}"#,
+    )
+    .unwrap();
+    let out = env.run(&["install", "--dry-run"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.contains("statusLine: Left unchanged because the statusLine type is not command"),
+        "{text}"
+    );
+    assert!(text.contains("dry-run: no files were changed."), "{text}");
+
+    let out = env.run(&["install", "--bogus"]);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("Unknown argument: --bogus"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    env.set_language("ja");
+    let out = env.run(&["install", "--dry-run"]);
+    assert!(stdout(&out).contains("statusLine が command 形式ではないため"));
 }
 
 // 実行ファイルと名前の先頭だけが同じ他人のコマンドや、command が同じでも args が違うハンドラ、

@@ -1,0 +1,44 @@
+{
+  "waiting.permission": [
+    "{folder} wants to know if it can run this!",
+    "{folder} needs your permission! Check it out!",
+    "{folder} needs your OK to keep going!"
+  ],
+  "waiting.question": [
+    "{folder} has a question for you!",
+    "{folder} wants you to pick one!",
+    "{folder} is waiting for your answer!"
+  ],
+  "waiting.plan": [
+    "The plan for {folder} is ready! Take a look!",
+    "{folder} wants to know if this plan is good to go!"
+  ],
+  "waiting": [
+    "{folder} is waiting on you!",
+    "{folder} could use a hand!"
+  ],
+  "done.short": [
+    "{folder} is done!",
+    "{folder} got a reply!",
+    "{folder} hit a checkpoint!"
+  ],
+  "done": [
+    "{folder} is finished! Take a look!",
+    "{folder} wrapped things up!",
+    "{folder} has a reply! Go check it!"
+  ],
+  "done.long": [
+    "{folder} took {duration}, but it's done! Nice work!",
+    "That was a long one! {folder} is finally done!",
+    "{folder} worked hard for {duration} and wrapped up!"
+  ],
+  "error.rate_limit": [
+    "{folder} hit the usage limit!",
+    "{folder} stopped. Let's take a break until the limit resets!"
+  ],
+  "error": [
+    "Whoops, {folder} stopped!",
+    "{folder} hit an error! Go take a look!",
+    "{folder} couldn't make progress…"
+  ]
+}

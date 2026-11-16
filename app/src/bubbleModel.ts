@@ -63,6 +63,19 @@ export class BubbleModel {
     return this.current;
   }
 
+  /**
+   * 言語を変えたときに、出している吹き出しのトリガーはそのままで、新しいセリフから選び直す。
+   * 表示時間はトリガーごとに数えるので、選び直しても延びない。
+   */
+  reword(snapshot: Snapshot | null, dialogue: Dialogue): BubbleView | null {
+    const current = this.current;
+    const session = current && snapshot?.sessions.find((s) => triggerKey(s) === current.key);
+    if (!current || !session) return current;
+    const template = this.pick(linesFor(dialogue, categoryFor(session)));
+    if (template) this.current = { ...current, text: fillTemplate(template, session) };
+    return this.current;
+  }
+
   /** 時間が来て吹き出しを折りたたむ。同じトリガーの間は出し直さず、別のトリガーに切り替わったら出す。 */
   expire(key: string): void {
     if (this.current?.key !== key) return;

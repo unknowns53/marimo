@@ -6,7 +6,7 @@ use std::thread;
 
 use marimo_core::time::now_ms;
 use marimo_core::{
-    HookInput, HostProcess, MarimoHome, Provider, SessionState, antigravity, codex, hermes,
+    HookInput, HostProcess, Lang, MarimoHome, Provider, SessionState, antigravity, codex, hermes,
     opencode, process, store, transcript,
 };
 
@@ -73,8 +73,8 @@ fn run(args: &[OsString]) -> ExitCode {
             ExitCode::SUCCESS
         }
         "statusline" => statusline(rest),
-        "install" => interactive(install::run(install::Mode::Install, rest)),
-        "uninstall" => interactive(install::run(install::Mode::Uninstall, rest)),
+        "install" => install_command(install::Mode::Install, rest),
+        "uninstall" => install_command(install::Mode::Uninstall, rest),
         "record" => {
             let label = rest.first().map(|l| l.to_string_lossy().into_owned());
             report(record(label.as_deref().unwrap_or("")));
@@ -85,6 +85,14 @@ fn run(args: &[OsString]) -> ExitCode {
             ExitCode::SUCCESS
         }
     }
+}
+
+// install と uninstall の出力の言語はここで一度だけ決める。フックが状態に書く要約の言語は store が決める。
+// home を決められないときも、その失敗を伝える文を OS の言語で書けるよう Lang::os にする。
+fn install_command(mode: install::Mode, rest: &[OsString]) -> ExitCode {
+    let home = MarimoHome::resolve();
+    let lang = home.as_ref().map_or_else(Lang::os, Lang::resolve);
+    interactive(install::run(mode, rest, home, lang))
 }
 
 fn interactive(result: Result<(), String>) -> ExitCode {

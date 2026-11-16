@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+# OS の表示言語を読み、日本語か英語かを決める。
+sys-locale = "0.3"
 
 # フックを起動したプロセスの開始時刻と状態を読むのに使う。
 [target.'cfg(target_os = "macos")'.dependencies]

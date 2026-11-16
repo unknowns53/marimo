@@ -17,6 +17,16 @@ function model(): BubbleModel {
 }
 
 describe("BubbleModel", () => {
+  it("rewords the shown bubble for the same trigger", () => {
+    const m = model();
+    const shown = m.update(snap(session("marimo", "waiting", 2)), DIALOGUE);
+    const english: Dialogue = { waiting: ["{folder} needs you"] };
+    const reworded = m.reword(snap(session("marimo", "waiting", 2)), english);
+    expect([reworded?.key, reworded?.text]).toEqual([shown?.key, "marimo needs you"]);
+    expect(m.update(snap(session("marimo", "waiting", 2, 9)), english)).toBe(reworded);
+    expect(model().reword(snap(session("marimo", "waiting", 2)), english)).toBeNull();
+  });
+
   it("keeps the bubble while the triggering state lasts", () => {
     const m = model();
     expect(m.update(snap(session("marimo", "working", 1)), DIALOGUE)).toBeNull();

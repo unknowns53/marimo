@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { SessionState, Status } from "./types";
 
 type Named = Pick<SessionState, "cwd" | "session_id" | "repo" | "title" | "provider">;
@@ -26,13 +27,20 @@ export function titleIsName(session: Pick<SessionState, "cwd" | "provider">): bo
 }
 
 /** 件数の行やトレイのメニューで、状態を示す語。 */
-export const STATUS_LABEL: Record<Status, string> = {
-  idle: "待機",
-  working: "作業中",
-  waiting: "承認待ち",
-  done: "完了",
-  error: "エラー",
-};
+export function statusLabel(status: Status): string {
+  switch (status) {
+    case "idle":
+      return t("待機", "Idle");
+    case "working":
+      return t("作業中", "Working");
+    case "waiting":
+      return t("承認待ち", "Waiting");
+    case "done":
+      return t("完了", "Done");
+    case "error":
+      return t("エラー", "Error");
+  }
+}
 
 // 名前の横に添える会話のタイトル。repo が名前のときはタイトルが名前の役をしていないので、添える。
 export function chatTitle(session: Named): string | null {
@@ -58,12 +66,19 @@ export function formatClock(ms: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** ツールチップや利用制限の行で、最後に値が届いた時刻を示す。 */
+export function formatUpdated(ms: number): string {
+  const clock = formatClock(ms);
+  return t(`${clock} 更新`, `Updated ${clock}`);
+}
+
 // パネルは 30 秒ごとにしか描き直さないので、1 分より細かくは出さない。
 export function formatAge(updatedAt: number, now: number): string {
   const minutes = Math.floor(Math.max(0, now - updatedAt) / 60_000);
-  if (minutes < 1) return "今";
-  if (minutes < 60) return `${minutes}分前`;
+  if (minutes < 1) return t("今", "now");
+  if (minutes < 60) return t(`${minutes}分前`, `${minutes}m ago`);
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}時間前`;
-  return `${Math.floor(hours / 24)}日前`;
+  if (hours < 24) return t(`${hours}時間前`, `${hours}h ago`);
+  const days = Math.floor(hours / 24);
+  return t(`${days}日前`, `${days}d ago`);
 }

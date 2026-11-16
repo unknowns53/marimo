@@ -9,6 +9,12 @@ fn run(home: &Path, args: &[&str], stdin: &[u8]) -> Output {
 }
 
 fn run_with_env(home: &Path, args: &[&str], stdin: &[u8], envs: &[(&str, &str)]) -> Output {
+    // 状態に書く要約の言語を OS の言語に左右させない。書き込みの失敗を起こすため home にファイルを
+    // 渡すテストでは置かない。
+    if !home.is_file() {
+        std::fs::create_dir_all(home).unwrap();
+        std::fs::write(home.join("display.json"), r#"{"language":"ja"}"#).unwrap();
+    }
     let mut child = Command::new(env!("CARGO_BIN_EXE_marimo-hook"))
         .args(args)
         .env("MARIMO_HOME", home)

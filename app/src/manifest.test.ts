@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import { setLang } from "./i18n";
 import {
   characterCandidates,
   characterInfo,
@@ -12,6 +13,8 @@ import type { SpriteManifest } from "./renderer";
 
 const asset = (image: string) => ({ image });
 const canvas = { width: 100, height: 150 };
+
+afterEach(() => setLang("ja"));
 
 describe("normalize", () => {
   it("reads a states-only manifest as expressions named after the statuses, and ignores states once expressions exist", () => {
@@ -111,5 +114,18 @@ describe("characterInfo", () => {
     for (const [extra, expected] of cases) {
       expect(characterInfo("id1", { ...base, ...extra }).displayName).toBe(expected);
     }
+  });
+
+  it("picks the display_name for the current language, then the other one, then name", () => {
+    const base = { mode: "standing", canvas, name: "koharu" } as const;
+    const names = (display_name: StandingManifest["display_name"]) =>
+      (["ja", "en"] as const).map((l) => {
+        setLang(l);
+        return characterInfo("id1", { ...base, display_name }).displayName;
+      });
+    expect(names({ ja: "小春", en: "Koharu" })).toEqual(["小春", "Koharu"]);
+    expect(names({ ja: "小春" })).toEqual(["小春", "小春"]);
+    expect(names({ en: " Koharu ", ja: " " })).toEqual(["Koharu", "Koharu"]);
+    expect(names({})).toEqual(["koharu", "koharu"]);
   });
 });

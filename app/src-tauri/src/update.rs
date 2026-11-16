@@ -14,7 +14,7 @@ use std::sync::atomic::{self, AtomicBool};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
-use marimo_core::{MarimoHome, store};
+use marimo_core::{Lang, MarimoHome, store};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -87,7 +87,8 @@ fn now_millis() -> u64 {
 
 /// GitHub に問い合わせて結果を覚え、トレイのメニューと設定のウィンドウへ知らせる。
 fn check_now(app: &AppHandle) -> UpdateStatus {
-    let result = latest_release().map(|tag| tag.strip_prefix('v').unwrap_or(&tag).to_string());
+    let result = latest_release(crate::lang(app))
+        .map(|tag| tag.strip_prefix('v').unwrap_or(&tag).to_string());
     let checked = Checked {
         result,
         at: now_millis(),
@@ -129,7 +130,8 @@ pub fn update_status() -> UpdateStatus {
 
 #[tauri::command]
 pub async fn check_update(app: AppHandle) -> Result<UpdateStatus, String> {
-    blocking(move || Ok(check_now(&app))).await
+    let lang = crate::lang(&app);
+    blocking(lang, move || Ok(check_now(&app))).await
 }
 
 /// 補助のスクリプトを起動できたらアプリを終了する。それより前に失敗したときは、
@@ -137,14 +139,25 @@ pub async fn check_update(app: AppHandle) -> Result<UpdateStatus, String> {
 /// version は確認のダイアログに出したバージョンで、その後に別のリリースが出ていたら入れずに Err を返す。
 #[tauri::command]
 pub async fn install_update(app: AppHandle, version: String) -> Result<(), String> {
+    let lang = crate::lang(&app);
     if in_source_tree() {
-        return Err("開発中の実行ファイルからは更新できません。".into());
+        return Err(lang
+            .pick(
+                "開発中の実行ファイルからは更新できません。",
+                "A development build cannot update itself.",
+            )
+            .into());
     }
     if INSTALLING.swap(true, atomic::Ordering::SeqCst) {
-        return Err("更新はすでに実行中です。".into());
+        return Err(lang
+            .pick(
+                "更新はすでに実行中です。",
+                "An update is already in progress.",
+            )
+            .into());
     }
     let handle = app.clone();
-    match blocking(move || prepare(&handle, &version)).await {
+    match blocking(lang, move || prepare(&handle, lang, &version)).await {
         Ok(()) => {
             app.exit(0);
             Ok(())
@@ -157,11 +170,15 @@ pub async fn install_update(app: AppHandle, version: String) -> Result<(), Strin
 }
 
 async fn blocking<T: Send + 'static>(
+    lang: Lang,
     f: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(f)
-        .await
-        .map_err(|e| format!("更新の処理が途中で止まりました（{e}）。"))?
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| {
+        lang.pick(
+            format!("更新の処理が途中で止まりました（{e}）。"),
+            format!("The update stopped unexpectedly ({e})."),
+        )
+    })?
 }
 
 /// main.rs の follow_autostart_path と同じ判定で、ソースツリーのビルド用フォルダから起動したかを返す。
@@ -179,19 +196,31 @@ enum Target {
 }
 
 impl Target {
-    fn current() -> Result<Self, String> {
+    fn current(lang: Lang) -> Result<Self, String> {
         // CI がビルドするのは arm64 の Mac 向けと x64 の Windows 向けだけである。
         if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
             let exe = std::env::current_exe()
                 .and_then(|exe| exe.canonicalize())
-                .map_err(|e| format!("実行ファイルの場所を調べられませんでした（{e}）。"))?;
-            let app_dest = app_bundle_of(&exe)
-                .ok_or("marimo.app の中から起動していないので、差し替える先が分かりません。")?;
+                .map_err(|e| {
+                    lang.pick(
+                        format!("実行ファイルの場所を調べられませんでした（{e}）。"),
+                        format!("Could not find the location of the executable ({e})."),
+                    )
+                })?;
+            let app_dest = app_bundle_of(&exe).ok_or(lang.pick(
+                "marimo.app の中から起動していないので、差し替える先が分かりません。",
+                "marimo was not launched from marimo.app, so there is no app to replace.",
+            ))?;
             Ok(Self::Mac { app_dest })
         } else if cfg!(all(windows, target_arch = "x86_64")) {
             Ok(Self::Windows)
         } else {
-            Err("リリースにはこの環境向けのビルドがありません。".into())
+            Err(lang
+                .pick(
+                    "リリースにはこの環境向けのビルドがありません。",
+                    "Releases do not include a build for this platform.",
+                )
+                .into())
         }
     }
 
@@ -231,13 +260,18 @@ struct Work {
 }
 
 impl Work {
-    fn create() -> Result<Self, String> {
+    fn create(lang: Lang) -> Result<Self, String> {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
         let path =
             std::env::temp_dir().join(format!("marimo-update-{}-{nanos}", std::process::id()));
-        fs::create_dir(&path).map_err(|e| format!("一時フォルダを作れませんでした（{e}）。"))?;
+        fs::create_dir(&path).map_err(|e| {
+            lang.pick(
+                format!("一時フォルダを作れませんでした（{e}）。"),
+                format!("Could not create a temporary folder ({e})."),
+            )
+        })?;
         Ok(Self { path, keep: false })
     }
 }
@@ -250,98 +284,162 @@ impl Drop for Work {
     }
 }
 
-fn prepare(app: &AppHandle, version: &str) -> Result<(), String> {
-    let target = Target::current()?;
-    let home = MarimoHome::resolve().ok_or("marimo のフォルダの場所を特定できませんでした。")?;
+fn prepare(app: &AppHandle, lang: Lang, version: &str) -> Result<(), String> {
+    let target = Target::current(lang)?;
+    let home = MarimoHome::resolve().ok_or(lang.pick(
+        "marimo のフォルダの場所を特定できませんでした。",
+        "Could not find the marimo folder.",
+    ))?;
     let log = home.root().join(LOG_FILE);
     // 補助のスクリプトの失敗はここにしか残らないので、書けないときは始める前に止める。
     let log_file = store::create_private_dir_all(home.root())
         .and_then(|()| OpenOptions::new().create(true).append(true).open(&log))
-        .map_err(|e| format!("{} に書き込めません（{e}）。", log.display()))?;
+        .map_err(|e| {
+            lang.pick(
+                format!("{} に書き込めません（{e}）。", log.display()),
+                format!("Cannot write to {} ({e}).", log.display()),
+            )
+        })?;
 
-    progress(app, "download", "最新の正式なリリースを調べています");
-    let tag = latest_release()?;
+    progress(
+        app,
+        "download",
+        lang.pick(
+            "最新の正式なリリースを調べています",
+            "Checking for the latest stable release",
+        ),
+    );
+    let tag = latest_release(lang)?;
     if tag.strip_prefix('v').unwrap_or(&tag) != version {
-        return Err(format!(
-            "最新の正式なリリースが {tag} に変わりました。もう一度確認してください。"
+        return Err(lang.pick(
+            format!("最新の正式なリリースが {tag} に変わりました。もう一度確認してください。"),
+            format!("The latest stable release has changed to {tag}. Check for updates again."),
         ));
     }
-    let mut work = Work::create()?;
+    let mut work = Work::create(lang)?;
     let archive = target.archive();
     progress(
         app,
         "download",
-        format!("正式なリリース {tag} をダウンロードしています"),
+        lang.pick(
+            format!("正式なリリース {tag} をダウンロードしています"),
+            format!("Downloading stable release {tag}"),
+        ),
     );
-    download(app, &work.path, &tag, archive)?;
+    download(app, lang, &work.path, &tag, archive)?;
 
-    progress(app, "verify", "チェックサムを検証しています");
-    verify(&work.path, archive)?;
+    progress(
+        app,
+        "verify",
+        lang.pick("チェックサムを検証しています", "Verifying the checksum"),
+    );
+    verify(&work.path, archive, lang)?;
 
-    progress(app, "extract", "ダウンロードしたファイルを展開しています");
+    progress(
+        app,
+        "extract",
+        lang.pick(
+            "ダウンロードしたファイルを展開しています",
+            "Extracting the download",
+        ),
+    );
     let extract = work.path.join("extract");
-    fs::create_dir(&extract).map_err(|e| format!("展開先のフォルダを作れませんでした（{e}）。"))?;
+    fs::create_dir(&extract).map_err(|e| {
+        lang.pick(
+            format!("展開先のフォルダを作れませんでした（{e}）。"),
+            format!("Could not create the folder to extract into ({e})."),
+        )
+    })?;
     let pid = std::process::id();
-    let work_str = path_str(&work.path)?;
-    let log_str = path_str(&log)?;
+    let work_str = path_str(&work.path, lang)?;
+    let log_str = path_str(&log, lang)?;
     let helper = match &target {
         Target::Mac { app_dest } => {
-            extract_mac(&work.path.join(archive), &extract)?;
+            extract_mac(&work.path.join(archive), &extract, lang)?;
             let script = mac_script(&MacHelper {
                 work: work_str,
-                app_dest: path_str(app_dest)?,
+                app_dest: path_str(app_dest, lang)?,
                 pid,
                 tag: &tag,
                 bundle_id: &app.config().identifier,
+                lang,
             });
             Helper::Mac { script }
         }
         Target::Windows => {
-            let (installer, hook) = extract_windows(&work.path.join(archive), &extract)?;
+            let (installer, hook) = extract_windows(&work.path.join(archive), &extract, lang)?;
             let script = windows_script(&WindowsHelper {
                 work: work_str,
                 log: log_str,
                 pid,
                 tag: &tag,
-                installer: path_str(&installer)?,
-                hook: path_str(&hook)?,
+                installer: path_str(&installer, lang)?,
+                hook: path_str(&hook, lang)?,
+                lang,
             });
             Helper::Windows { script }
         }
     };
 
-    progress(app, "restart", "marimo を終了して差し替えます");
-    spawn_helper(&work.path, helper, log_file)?;
+    progress(
+        app,
+        "restart",
+        lang.pick(
+            "marimo を終了して差し替えます",
+            "Quitting marimo to replace it",
+        ),
+    );
+    spawn_helper(&work.path, helper, log_file, lang)?;
     work.keep = true;
     Ok(())
 }
 
-fn path_str(path: &Path) -> Result<&str, String> {
-    path.to_str()
-        .ok_or_else(|| format!("{} の場所を扱えませんでした。", path.display()))
+fn path_str(path: &Path, lang: Lang) -> Result<&str, String> {
+    path.to_str().ok_or_else(|| {
+        lang.pick(
+            format!("{} の場所を扱えませんでした。", path.display()),
+            format!("Cannot handle the path {}.", path.display()),
+        )
+    })
 }
 
 /// プレリリースを入れるのは tools/update.sh の --pre だけにし、アプリからの更新はどのバージョンからでも正式なバージョンだけを
 /// 更新先にする。プレリリースを入れたアプリも、それより新しい正式なバージョンが出ればそちらへ移る。
-fn latest_release() -> Result<String, String> {
-    let (code, body) = fetch_text(&releases_api(REPO))?;
+fn latest_release(lang: Lang) -> Result<String, String> {
+    let (code, body) = fetch_text(&releases_api(REPO), lang)?;
     match code {
-        200 => newest_release(&body)
-            .ok_or_else(|| "GitHub に更新先のリリースがまだありません。".into()),
-        _ => Err(format!(
-            "GitHub で最新のリリースを調べられませんでした（HTTP {code}）。"
+        200 => newest_release(&body).ok_or_else(|| {
+            lang.pick(
+                "GitHub に更新先のリリースがまだありません。",
+                "There is no stable release on GitHub to update to yet.",
+            )
+            .into()
+        }),
+        _ => Err(lang.pick(
+            format!("GitHub で最新のリリースを調べられませんでした（HTTP {code}）。"),
+            format!("Could not check the latest release on GitHub (HTTP {code})."),
         )),
     }
 }
 
-fn download(app: &AppHandle, work: &Path, tag: &str, archive: &str) -> Result<(), String> {
+fn download(
+    app: &AppHandle,
+    lang: Lang,
+    work: &Path,
+    tag: &str,
+    archive: &str,
+) -> Result<(), String> {
     let base = download_base(REPO, tag);
     // リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、1 分は確かめ直す。
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        let mut code = fetch_file(&format!("{base}/SHA256SUMS"), &work.join("SHA256SUMS"))?;
+        let mut code = fetch_file(
+            &format!("{base}/SHA256SUMS"),
+            &work.join("SHA256SUMS"),
+            lang,
+        )?;
         if code == 200 {
-            code = fetch_file(&format!("{base}/{archive}"), &work.join(archive))?;
+            code = fetch_file(&format!("{base}/{archive}"), &work.join(archive), lang)?;
         }
         match code {
             200 => return Ok(()),
@@ -349,34 +447,52 @@ fn download(app: &AppHandle, work: &Path, tag: &str, archive: &str) -> Result<()
                 progress(
                     app,
                     "download",
-                    "ビルドがまだ公開されていないので、10 秒後にもう一度確認します（最大 1 分）",
+                    lang.pick(
+                        "ビルドがまだ公開されていないので、10 秒後にもう一度確認します（最大 1 分）",
+                        "The build is not published yet; checking again in 10 seconds (up to 1 min)",
+                    ),
                 );
                 std::thread::sleep(Duration::from_secs(10));
             }
             404 => {
-                return Err(format!(
-                    "リリース {tag} にこの環境向けのファイルがそろっていません。"
+                return Err(lang.pick(
+                    format!("リリース {tag} にこの環境向けのファイルがそろっていません。"),
+                    format!("Release {tag} is missing the files for this platform."),
                 ));
             }
             _ => {
-                return Err(format!(
-                    "リリース {tag} のファイルを取得できませんでした（HTTP {code}）。"
+                return Err(lang.pick(
+                    format!("リリース {tag} のファイルを取得できませんでした（HTTP {code}）。"),
+                    format!("Could not download the files of release {tag} (HTTP {code})."),
                 ));
             }
         }
     }
 }
 
-fn verify(work: &Path, archive: &str) -> Result<(), String> {
-    let sums = fs::read_to_string(work.join("SHA256SUMS"))
-        .map_err(|e| format!("SHA256SUMS を読めませんでした（{e}）。"))?;
-    let expected = expected_sum(&sums, archive)
-        .ok_or_else(|| format!("SHA256SUMS に {archive} の行がありません。"))?;
-    let actual = sha256_file(&work.join(archive))
-        .map_err(|e| format!("{archive} を読めませんでした（{e}）。"))?;
+fn verify(work: &Path, archive: &str, lang: Lang) -> Result<(), String> {
+    let sums = fs::read_to_string(work.join("SHA256SUMS")).map_err(|e| {
+        lang.pick(
+            format!("SHA256SUMS を読めませんでした（{e}）。"),
+            format!("Could not read SHA256SUMS ({e})."),
+        )
+    })?;
+    let expected = expected_sum(&sums, archive).ok_or_else(|| {
+        lang.pick(
+            format!("SHA256SUMS に {archive} の行がありません。"),
+            format!("SHA256SUMS has no line for {archive}."),
+        )
+    })?;
+    let actual = sha256_file(&work.join(archive)).map_err(|e| {
+        lang.pick(
+            format!("{archive} を読めませんでした（{e}）。"),
+            format!("Could not read {archive} ({e})."),
+        )
+    })?;
     if actual != expected {
-        return Err(format!(
-            "{archive} のチェックサムが SHA256SUMS と合いません。"
+        return Err(lang.pick(
+            format!("{archive} のチェックサムが SHA256SUMS と合いません。"),
+            format!("The checksum of {archive} does not match SHA256SUMS."),
         ));
     }
     Ok(())
@@ -392,10 +508,10 @@ fn sha256_file(path: &Path) -> io::Result<String> {
         .collect())
 }
 
-fn extract_mac(archive: &Path, extract: &Path) -> Result<(), String> {
+fn extract_mac(archive: &Path, extract: &Path, lang: Lang) -> Result<(), String> {
     let mut tar = Command::new("/usr/bin/tar");
     tar.arg("-xzf").arg(archive).arg("-C").arg(extract);
-    run(&mut tar, "ダウンロードしたファイルを展開できませんでした。")?;
+    run(&mut tar, extract_failed(lang), lang)?;
     // curl で取ったものには quarantine が付かないが、付いていると初回の起動で Gatekeeper に止められるので、念のため外す。
     let _ = Command::new("/usr/bin/xattr")
         .args(["-dr", "com.apple.quarantine"])
@@ -405,23 +521,37 @@ fn extract_mac(archive: &Path, extract: &Path) -> Result<(), String> {
         .stderr(Stdio::null())
         .status();
     if !extract.join("marimo.app").is_dir() {
-        return Err("ダウンロードしたファイルの中にアプリが見つかりません。".into());
+        return Err(lang
+            .pick(
+                "ダウンロードしたファイルの中にアプリが見つかりません。",
+                "The download does not contain the app.",
+            )
+            .into());
     }
     if !is_executable(&extract.join("marimo-hook")) {
-        return Err("ダウンロードしたファイルの中に marimo-hook が見つかりません。".into());
+        return Err(lang
+            .pick(
+                "ダウンロードしたファイルの中に marimo-hook が見つかりません。",
+                "The download does not contain marimo-hook.",
+            )
+            .into());
     }
     Ok(())
 }
 
 /// 展開したフォルダの中のインストーラと marimo-hook.exe を返す。
-fn extract_windows(archive: &Path, extract: &Path) -> Result<(PathBuf, PathBuf), String> {
+fn extract_windows(
+    archive: &Path,
+    extract: &Path,
+    lang: Lang,
+) -> Result<(PathBuf, PathBuf), String> {
     // インターネットから来たことを示す Mark of the Web（Zone.Identifier）が付いていると、Windows が実行の前に確認を出して /S の実行が止まるので、念のため外す。
     let command = format!(
         "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; \
          Expand-Archive -LiteralPath {archive} -DestinationPath {extract}; \
          Get-ChildItem -LiteralPath {extract} -File | Unblock-File",
-        archive = ps_quote(path_str(archive)?),
-        extract = ps_quote(path_str(extract)?),
+        archive = ps_quote(path_str(archive, lang)?),
+        extract = ps_quote(path_str(extract, lang)?),
     );
     let mut powershell = Command::new(powershell_program());
     powershell
@@ -433,25 +563,42 @@ fn extract_windows(archive: &Path, extract: &Path) -> Result<(PathBuf, PathBuf),
         ])
         .arg("-EncodedCommand")
         .arg(encode_powershell(&command));
-    run(
-        &mut powershell,
-        "ダウンロードしたファイルを展開できませんでした。",
-    )?;
+    run(&mut powershell, extract_failed(lang), lang)?;
 
     let hook = extract.join("marimo-hook.exe");
     if !hook.is_file() {
-        return Err("ダウンロードしたファイルの中に marimo-hook.exe が見つかりません。".into());
+        return Err(lang
+            .pick(
+                "ダウンロードしたファイルの中に marimo-hook.exe が見つかりません。",
+                "The download does not contain marimo-hook.exe.",
+            )
+            .into());
     }
     let installer = fs::read_dir(extract)
-        .map_err(|e| format!("展開したフォルダを読めませんでした（{e}）。"))?
+        .map_err(|e| {
+            lang.pick(
+                format!("展開したフォルダを読めませんでした（{e}）。"),
+                format!("Could not read the extracted folder ({e})."),
+            )
+        })?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .find(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name.starts_with("marimo_") && name.ends_with("_x64-setup.exe"))
         })
-        .ok_or("ダウンロードしたファイルの中にインストーラが見つかりません。")?;
+        .ok_or(lang.pick(
+            "ダウンロードしたファイルの中にインストーラが見つかりません。",
+            "The download does not contain the installer.",
+        ))?;
     Ok((installer, hook))
+}
+
+fn extract_failed(lang: Lang) -> &'static str {
+    lang.pick(
+        "ダウンロードしたファイルを展開できませんでした。",
+        "Could not extract the download.",
+    )
 }
 
 #[cfg(unix)]
@@ -470,15 +617,23 @@ enum Helper {
     Windows { script: String },
 }
 
-fn spawn_helper(work: &Path, helper: Helper, log: File) -> Result<(), String> {
+fn spawn_helper(work: &Path, helper: Helper, log: File, lang: Lang) -> Result<(), String> {
+    let write_failed = |e: io::Error| {
+        lang.pick(
+            format!("差し替え用のスクリプトを書き出せませんでした（{e}）。"),
+            format!("Could not write the update script ({e})."),
+        )
+    };
     let mut command = match helper {
         Helper::Mac { script } => {
             let path = work.join("update.sh");
-            fs::write(&path, script)
-                .map_err(|e| format!("差し替え用のスクリプトを書き出せませんでした（{e}）。"))?;
-            let stderr = log
-                .try_clone()
-                .map_err(|e| format!("{LOG_FILE} を開けませんでした（{e}）。"))?;
+            fs::write(&path, script).map_err(write_failed)?;
+            let stderr = log.try_clone().map_err(|e| {
+                lang.pick(
+                    format!("{LOG_FILE} を開けませんでした（{e}）。"),
+                    format!("Could not open {LOG_FILE} ({e})."),
+                )
+            })?;
             let mut command = Command::new("/bin/bash");
             command.arg(path).stdout(log).stderr(stderr);
             command
@@ -486,8 +641,7 @@ fn spawn_helper(work: &Path, helper: Helper, log: File) -> Result<(), String> {
         Helper::Windows { script } => {
             let path = work.join("update.ps1");
             // Windows PowerShell 5.1 は BOM の無いスクリプトを ANSI のコード ページで読んで日本語を壊す。
-            fs::write(&path, format!("\u{feff}{script}"))
-                .map_err(|e| format!("差し替え用のスクリプトを書き出せませんでした（{e}）。"))?;
+            fs::write(&path, format!("\u{feff}{script}")).map_err(write_failed)?;
             // スクリプトが同じ update.log へ追記するので、ここで開いたままにすると共有の違反で書けなくなる。
             drop(log);
             let mut command = Command::new(powershell_program());
@@ -510,10 +664,12 @@ fn spawn_helper(work: &Path, helper: Helper, log: File) -> Result<(), String> {
         .current_dir(std::env::temp_dir())
         .stdin(Stdio::null());
     detach(&mut command);
-    command
-        .spawn()
-        .map(drop)
-        .map_err(|e| format!("差し替え用のスクリプトを起動できませんでした（{e}）。"))
+    command.spawn().map(drop).map_err(|e| {
+        lang.pick(
+            format!("差し替え用のスクリプトを起動できませんでした（{e}）。"),
+            format!("Could not start the update script ({e})."),
+        )
+    })
 }
 
 // LaunchAgent から起動したアプリが終わると、launchd は同じプロセス グループに残ったプロセスも止めるので、
@@ -544,10 +700,12 @@ pub(crate) fn hide_console(command: &mut Command) {
 pub(crate) fn hide_console(_: &mut Command) {}
 
 /// 終了コードが 0 でなければ failure を返す。子プロセスの stderr は利用者に見せる文に向かないので、端末にだけ書く。
-fn run(command: &mut Command, failure: &str) -> Result<Vec<u8>, String> {
+fn run(command: &mut Command, failure: &str, lang: Lang) -> Result<Vec<u8>, String> {
     command.stdin(Stdio::null());
     hide_console(command);
-    let output = command.output().map_err(|e| format!("{failure}（{e}）"))?;
+    let output = command
+        .output()
+        .map_err(|e| lang.pick(format!("{failure}（{e}）"), format!("{failure} ({e})")))?;
     if !output.status.success() {
         eprintln!(
             "marimo: {:?} failed: {}",
@@ -579,8 +737,12 @@ fn system32(parts: &[&str]) -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
-const NETWORK_ERROR: &str =
-    "GitHub に接続できませんでした。ネットワークが有効であることを確認してください。";
+fn network_error(lang: Lang) -> &'static str {
+    lang.pick(
+        "GitHub に接続できませんでした。ネットワークが有効であることを確認してください。",
+        "Could not connect to GitHub. Check your network connection.",
+    )
+}
 
 fn curl(url: &str) -> Command {
     let mut command = Command::new(curl_program());
@@ -592,22 +754,22 @@ fn curl(url: &str) -> Command {
 }
 
 /// 本文と HTTP の状態コードを返す。
-fn fetch_text(url: &str) -> Result<(u16, Vec<u8>), String> {
+fn fetch_text(url: &str, lang: Lang) -> Result<(u16, Vec<u8>), String> {
     let mut command = curl(url);
     command.args(["-w", "\n%{http_code}"]);
-    let stdout = run(&mut command, NETWORK_ERROR)?;
-    split_status(&stdout).ok_or_else(|| NETWORK_ERROR.into())
+    let stdout = run(&mut command, network_error(lang), lang)?;
+    split_status(&stdout).ok_or_else(|| network_error(lang).into())
 }
 
 /// dest へ書き出し、HTTP の状態コードを返す。
-fn fetch_file(url: &str, dest: &Path) -> Result<u16, String> {
+fn fetch_file(url: &str, dest: &Path, lang: Lang) -> Result<u16, String> {
     let mut command = curl(url);
     command.arg("-o").arg(dest).args(["-w", "%{http_code}"]);
-    let stdout = run(&mut command, NETWORK_ERROR)?;
+    let stdout = run(&mut command, network_error(lang), lang)?;
     String::from_utf8_lossy(&stdout)
         .trim()
         .parse()
-        .map_err(|_| NETWORK_ERROR.into())
+        .map_err(|_| network_error(lang).into())
 }
 
 fn split_status(stdout: &[u8]) -> Option<(u16, Vec<u8>)> {
@@ -758,16 +920,18 @@ struct MacHelper<'a> {
     pid: u32,
     tag: &'a str,
     bundle_id: &'a str,
+    lang: Lang,
 }
 
 fn mac_script(h: &MacHelper) -> String {
     format!(
-        "#!/bin/bash\nset -u\n\nwork={}\napp_dest={}\napp_pid={}\ntag={}\nbundle_id={}\n{MAC_BODY}",
+        "#!/bin/bash\nset -u\n\nwork={}\napp_dest={}\napp_pid={}\ntag={}\nbundle_id={}\n{}",
         sh_quote(h.work),
         sh_quote(h.app_dest),
         h.pid,
         sh_quote(h.tag),
         sh_quote(h.bundle_id),
+        fill_messages(MAC_BODY, h.lang),
     )
 }
 
@@ -778,6 +942,7 @@ struct WindowsHelper<'a> {
     tag: &'a str,
     installer: &'a str,
     hook: &'a str,
+    lang: Lang,
 }
 
 fn windows_script(h: &WindowsHelper) -> String {
@@ -789,13 +954,114 @@ fn windows_script(h: &WindowsHelper) -> String {
         ps_quote(h.tag),
         ps_quote(h.installer),
         ps_quote(h.hook),
-        WINDOWS_BODY.replace('\n', "\r\n"),
+        fill_messages(WINDOWS_BODY, h.lang).replace('\n', "\r\n"),
     )
 }
 
+/// 本文の `{{name}}` を、書き出すときの言語の文で置き換える。
+fn fill_messages(body: &str, lang: Lang) -> String {
+    SCRIPT_MESSAGES
+        .iter()
+        .fold(body.to_owned(), |text, (name, ja, en)| {
+            text.replace(name, lang.pick(ja, en))
+        })
+}
+
+// 補助のスクリプトが update.log へ書く文。文はスクリプトの引用符の中へそのまま埋め込むので、
+// 埋め込む先の引用符の中での書き方で書く。
+const SCRIPT_MESSAGES: &[(&str, &str, &str)] = &[
+    ("{{error}}", "エラー", "Error"),
+    (
+        "{{quitting}}",
+        "起動中の marimo を終了しています",
+        "Quitting the running marimo",
+    ),
+    (
+        "{{running_install}}",
+        "marimo-hook install を実行しています",
+        "Running marimo-hook install",
+    ),
+    (
+        "{{launching}}",
+        "marimo を起動しています",
+        "Starting marimo",
+    ),
+    ("{{done}}", "更新が終わりました", "Update complete"),
+    (
+        "{{mac_updating}}",
+        "正式なリリース ${tag} へ更新します（${app_dest}）",
+        "Updating to stable release ${tag} (${app_dest})",
+    ),
+    (
+        "{{mac_not_quit}}",
+        "marimo が終了しません。右クリックメニューの「終了」で終了してから、もう一度更新してください。アプリは差し替えていません。",
+        r#"marimo did not quit. Choose \"Quit\" from the right-click menu, then update again. The app was not replaced."#,
+    ),
+    (
+        "{{mac_replacing}}",
+        "$app_dest を差し替えています",
+        "Replacing $app_dest",
+    ),
+    (
+        "{{mac_copy_failed}}",
+        "新しいアプリを $app_new へコピーできませんでした。アプリは差し替えずに起動し直しています。",
+        "Could not copy the new app to $app_new. Relaunching the app without replacing it.",
+    ),
+    (
+        "{{mac_move_aside_failed}}",
+        "$app_dest を退避できませんでした。アプリは差し替えずに起動し直しています。",
+        "Could not move $app_dest aside. Relaunching the app without replacing it.",
+    ),
+    (
+        "{{mac_place_failed}}",
+        "新しいアプリを $app_dest へ置けませんでした。元のアプリに戻して起動し直しています。",
+        "Could not move the new app to $app_dest. Restoring the original app and relaunching it.",
+    ),
+    (
+        "{{mac_install_failed}}",
+        "marimo-hook install が失敗しました。アプリは最新バージョンとして起動に成功しています。上記のメッセージを確認してから、tools/update.sh を実行してください。",
+        "marimo-hook install failed. The app has already been replaced with the new version and started. Check the messages above, then run tools/update.sh.",
+    ),
+    (
+        "{{win_updating}}",
+        "正式なリリース $tag へ更新します",
+        "Updating to stable release $tag",
+    ),
+    (
+        "{{win_kill_failed}}",
+        "marimo（PID $($p.Id)）を終了できませんでした: $($_.Exception.Message)",
+        "Could not quit marimo (PID $($p.Id)): $($_.Exception.Message)",
+    ),
+    (
+        "{{win_left_to_installer}}",
+        "marimo がまだ終了していないので、インストーラに終了を任せます",
+        "marimo has not quit yet; leaving it to the installer to close it",
+    ),
+    (
+        "{{win_reinstalling}}",
+        "$(Split-Path -Leaf $installer) でアプリを入れ直しています",
+        "Reinstalling the app with $(Split-Path -Leaf $installer)",
+    ),
+    (
+        "{{win_installer_failed}}",
+        r"インストーラが失敗しました（終了コード $($setup.ExitCode)）。marimo を終了できなかった場合に起こるので、立ち絵を右クリックして「終了」を選んでから、tools\update.ps1 を実行してください。",
+        r#"The installer failed (exit code $($setup.ExitCode)). This happens when marimo could not be closed. Right-click the character, choose ""Quit"", then run tools\update.ps1."#,
+    ),
+    (
+        "{{win_missing_exe}}",
+        "インストーラは成功を返しましたが、$installedExe が見つかりません。",
+        "The installer reported success, but $installedExe was not found.",
+    ),
+    (
+        "{{win_install_failed}}",
+        r"marimo-hook install が失敗しました。アプリはすでに新しいものに入れ直して起動しています。上記のメッセージを確認してから、tools\update.ps1 を実行してください。",
+        r"marimo-hook install failed. The new version of the app has already been installed and started. Check the messages above, then run tools\update.ps1.",
+    ),
+];
+
 // 標準出力と標準エラーはアプリが update.log へつないで起動する。Finder や launchd から起動したアプリの
 // 子は C ロケールで動き、bash 3.2 は変数名の直後の非 ASCII のバイトを名前の一部として読むので、
-// 日本語の直前の変数は ${name} の形で書く。
+// SCRIPT_MESSAGES の文でも日本語の直前の変数は ${name} の形で書く。
 const MAC_BODY: &str = r#"
 bundle="$work/extract/marimo.app"
 hook="$work/extract/marimo-hook"
@@ -823,11 +1089,11 @@ say() {
 }
 
 fail() {
-  say "エラー: $*"
+  say "{{error}}: $*"
   exit 1
 }
 
-say "正式なリリース ${tag} へ更新します（${app_dest}）"
+say "{{mac_updating}}"
 
 # アプリはこのスクリプトを起動した直後に終了するので、まずそれを待つ。
 for _ in $(seq 1 60); do
@@ -836,49 +1102,49 @@ for _ in $(seq 1 60); do
 done
 
 if pgrep -f "$running_pattern" >/dev/null; then
-  say "起動中の marimo を終了しています"
+  say "{{quitting}}"
   osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null 2>&1 || true
   for _ in $(seq 1 20); do
     pgrep -f "$running_pattern" >/dev/null || break
     sleep 0.5
   done
   if pgrep -f "$running_pattern" >/dev/null; then
-    fail "marimo が終了しません。右クリックメニューの「終了」で終了してから、もう一度更新してください。アプリは差し替えていません。"
+    fail "{{mac_not_quit}}"
   fi
 fi
 
 # ここから先で止まるときは、アプリが終了したままにならないよう、残っている方のアプリを起動し直す。
-say "$app_dest を差し替えています"
+say "{{mac_replacing}}"
 rm -rf "$app_new" "$app_old"
 if ! ditto "$bundle" "$app_new"; then
   rm -rf "$app_new"
   launch
-  fail "新しいアプリを $app_new へコピーできませんでした。アプリは差し替えずに起動し直しています。"
+  fail "{{mac_copy_failed}}"
 fi
 if [[ -e "$app_dest" ]] && ! mv "$app_dest" "$app_old"; then
   rm -rf "$app_new"
   launch
-  fail "$app_dest を退避できませんでした。アプリは差し替えずに起動し直しています。"
+  fail "{{mac_move_aside_failed}}"
 fi
 if ! mv "$app_new" "$app_dest"; then
   [[ -e "$app_old" ]] && mv "$app_old" "$app_dest"
   launch
-  fail "新しいアプリを $app_dest へ置けませんでした。元のアプリに戻して起動し直しています。"
+  fail "{{mac_place_failed}}"
 fi
 rm -rf "$app_old"
 
-say "marimo-hook install を実行しています"
+say "{{running_install}}"
 install_ok=1
 "$hook" install || install_ok=0
 
-say "marimo を起動しています"
+say "{{launching}}"
 launch
 
 if [[ $install_ok -eq 0 ]]; then
   # 一時フォルダは終わると消えるので、install をやり直すときは更新ごとやり直してもらう。
-  fail "marimo-hook install が失敗しました。アプリは最新バージョンとして起動に成功しています。上記のメッセージを確認してから、tools/update.sh を実行してください。"
+  fail "{{mac_install_failed}}"
 fi
-say "更新が終わりました"
+say "{{done}}"
 "#;
 
 // 標準出力はどこにもつながっていないので、残すものは Write-Log で update.log へ書く。
@@ -893,7 +1159,7 @@ function Write-Log([string]$Message) {
 }
 
 function Fail([string]$Message) {
-    Write-Log "エラー: $Message"
+    Write-Log "{{error}}: $Message"
     exit 1
 }
 
@@ -905,7 +1171,7 @@ function Get-InstalledMarimo([string]$Dir) {
 }
 
 try {
-    Write-Log "正式なリリース $tag へ更新します"
+    Write-Log "{{win_updating}}"
 
     # アプリはこのスクリプトを起動した直後に終了するので、まずそれを待つ。
     $app = Get-Process -Id $appPid -ErrorAction SilentlyContinue
@@ -913,35 +1179,35 @@ try {
 
     $running = @(Get-InstalledMarimo $installDir)
     if ($running.Count -gt 0) {
-        Write-Log '起動中の marimo を終了しています'
+        Write-Log '{{quitting}}'
         foreach ($p in $running) {
             if ($p.HasExited) { continue }
             try {
                 $p.Kill()
             } catch {
-                Write-Log "marimo（PID $($p.Id)）を終了できませんでした: $($_.Exception.Message)"
+                Write-Log "{{win_kill_failed}}"
             }
         }
         # 終了させたプロセスは、一覧を取り直すと、終了処理が済む前のプロセスがまだ見えることがあるので、同じオブジェクトの終了を待つ。
         # それでも残るときは、動いているアプリを自分で閉じるインストーラに任せて先へ進む。
         $left = @($running | Where-Object { -not $_.WaitForExit(10000) })
         if ($left.Count -gt 0) {
-            Write-Log 'marimo がまだ終了していないので、インストーラに終了を任せます'
+            Write-Log '{{win_left_to_installer}}'
         }
     }
 
-    Write-Log "$(Split-Path -Leaf $installer) でアプリを入れ直しています"
+    Write-Log "{{win_reinstalling}}"
     $setup = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
     if ($setup.ExitCode -ne 0) {
         # アプリが終了したままにならないよう、残っている方のアプリを起動し直す。
         if (Test-Path -LiteralPath $installedExe) { Start-Process -FilePath $installedExe }
-        Fail "インストーラが失敗しました（終了コード $($setup.ExitCode)）。marimo を終了できなかった場合に起こるので、立ち絵を右クリックして「終了」を選んでから、tools\update.ps1 を実行してください。"
+        Fail "{{win_installer_failed}}"
     }
     if (-not (Test-Path -LiteralPath $installedExe)) {
-        Fail "インストーラは成功を返しましたが、$installedExe が見つかりません。"
+        Fail "{{win_missing_exe}}"
     }
 
-    Write-Log 'marimo-hook install を実行しています'
+    Write-Log '{{running_install}}'
     $saved = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
@@ -952,16 +1218,16 @@ try {
     $installOk = ($LASTEXITCODE -eq 0)
     if ($output.Trim()) { Write-Log $output.TrimEnd() }
 
-    Write-Log 'marimo を起動しています'
+    Write-Log '{{launching}}'
     Start-Process -FilePath $installedExe
 
     if (-not $installOk) {
         # 一時フォルダは終わると消えるので、install をやり直すときは更新ごとやり直してもらう。
-        Fail "marimo-hook install が失敗しました。アプリはすでに新しいものに入れ直して起動しています。上記のメッセージを確認してから、tools\update.ps1 を実行してください。"
+        Fail "{{win_install_failed}}"
     }
-    Write-Log '更新が終わりました'
+    Write-Log '{{done}}'
 } catch {
-    Write-Log "エラー: $($_.Exception.Message)"
+    Write-Log "{{error}}: $($_.Exception.Message)"
     exit 1
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
@@ -1136,6 +1402,7 @@ mod tests {
             pid: 42,
             tag: "v0.2.0",
             bundle_id: "com.marimo.desktop",
+            lang: Lang::Ja,
         });
         assert!(mac.starts_with("#!/bin/bash\n"));
         assert!(mac.contains("\napp_dest='/Users/a/My Apps/it'\\''s.app'\n"));
@@ -1148,46 +1415,95 @@ mod tests {
             tag: "v0.2.0",
             installer: r"C:\x\marimo_0.2.0_x64-setup.exe",
             hook: r"C:\x\marimo-hook.exe",
+            lang: Lang::Ja,
         });
         assert!(windows.contains("\r\n$log = 'C:\\Users\\o''neil\\.marimo\\update.log'\r\n"));
         assert!(windows.contains("\r\n$appPid = 42\r\n"));
         assert!(!windows.replace("\r\n", "").contains('\n'));
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn mac_script_parses_as_bash() {
-        let script = mac_script(&MacHelper {
+    fn sample_mac_script(lang: Lang) -> String {
+        mac_script(&MacHelper {
             work: "/tmp/w",
             app_dest: "/Applications/marimo.app",
             pid: 1,
             tag: "v0.2.0",
             bundle_id: "com.marimo.desktop",
-        });
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("update.sh");
-        fs::write(&path, script).unwrap();
-        let status = Command::new("/bin/bash")
-            .arg("-n")
-            .arg(&path)
-            .status()
-            .unwrap();
-        assert!(status.success());
+            lang,
+        })
+    }
+
+    fn sample_windows_script(lang: Lang) -> String {
+        windows_script(&WindowsHelper {
+            work: r"C:\w",
+            log: r"C:\Users\a\.marimo\update.log",
+            pid: 1,
+            tag: "v0.2.0",
+            installer: r"C:\w\marimo_0.2.0_x64-setup.exe",
+            hook: r"C:\w\marimo-hook.exe",
+            lang,
+        })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mac_script_parses_as_bash() {
+        for lang in [Lang::Ja, Lang::En] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("update.sh");
+            fs::write(&path, sample_mac_script(lang)).unwrap();
+            let status = Command::new("/bin/bash")
+                .arg("-n")
+                .arg(&path)
+                .status()
+                .unwrap();
+            assert!(status.success(), "{lang:?}");
+        }
     }
 
     #[test]
     fn mac_script_braces_variables_before_non_ascii() {
-        let bytes = MAC_BODY.as_bytes();
-        for (i, _) in MAC_BODY.match_indices('$') {
-            let name_end = bytes[i + 1..]
-                .iter()
-                .position(|b| !(b.is_ascii_alphanumeric() || *b == b'_'))
-                .map_or(bytes.len(), |n| i + 1 + n);
-            assert!(
-                name_end == i + 1 || bytes.get(name_end).is_none_or(u8::is_ascii),
-                "{}",
-                MAC_BODY[i..].lines().next().unwrap_or_default()
-            );
+        for lang in [Lang::Ja, Lang::En] {
+            let script = sample_mac_script(lang);
+            let bytes = script.as_bytes();
+            for (i, _) in script.match_indices('$') {
+                let name_end = bytes[i + 1..]
+                    .iter()
+                    .position(|b| !(b.is_ascii_alphanumeric() || *b == b'_'))
+                    .map_or(bytes.len(), |n| i + 1 + n);
+                assert!(
+                    name_end == i + 1 || bytes.get(name_end).is_none_or(u8::is_ascii),
+                    "{}",
+                    script[i..].lines().next().unwrap_or_default()
+                );
+            }
         }
+    }
+
+    #[test]
+    fn helper_scripts_write_english_messages() {
+        let mac = sample_mac_script(Lang::En);
+        let windows = sample_windows_script(Lang::En);
+        for script in [&mac, &windows] {
+            assert!(!script.contains("{{"), "{script}");
+            let code: String = script
+                .lines()
+                .filter(|line| !line.trim_start().starts_with('#'))
+                .collect();
+            assert!(code.is_ascii(), "{script}");
+        }
+        assert!(mac.contains("\n  say \"Error: $*\"\n"));
+        assert!(
+            mac.contains(r#"fail "marimo did not quit. Choose \"Quit\" from the right-click menu"#)
+        );
+        assert!(windows.contains("\r\n    Write-Log 'Update complete'\r\n"));
+        assert!(windows.contains(r#"choose ""Quit"", then run tools\update.ps1.""#));
+        assert!(!windows.replace("\r\n", "").contains('\n'));
+
+        for lang in [Lang::Ja, Lang::En] {
+            let script = sample_windows_script(lang);
+            assert!(!script.contains("{{"), "{lang:?}");
+        }
+        assert!(sample_mac_script(Lang::Ja).contains("\n  say \"エラー: $*\"\n"));
     }
 }

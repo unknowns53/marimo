@@ -18,7 +18,8 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use marimo_core::{MarimoHome, Provider, Snapshot, store};
+use marimo_core::{Lang, LangSetting, MarimoHome, Provider, Snapshot, store};
+use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -34,6 +35,25 @@ struct AppState {
     acknowledged: Mutex<HashSet<String>>,
     // 立ち絵を置いているウィンドウの隅。ウィンドウを置いた場所で Rust が決め、フロントエンドは配置を合わせる。
     corner: Mutex<window_pos::Corner>,
+    // 起動時と設定を変えたときに決める。OS の言語を起動中に変えても、次の起動まで反映しない。
+    language: Mutex<LanguageState>,
+}
+
+/// 設定で選んだものと、それを OS の言語で解決した結果。フロントエンドの i18n.ts の LanguageState と同じ形。
+#[derive(Debug, Clone, Copy, Serialize)]
+struct LanguageState {
+    setting: LangSetting,
+    lang: Lang,
+}
+
+impl LanguageState {
+    fn load(home: &MarimoHome) -> Self {
+        let setting = LangSetting::load(home);
+        Self {
+            setting,
+            lang: setting.resolve(),
+        }
+    }
 }
 
 impl AppState {
@@ -44,7 +64,19 @@ impl AppState {
     fn corner(&self) -> window_pos::Corner {
         *self.corner.lock().unwrap_or_else(|e| e.into_inner())
     }
+
+    fn lang(&self) -> Lang {
+        self.language.lock().unwrap_or_else(|e| e.into_inner()).lang
+    }
 }
+
+/// 画面の文言を出す Rust の処理が、AppHandle から今の言語を引く。
+pub fn lang(app: &AppHandle) -> Lang {
+    app.try_state::<AppState>()
+        .map_or_else(Lang::os, |s| s.lang())
+}
+
+const LANGUAGE_EVENT: &str = "language";
 
 const LAYOUT_EVENT: &str = "layout";
 
@@ -135,6 +167,35 @@ fn set_panel_display(
         tray.reflect(display);
     }
     Ok(())
+}
+
+#[tauri::command]
+fn get_language(state: State<'_, AppState>) -> LanguageState {
+    *state.language.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// トレイのメニューと設定のウィンドウのタイトルは Rust が持つのでここで付け直し、画面の文言は
+/// 全部のウィンドウへ送るイベントで切り替えさせる。
+#[tauri::command]
+fn set_language(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    setting: LangSetting,
+) -> Result<LanguageState, String> {
+    scale::save_language(&state.home, setting).map_err(|e| e.to_string())?;
+    let next = LanguageState {
+        setting,
+        lang: setting.resolve(),
+    };
+    *state.language.lock().unwrap_or_else(|e| e.into_inner()) = next;
+    if let Some(tray) = state.tray.get() {
+        tray.relabel(next.lang);
+    }
+    settings::retitle(&app, next.lang);
+    if let Err(e) = app.emit(LANGUAGE_EVENT, next) {
+        eprintln!("marimo: cannot announce the language: {e}");
+    }
+    Ok(next)
 }
 
 #[tauri::command]
@@ -302,6 +363,7 @@ fn main() {
             tray: OnceLock::new(),
             acknowledged: Mutex::new(acknowledged::load(&home).into_iter().collect()),
             corner: Mutex::new(window_pos::Corner::default()),
+            language: Mutex::new(LanguageState::load(&home)),
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -311,6 +373,8 @@ fn main() {
             get_layout,
             get_panel_display,
             set_panel_display,
+            get_language,
+            set_language,
             get_bubble_settings,
             set_bubble_settings,
             get_usage_refresh_minutes,
@@ -354,7 +418,8 @@ fn main() {
             let handle = app.handle().clone();
             window_pos::track(&window, home.clone(), move |pos| relayout(&handle, pos));
             let display = scale::load_panel_display(&home).unwrap_or_default();
-            let tray = tray::build(app.handle(), display)?;
+            let lang = app.state::<AppState>().lang();
+            let tray = tray::build(app.handle(), display, lang)?;
             let _ = app.state::<AppState>().tray.set(tray);
             tray::show_status(app.handle(), &store::load_snapshot(&home));
             watch::spawn(app.handle().clone(), home.clone());

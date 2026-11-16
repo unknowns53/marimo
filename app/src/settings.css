@@ -209,6 +209,10 @@ h1.title {
   margin: 0;
 }
 
+.field + .check {
+  margin-top: 16px;
+}
+
 .checks {
   display: grid;
   gap: 6px;

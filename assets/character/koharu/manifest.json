@@ -1,7 +1,7 @@
 {
   "mode": "standing",
   "name": "koharu",
-  "display_name": "小春",
+  "display_name": { "ja": "小春", "en": "Koharu" },
   "canvas": {
     "width": 800,
     "height": 1200

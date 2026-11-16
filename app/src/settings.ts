@@ -1,6 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 
+import {
+  LANG_SETTINGS,
+  LANGUAGE_EVENT,
+  langSettingLabel,
+  setLang,
+  t,
+  translateDocument,
+  type LanguageState,
+} from "./i18n";
 import { PANEL_OPACITY_MAX, PANEL_OPACITY_MIN } from "./panelModel";
 import { SCALE_MAX, SCALE_MIN } from "./scale";
 import {
@@ -35,6 +44,7 @@ const opacityInput = $<HTMLInputElement>("panel-opacity");
 const scaleInput = $<HTMLInputElement>("scale");
 const bubbleSecondsSelect = $<HTMLSelectElement>("bubble-seconds");
 const characterSelect = $<HTMLSelectElement>("character-select");
+const languageSelect = $<HTMLSelectElement>("language");
 const usageRefreshSelect = $<HTMLSelectElement>("usage-refresh");
 const sectionButtons = [...document.querySelectorAll<HTMLButtonElement>("#sections [data-section]")];
 const versionNode = $("version");
@@ -60,6 +70,7 @@ function request(r: SettingsRequest): void {
 
 function render(next: SettingsState): void {
   state = next;
+  fillSelect(languageSelect, LANG_SETTINGS.map((s) => [s, langSettingLabel(s)]));
   fillSelect(
     bubbleSecondsSelect,
     bubbleSecondsOptions(next.bubble.bubble_seconds).map((s) => [String(s), bubbleSecondsLabel(s)]),
@@ -155,36 +166,42 @@ function showStatus(text: string, error = false): void {
   updateStatus.classList.toggle("error", error);
 }
 
+const EN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 function clock(ms: number): string {
   const d = new Date(ms);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return t(`${d.getMonth() + 1}/${d.getDate()} ${time}`, `${EN_MONTHS[d.getMonth()]} ${d.getDate()}, ${time}`);
 }
 
 function renderUpdate(status: UpdateStatus): void {
   update = status;
   versionNode.textContent = status.current;
-  latestNode.textContent = status.latest ?? (status.error ? "不明" : "確認していません");
+  latestNode.textContent =
+    status.latest ?? (status.error ? t("不明", "Unknown") : t("確認していません", "Not checked yet"));
   checkedAtNode.textContent = status.checked_at === null ? "" : clock(status.checked_at);
   checkedAtNode.hidden = checkedAtLabel.hidden = status.checked_at === null;
   const target = status.newer ? status.latest : null;
   installButton.hidden = target === null;
-  installButton.textContent = target ? `${target} に更新` : "";
-  updateSummary.textContent = target ? `${target} に更新できます` : "現在のバージョンと確認";
+  installButton.textContent = target ? t(`${target} に更新`, `Update to ${target}`) : "";
+  updateSummary.textContent = target
+    ? t(`${target} に更新できます`, `Update Available: ${target}`)
+    : t("現在のバージョンと確認", "Current version and checks");
   updateSummary.classList.toggle("note", target !== null);
   if (!installing) showStatus(status.error ?? "", status.error !== null);
 }
 
 async function checkUpdate(): Promise<void> {
   checkButton.disabled = true;
-  checkButton.textContent = "確認しています…";
+  checkButton.textContent = t("確認しています…", "Checking…");
   try {
     renderUpdate(await invoke<UpdateStatus>("check_update"));
   } catch (e) {
     showStatus(String(e), true);
   } finally {
     checkButton.disabled = false;
-    checkButton.textContent = "更新を確認";
+    checkButton.textContent = t("更新を確認", "Check for Updates");
   }
 }
 
@@ -208,7 +225,7 @@ function bindUpdate(): void {
   checkButton.addEventListener("click", () => void checkUpdate());
   installButton.addEventListener("click", () => {
     if (!update?.newer || !update.latest) return;
-    confirmTitle.textContent = `${update.latest} に更新`;
+    confirmTitle.textContent = t(`${update.latest} に更新`, `Update to ${update.latest}`);
     confirmDialog.dataset.version = update.latest;
     confirmDialog.returnValue = "";
     confirmDialog.showModal();
@@ -219,7 +236,17 @@ function bindUpdate(): void {
   });
 }
 
+// 地の文の日本語は最初の translateDocument で data-ja に写すので、コードが文言を書き換える前に一度呼ぶ。
+function applyLanguage(language: LanguageState): void {
+  setLang(language.lang);
+  translateDocument();
+  if (state) render(state);
+  if (update) renderUpdate(update);
+}
+
 async function start(): Promise<void> {
+  await listen<LanguageState>(LANGUAGE_EVENT, (e) => applyLanguage(e.payload));
+  applyLanguage(await invoke<LanguageState>("get_language").catch((): LanguageState => ({ setting: "auto", lang: "ja" })));
   bindSections();
   bindForm();
   bindUpdate();

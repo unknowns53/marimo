@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { DEFAULT_BUBBLE_SETTINGS } from "./bubbleSettings";
+import { setLang } from "./i18n";
 import { DEFAULT_PANEL_DISPLAY } from "./panelModel";
 import {
   bubbleSecondsLabel,
@@ -8,6 +9,9 @@ import {
   formValues,
   opacityPercent,
   requestFor,
+  scaleLabel,
+  usageRefreshLabel,
+  usageRefreshOptions,
   type FormControl,
 } from "./settingsForm";
 import type { SettingsRequest, SettingsState } from "./settingsProtocol";
@@ -24,7 +28,10 @@ const STATE: SettingsState = {
   autostart: false,
   usage_refresh_minutes: 10,
   usage_tools: { claude: true, codex: false, antigravity: true },
+  language: "en",
 };
+
+afterEach(() => setLang("ja"));
 
 describe("opacityPercent", () => {
   it("rounds to a whole percent and keeps it in range", () => {
@@ -55,11 +62,26 @@ describe("bubble seconds choices", () => {
       expect(bubbleSecondsOptions(current).map(bubbleSecondsLabel), String(current)).toEqual(labels);
     }
   });
+
+  it("labels the choices in English", () => {
+    setLang("en");
+    expect(bubbleSecondsOptions(45).map(bubbleSecondsLabel)).toEqual([
+      "Until dismissed",
+      "10 sec",
+      "30 sec",
+      "45 sec",
+      "1 min",
+      "5 min",
+    ]);
+    expect(usageRefreshOptions(5).slice(0, 2).map(usageRefreshLabel)).toEqual(["Never", "Every 5 min"]);
+    expect(scaleLabel(1)).toBe("1.0×");
+  });
 });
 
 describe("formValues", () => {
   it("maps the state onto the form controls by name", () => {
     expect(formValues(STATE)).toEqual({
+      language: "en",
       show_character: true,
       panel_style: "counts",
       row_order: "status",
@@ -110,6 +132,9 @@ describe("requestFor", () => {
       ],
       ["bad usage refresh", control("usage_refresh_minutes", "-1"), "change", null],
       ["usage tool", control("usage_antigravity"), "change", { kind: "usage-tools", patch: { antigravity: false } }],
+      ["language", control("language", "ja"), "change", { kind: "language", setting: "ja" }],
+      ["language input", control("language", "ja"), "input", null],
+      ["unknown language", control("language", "fr"), "change", null],
       ["unknown control", control("other"), "change", null],
     ];
     for (const [label, c, phase, expected] of cases) {

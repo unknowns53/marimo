@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { folderName, formatAge, titleIsName } from "./format";
+import { folderName, formatAge, formatClock, formatUpdated, statusLabel, titleIsName } from "./format";
+import { setLang } from "./i18n";
+
+afterEach(() => setLang("ja"));
 
 describe("folderName", () => {
   it("prefers the repository, then the cwd folder, then the session id", () => {
@@ -54,5 +57,30 @@ describe("formatAge", () => {
       [-5_000, "今"],
     ];
     for (const [elapsed, want] of cases) expect(formatAge(now - elapsed, now), String(elapsed)).toBe(want);
+  });
+
+  it("uses short English forms", () => {
+    setLang("en");
+    const now = 10 * 86_400_000;
+    const cases: [number, string][] = [
+      [59_999, "now"],
+      [5 * 60_000, "5m ago"],
+      [2 * 3_600_000, "2h ago"],
+      [3 * 86_400_000, "3d ago"],
+    ];
+    for (const [elapsed, want] of cases) expect(formatAge(now - elapsed, now), String(elapsed)).toBe(want);
+  });
+});
+
+describe("labels", () => {
+  it("names statuses and update times in the current language", () => {
+    const at = new Date(2026, 0, 1, 14, 5).getTime();
+    expect([statusLabel("waiting"), formatUpdated(at)]).toEqual(["承認待ち", `${formatClock(at)} 更新`]);
+    setLang("en");
+    expect([statusLabel("waiting"), statusLabel("idle"), formatUpdated(at)]).toEqual([
+      "Waiting",
+      "Idle",
+      "Updated 14:05",
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 import { BUBBLE_SECONDS_CHOICES } from "./bubbleSettings";
 import { DEFAULT_PANEL_OPACITY, PANEL_OPACITY_MAX, PANEL_OPACITY_MIN, PANEL_STYLES, ROW_ORDERS } from "./panelModel";
+import { LANG_SETTINGS, t } from "./i18n";
 import type { SettingsRequest, SettingsState } from "./settingsProtocol";
 
 // スライダーは百分率の整数で持つ。小数の刻みにすると値の文字列に 0.35000000000000003 のような誤差が出る。
@@ -14,8 +15,9 @@ export function opacityPercent(opacity: number): number {
 }
 
 export function bubbleSecondsLabel(seconds: number): string {
-  if (seconds === 0) return "閉じるまで";
-  return seconds % 60 === 0 ? `${seconds / 60} 分` : `${seconds} 秒`;
+  if (seconds === 0) return t("閉じるまで", "Until dismissed");
+  if (seconds % 60 === 0) return t(`${seconds / 60} 分`, `${seconds / 60} min`);
+  return t(`${seconds} 秒`, `${seconds} sec`);
 }
 
 /** display.json を手で書き換えて選択肢に無い秒数が入っていても、今の値として選べるよう加える。 */
@@ -31,7 +33,7 @@ export const MAX_USAGE_REFRESH_MINUTES = 1440;
 export const USAGE_REFRESH_CHOICES: readonly number[] = [0, 5, 10, 15, 30, 60];
 
 export function usageRefreshLabel(minutes: number): string {
-  return minutes === 0 ? "しない" : `${minutes} 分ごと`;
+  return minutes === 0 ? t("しない", "Never") : t(`${minutes} 分ごと`, `Every ${minutes} min`);
 }
 
 /** display.json を手で書き換えて一覧に無い間隔が入っていても、今の値として選べるよう加える。 */
@@ -41,7 +43,7 @@ export function usageRefreshOptions(current: number): number[] {
 }
 
 export function scaleLabel(scale: number): string {
-  return `${scale.toFixed(1)} 倍`;
+  return t(`${scale.toFixed(1)} 倍`, `${scale.toFixed(1)}×`);
 }
 
 /**
@@ -53,6 +55,7 @@ export type FormValues = Record<string, string | boolean | null>;
 export function formValues(state: SettingsState): FormValues {
   const { display, bubble } = state;
   return {
+    language: state.language,
     show_character: display.show_character,
     panel_style: display.panel_style,
     row_order: display.row_order,
@@ -92,6 +95,10 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
   if (name === "scale") return phase === "input" ? { kind: "scale", scale: Number(value) } : null;
   if (phase !== "change") return null;
   switch (name) {
+    case "language": {
+      const setting = LANG_SETTINGS.find((s) => s === value);
+      return setting ? { kind: "language", setting } : null;
+    }
     case "show_character":
       return { kind: "display", patch: { [name]: checked } };
     case "panel_style": {

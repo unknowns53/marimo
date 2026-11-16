@@ -40,8 +40,8 @@
     "active": true,
     "targets": "all",
     "category": "DeveloperTool",
-    "shortDescription": "Claude Code の作業状況を画面の隅で知らせるウィジェット",
-    "longDescription": "Claude Code のフックと statusLine が書き出す状態ファイルを読み、各セッションの作業中、承認待ち、完了、エラーを立ち絵と一行表示で知らせる。",
+    "shortDescription": "A desktop widget that shows the state of your AI coding agent sessions",
+    "longDescription": "marimo is a desktop widget that shows the state of your Claude Code, Codex, Hermes Agent, OpenCode, and Antigravity sessions. A character in the corner of the screen tells you whether each session is working, waiting for your approval, or done.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

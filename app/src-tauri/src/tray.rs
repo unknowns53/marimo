@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use marimo_core::{Snapshot, Status};
+use marimo_core::{Lang, Snapshot, Status};
 use serde::Deserialize;
 use tauri::image::Image;
 use tauri::menu::{
@@ -49,9 +49,13 @@ pub struct Tray {
     detail: CheckMenuItem<Wry>,
     counts: CheckMenuItem<Wry>,
     orders: Vec<(RowOrder, CheckMenuItem<Wry>)>,
+    order_menu: Submenu<Wry>,
     mark_all_read: MenuItem<Wry>,
-    // 新しいバージョンがあるときだけ「設定…」の上に差し込む項目。
-    update: Mutex<Option<MenuItem<Wry>>>,
+    settings: MenuItem<Wry>,
+    quit: MenuItem<Wry>,
+    // 新しいバージョンがあるときだけ「設定…」の上に差し込む項目と、その版。言語を変えたら版から文言を作り直す。
+    update: Mutex<Option<(String, MenuItem<Wry>)>>,
+    lang: Mutex<Lang>,
 }
 
 /// フロントエンドの panelModel.ts の TrayItem と同じ形。key は sessionKey である。
@@ -79,6 +83,47 @@ fn attention(aggregate: Status) -> Attention {
 }
 
 impl Tray {
+    fn lang(&self) -> Lang {
+        *self.lang.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 先頭のセッションの一覧は、文言をフロントエンドが作って送り直すので、ここでは付け直さない。
+    pub fn relabel(&self, lang: Lang) {
+        *self.lang.lock().unwrap_or_else(|e| e.into_inner()) = lang;
+        let visible = self
+            .menu
+            .app_handle()
+            .get_webview_window("main")
+            .and_then(|w| w.is_visible().ok())
+            .unwrap_or(true);
+        let results = [
+            self.toggle.set_text(toggle_label(visible, lang)),
+            self.show_character.set_text(show_character_label(lang)),
+            self.detail.set_text(detail_label(lang)),
+            self.counts.set_text(counts_label(lang)),
+            self.order_menu.set_text(order_menu_label(lang)),
+            self.mark_all_read.set_text(mark_all_read_label(lang)),
+            self.settings.set_text(settings_label(lang)),
+            self.quit.set_text(quit_label(lang)),
+        ]
+        .into_iter()
+        .chain(
+            self.orders
+                .iter()
+                .map(|(order, item)| item.set_text(order_label(*order, lang))),
+        )
+        .chain(
+            self.update
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .map(|(version, item)| item.set_text(update_label(version, lang))),
+        );
+        if let Some(Err(e)) = results.into_iter().find(Result::is_err) {
+            eprintln!("marimo: cannot update the tray menu: {e}");
+        }
+    }
+
     pub fn reflect(&self, display: PanelDisplay) {
         let results = [
             self.show_character.set_checked(display.show_character),
@@ -121,13 +166,23 @@ impl Tray {
     }
 
     fn replace_update(&self, latest: Option<&str>) -> tauri::Result<()> {
+        let lang = self.lang();
         let mut current = self.update.lock().unwrap_or_else(|e| e.into_inner());
-        match (latest, current.as_ref()) {
-            (Some(version), Some(item)) => item.set_text(update_label(version)),
+        match (latest, current.as_mut()) {
+            (Some(version), Some((shown, item))) => {
+                item.set_text(update_label(version, lang))?;
+                *shown = version.to_owned();
+                Ok(())
+            }
             (Some(version), None) => {
                 let app = self.menu.app_handle();
-                let item =
-                    MenuItem::with_id(app, UPDATE, update_label(version), true, None::<&str>)?;
+                let item = MenuItem::with_id(
+                    app,
+                    UPDATE,
+                    update_label(version, lang),
+                    true,
+                    None::<&str>,
+                )?;
                 let at = self
                     .menu
                     .items()?
@@ -135,10 +190,10 @@ impl Tray {
                     .position(|i| i.id() == SETTINGS)
                     .unwrap_or(0);
                 self.menu.insert(&item, at)?;
-                *current = Some(item);
+                *current = Some((version.to_owned(), item));
                 Ok(())
             }
-            (None, Some(item)) => {
+            (None, Some((_, item))) => {
                 self.menu.remove(item)?;
                 *current = None;
                 Ok(())
@@ -168,7 +223,10 @@ impl Tray {
             next.push(MenuItem::with_id(app, id, label, true, None::<&str>)?.kind());
         }
         if more > 0 {
-            next.push(MenuItem::new(app, format!("ほか {more} 件"), false, None::<&str>)?.kind());
+            let label = self
+                .lang()
+                .pick(format!("ほか {more} 件"), format!("{more} More"));
+            next.push(MenuItem::new(app, label, false, None::<&str>)?.kind());
         }
         if !next.is_empty() {
             next.push(PredefinedMenuItem::separator(app)?.kind());
@@ -217,12 +275,40 @@ pub fn show_status(app: &AppHandle, snapshot: &Snapshot) {
     });
 }
 
-fn toggle_label(visible: bool) -> &'static str {
+fn toggle_label(visible: bool, lang: Lang) -> &'static str {
     if visible {
-        "marimo を隠す"
+        lang.pick("marimo を隠す", "Hide marimo")
     } else {
-        "marimo を表示"
+        lang.pick("marimo を表示", "Show marimo")
     }
+}
+
+fn show_character_label(lang: Lang) -> &'static str {
+    lang.pick("立ち絵を表示", "Show Character")
+}
+
+fn detail_label(lang: Lang) -> &'static str {
+    lang.pick("詳細を表示", "Show Details")
+}
+
+fn counts_label(lang: Lang) -> &'static str {
+    lang.pick("件数だけ表示", "Show Counts Only")
+}
+
+fn order_menu_label(lang: Lang) -> &'static str {
+    lang.pick("並べ方", "Sort Order")
+}
+
+fn mark_all_read_label(lang: Lang) -> &'static str {
+    lang.pick("すべて既読にする", "Mark All as Read")
+}
+
+fn settings_label(lang: Lang) -> &'static str {
+    lang.pick("設定…", "Settings…")
+}
+
+fn quit_label(lang: Lang) -> &'static str {
+    lang.pick("終了", "Quit")
 }
 
 // macOS のメニューバーは黒だけのテンプレート画像を明暗に合わせて塗り分ける。Windows の通知領域は
@@ -246,12 +332,12 @@ fn icon(attention: Attention) -> (Image<'static>, bool) {
     }
 }
 
-pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
-    let toggle_item = MenuItem::with_id(app, TOGGLE, toggle_label(true), true, None::<&str>)?;
+pub fn build(app: &AppHandle, display: PanelDisplay, lang: Lang) -> tauri::Result<Tray> {
+    let toggle_item = MenuItem::with_id(app, TOGGLE, toggle_label(true, lang), true, None::<&str>)?;
     let show_character = CheckMenuItem::with_id(
         app,
         SHOW_CHARACTER,
-        "立ち絵を表示",
+        show_character_label(lang),
         true,
         display.show_character,
         None::<&str>,
@@ -259,7 +345,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
     let detail = CheckMenuItem::with_id(
         app,
         STYLE_DETAIL,
-        "詳細を表示",
+        detail_label(lang),
         true,
         display.panel_style == PanelStyle::Detail,
         None::<&str>,
@@ -267,7 +353,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
     let counts = CheckMenuItem::with_id(
         app,
         STYLE_COUNTS,
-        "件数だけ表示",
+        counts_label(lang),
         true,
         display.panel_style == PanelStyle::Counts,
         None::<&str>,
@@ -278,7 +364,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
             let item = CheckMenuItem::with_id(
                 app,
                 format!("{ORDER_PREFIX}{}", order.as_str()),
-                order_label(order),
+                order_label(order, lang),
                 true,
                 display.row_order == order,
                 None::<&str>,
@@ -290,9 +376,16 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         .iter()
         .map(|(_, item)| item as &dyn IsMenuItem<Wry>)
         .collect();
-    let order_menu = Submenu::with_items(app, "並べ方", true, &order_items)?;
-    let mark_all_read =
-        MenuItem::with_id(app, MARK_ALL_READ, "すべて既読にする", false, None::<&str>)?;
+    let order_menu = Submenu::with_items(app, order_menu_label(lang), true, &order_items)?;
+    let mark_all_read = MenuItem::with_id(
+        app,
+        MARK_ALL_READ,
+        mark_all_read_label(lang),
+        false,
+        None::<&str>,
+    )?;
+    let settings = MenuItem::with_id(app, SETTINGS, settings_label(lang), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, QUIT, quit_label(lang), true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -305,8 +398,8 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
             &PredefinedMenuItem::separator(app)?,
             &mark_all_read,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, SETTINGS, "設定…", true, None::<&str>)?,
-            &MenuItem::with_id(app, QUIT, "終了", true, None::<&str>)?,
+            &settings,
+            &quit,
         ],
     )?;
     let (image, template) = icon(Attention::None);
@@ -338,20 +431,28 @@ pub fn build(app: &AppHandle, display: PanelDisplay) -> tauri::Result<Tray> {
         detail,
         counts,
         orders,
+        order_menu,
         mark_all_read,
+        settings,
+        quit,
         update: Mutex::new(None),
+        lang: Mutex::new(lang),
     })
 }
 
-fn update_label(version: &str) -> String {
-    format!("{version} に更新できます")
+fn update_label(version: &str, lang: Lang) -> String {
+    lang.pick(
+        format!("{version} に更新できます"),
+        format!("Update Available: {version}"),
+    )
 }
 
-fn order_label(order: RowOrder) -> &'static str {
+// panelModel.ts の ROW_ORDER_LABEL と揃える。
+fn order_label(order: RowOrder, lang: Lang) -> &'static str {
     match order {
-        RowOrder::Started => "開始順",
-        RowOrder::Status => "状態順",
-        RowOrder::Updated => "更新順",
+        RowOrder::Started => lang.pick("開始順", "Start Time"),
+        RowOrder::Status => lang.pick("状態順", "Status"),
+        RowOrder::Updated => lang.pick("更新順", "Last Update"),
     }
 }
 
@@ -452,7 +553,7 @@ pub fn set_visible(app: &AppHandle, visible: bool) {
         return;
     }
     if let Some(tray) = state.tray.get()
-        && let Err(e) = tray.toggle.set_text(toggle_label(visible))
+        && let Err(e) = tray.toggle.set_text(toggle_label(visible, tray.lang()))
     {
         eprintln!("marimo: cannot update the tray menu: {e}");
     }

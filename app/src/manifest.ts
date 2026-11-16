@@ -1,3 +1,4 @@
+import { lang, type Lang } from "./i18n";
 import type { Manifest } from "./renderer";
 import type { Status } from "./types";
 
@@ -12,7 +13,7 @@ export interface StandingManifest {
   mode: "standing";
   name?: string;
   /** メニューにはこの名前を出し、無ければ name を使う。 */
-  display_name?: string;
+  display_name?: LocalizedName;
   /** ドット絵の素材なら true にし、拡大縮小しても画素をぼかさずに描かせる。 */
   pixelated?: boolean;
   canvas: { width: number; height: number };
@@ -65,6 +66,26 @@ export const DEFAULT_CHARACTER = "koharu";
 // 縦横比の書かれていない素材の領域は、既定のキャラクターと同じにする。scale.rs の DEFAULT_ASPECT と揃える。
 export const DEFAULT_ASPECT = 1.5;
 
+/** 言語ごとに名前を変えるときは { "ja": "小春", "en": "Koharu" } と書く。 */
+export type LocalizedName = string | Partial<Record<Lang, string>>;
+
+// 今の言語の名前が無ければもう一方の言語の名前を使い、どちらも無ければ空にする。
+function localizedName(name: LocalizedName | undefined): string {
+  if (typeof name === "string") return name.trim();
+  if (!name || typeof name !== "object") return "";
+  const order: Lang[] = lang() === "ja" ? ["ja", "en"] : ["en", "ja"];
+  for (const l of order) {
+    const value = name[l];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+/** 今の言語での名前。display_name、name、id の順に、空でない最初のものを使う。 */
+export function characterName(id: string, manifest: Manifest): string {
+  return localizedName(manifest.display_name) || manifest.name?.trim() || id;
+}
+
 export interface CharacterInfo {
   id: string;
   displayName: string;
@@ -76,8 +97,7 @@ export interface CharacterInfo {
 export function characterInfo(id: string, manifest: Manifest): CharacterInfo {
   const size = manifest.mode === "sprite" ? manifest.frame : manifest.canvas;
   const aspect = size.width > 0 && size.height > 0 ? size.height / size.width : DEFAULT_ASPECT;
-  const name = manifest.display_name?.trim() || manifest.name?.trim() || id;
-  return { id, displayName: name, pixelated: manifest.pixelated === true, aspect };
+  return { id, displayName: characterName(id, manifest), pixelated: manifest.pixelated === true, aspect };
 }
 
 /**

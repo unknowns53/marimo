@@ -1,5 +1,6 @@
 import { isRead, sessionKey, STATUS_PRIORITY, triggerKey, type Acknowledged } from "./acknowledged";
-import { chatTitle, folderName, STATUS_LABEL } from "./format";
+import { chatTitle, folderName, statusLabel } from "./format";
+import { t } from "./i18n";
 import type { SessionState, Snapshot, Status } from "./types";
 
 /** 並べ方は詳細と件数のどちらの出し方にも効く。 */
@@ -7,17 +8,28 @@ export type RowOrder = "started" | "status" | "updated";
 
 export const ROW_ORDERS: readonly RowOrder[] = ["started", "status", "updated"];
 
-export const ROW_ORDER_LABEL: Record<RowOrder, string> = {
-  started: "開始順",
-  status: "状態順",
-  updated: "更新順",
-};
+// 英語はトレイのメニュー（tray.rs の order_label）と揃える。
+export function rowOrderLabel(order: RowOrder): string {
+  switch (order) {
+    case "started":
+      return t("開始順", "Start Time");
+    case "status":
+      return t("状態順", "Status");
+    case "updated":
+      return t("更新順", "Last Update");
+  }
+}
 
-export const ROW_ORDER_DESCRIPTION: Record<RowOrder, string> = {
-  started: "始まった時刻の新しい順",
-  status: "承認待ち、エラー、作業中、完了の順",
-  updated: "最後に更新された時刻の新しい順",
-};
+export function rowOrderDescription(order: RowOrder): string {
+  switch (order) {
+    case "started":
+      return t("始まった時刻の新しい順", "Most recently started first");
+    case "status":
+      return t("承認待ち、エラー、作業中、完了の順", "Waiting, error, working, then done");
+    case "updated":
+      return t("最後に更新された時刻の新しい順", "Most recently updated first");
+  }
+}
 
 /** パネルの並べ方のボタンは、押すたびに ROW_ORDERS の順に次の並べ方へ移る。 */
 export function nextRowOrder(order: RowOrder): RowOrder {
@@ -119,6 +131,11 @@ export interface StatusCount {
   count: number;
 }
 
+/** 件数の行の 1 項目。「承認待ち 1」のように状態と件数を並べる。 */
+export function countLabel({ status, count }: StatusCount): string {
+  return `${statusLabel(status)} ${count}`;
+}
+
 export interface PanelView {
   style: PanelStyle;
   order: RowOrder;
@@ -202,7 +219,7 @@ export function trayList(snapshot: Snapshot | null, ack: Acknowledged): TrayList
 
 // 字数はコードポイントで数え、Rust の activity::clip と同じく末尾を … にする。
 function trayLabel(s: SessionState): string {
-  const head = `${STATUS_LABEL[s.status]}  ${folderName(s)}`;
+  const head = `${statusLabel(s.status)}  ${folderName(s)}`;
   const title = chatTitle(s);
   if (!title) return head;
   const room = Math.max(TRAY_LABEL_CHARS - [...head].length - 2, TRAY_TITLE_MIN_CHARS);

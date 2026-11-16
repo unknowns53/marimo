@@ -1,3 +1,4 @@
+use marimo_core::Lang;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const LABEL: &str = "settings";
@@ -20,6 +21,19 @@ pub fn open(app: &AppHandle) {
 /// section は settings.html の左の一覧の data-section の値で、開いたウィンドウにその項目を出す。
 pub fn open_section(app: &AppHandle, section: &'static str) {
     spawn_show(app, Some(section));
+}
+
+fn title(lang: Lang) -> &'static str {
+    lang.pick("marimo の設定", "marimo Settings")
+}
+
+/// 言語を変えたときに、開いている設定のウィンドウのタイトルを付け直す。
+pub fn retitle(app: &AppHandle, lang: Lang) {
+    if let Some(window) = app.get_webview_window(LABEL)
+        && let Err(e) = window.set_title(title(lang))
+    {
+        eprintln!("marimo: cannot retitle the settings window: {e}");
+    }
 }
 
 fn spawn_show(app: &AppHandle, section: Option<&'static str>) {
@@ -47,7 +61,7 @@ fn show(app: &AppHandle, section: Option<&'static str>) -> tauri::Result<()> {
                 |s| format!("settings.html#{s}"),
             );
             WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App(page.into()))
-                .title("marimo の設定")
+                .title(title(crate::lang(app)))
                 .inner_size(640.0, 560.0)
                 .min_inner_size(520.0, 360.0)
                 .maximizable(false)

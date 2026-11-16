@@ -1,6 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::lang::Lang;
+
 /// パネルは要約を 1 行で出し、ツールチップで全文を出す。そのための元の文章を
 /// 保存時に切りすぎないよう、上限は表示の都合でなく状態ファイルの大きさで決める。
 pub const TEXT_MAX_CHARS: usize = 500;
@@ -84,7 +86,12 @@ pub fn deserialize_compat<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Acti
 /// ツールごとの表に従う。Codex はシェルのコマンドを Bash、ファイルの編集を apply_patch、MCP のツールを
 /// mcp__<server>__<tool> の名前で送り（codex-rs/core/src/tools/hook_names.rs と handlers/mcp.rs）、
 /// ほかの関数のツールは引数の JSON をそのまま送る（codex-rs/core/src/tools/registry.rs）。
-pub fn tool_activity(tool_name: &str, tool_input: Option<&Value>, cwd: Option<&str>) -> Activity {
+pub fn tool_activity(
+    lang: Lang,
+    tool_name: &str,
+    tool_input: Option<&Value>,
+    cwd: Option<&str>,
+) -> Activity {
     let get = |key: &str| {
         tool_input
             .and_then(|v| v.get(key))
@@ -92,6 +99,14 @@ pub fn tool_activity(tool_name: &str, tool_input: Option<&Value>, cwd: Option<&s
             .filter(|s| !s.trim().is_empty())
     };
     let rel = |p: &str| relative_path(p, cwd);
+    // 「編集: src/a.rs」のように、何をしているかの見出しに対象を続ける。対象が無ければ見出しだけにする。
+    let labeled = |ja: &str, en: &str, target: Option<String>| {
+        let label = lang.pick(ja, en);
+        match target {
+            Some(t) => format!("{label}: {t}"),
+            None => label.to_owned(),
+        }
+    };
     let name = if tool_name.is_empty() {
         "Tool"
     } else {
@@ -108,29 +123,23 @@ pub fn tool_activity(tool_name: &str, tool_input: Option<&Value>, cwd: Option<&s
             Activity::tool(name, summary, command.map(str::to_owned))
         }
         "Edit" | "Write" | "Read" | "NotebookEdit" => {
-            let verb = match name {
-                "Edit" => "編集",
-                "Write" => "書き込み",
-                "Read" => "読み込み",
-                _ => "ノートブック編集",
+            let (ja, en) = match name {
+                "Edit" => ("編集", "Edit"),
+                "Write" => ("書き込み", "Write"),
+                "Read" => ("読み込み", "Read"),
+                _ => ("ノートブック編集", "Notebook edit"),
             };
             let path = get("file_path").or(get("notebook_path"));
-            let summary = match path {
-                Some(p) => format!("{verb}: {}", rel(p)),
-                None => verb.to_owned(),
-            };
+            let summary = labeled(ja, en, path.map(rel));
             Activity::tool(name, summary, path.map(str::to_owned))
         }
         "Grep" | "Glob" => {
-            let verb = if name == "Grep" {
-                "検索"
+            let (ja, en) = if name == "Grep" {
+                ("検索", "Search")
             } else {
-                "ファイル検索"
+                ("ファイル検索", "Find files")
             };
-            let summary = match get("pattern") {
-                Some(p) => format!("{verb}: {p}"),
-                None => verb.to_owned(),
-            };
+            let summary = labeled(ja, en, get("pattern").map(str::to_owned));
             let scope: Vec<String> = [get("path").map(rel), get("glob").map(str::to_owned)]
                 .into_iter()
                 .flatten()
@@ -139,74 +148,70 @@ pub fn tool_activity(tool_name: &str, tool_input: Option<&Value>, cwd: Option<&s
         }
         "WebFetch" => {
             let url = get("url");
-            let summary = match url {
-                Some(u) => format!("取得: {}", host_and_path(u)),
-                None => "取得".to_owned(),
-            };
+            let summary = labeled("取得", "Fetch", url.map(host_and_path));
             Activity::tool(name, summary, url.map(str::to_owned))
         }
         "WebSearch" => {
-            let summary = match get("query") {
-                Some(q) => format!("Web 検索: {q}"),
-                None => "Web 検索".to_owned(),
-            };
+            let summary = labeled("Web 検索", "Web search", get("query").map(str::to_owned));
             Activity::tool(name, summary, None)
         }
         "Agent" => {
-            let summary = match get("description") {
-                Some(d) => format!("サブエージェント: {d}"),
-                None => "サブエージェント".to_owned(),
-            };
+            let summary = labeled(
+                "サブエージェント",
+                "Subagent",
+                get("description").map(str::to_owned),
+            );
             Activity::tool(name, summary, get("subagent_type").map(str::to_owned))
         }
         // Codex の apply_patch は tool_input の command にパッチの全文を入れる
         // （codex-rs/core/src/tools/handlers/apply_patch.rs の pre_tool_use_payload）。
         "apply_patch" => {
             let files = get("command").map(patch_files).unwrap_or_default();
-            let summary = match files.as_slice() {
-                [] => "編集".to_owned(),
-                [one] => format!("編集: {}", rel(one)),
-                [first, rest @ ..] => format!("編集: {} ほか {} 件", rel(first), rest.len()),
+            let target = match files.as_slice() {
+                [] => None,
+                [one] => Some(rel(one)),
+                [first, rest @ ..] => Some(lang.pick(
+                    format!("{} ほか {} 件", rel(first), rest.len()),
+                    format!("{} and {} more", rel(first), rest.len()),
+                )),
             };
+            let summary = labeled("編集", "Edit", target);
             Activity::tool(name, summary, (!files.is_empty()).then(|| files.join("\n")))
         }
         // 引数は codex-rs/core/src/tools/handlers/multi_agents/spawn.rs と multi_agents_v2/spawn.rs の
         // SpawnAgentArgs に従う。task_name は v2 にだけある。
         "spawn_agent" => {
-            let summary = match get("task_name").or(get("agent_type")) {
-                Some(t) => format!("サブエージェント: {t}"),
-                None => "サブエージェント".to_owned(),
-            };
+            let summary = labeled(
+                "サブエージェント",
+                "Subagent",
+                get("task_name").or(get("agent_type")).map(str::to_owned),
+            );
             Activity::tool(name, summary, get("message").map(str::to_owned))
         }
         // 引数は codex-rs/protocol/src/request_permissions.rs の RequestPermissionsArgs に従う。
         "request_permissions" => {
-            let summary = match get("reason") {
-                Some(r) => format!("権限の要求: {}", first_line(r)),
-                None => "権限の要求".to_owned(),
-            };
+            let summary = labeled(
+                "権限の要求",
+                "Permission request",
+                get("reason").map(first_line),
+            );
             Activity::tool(name, summary, None)
         }
         // 引数は codex-rs/core/src/tools/handlers/view_image.rs の ViewImageArgs に従う。
         "view_image" => {
             let path = get("path");
-            let summary = match path {
-                Some(p) => format!("画像: {}", rel(p)),
-                None => "画像".to_owned(),
-            };
+            let summary = labeled("画像", "Image", path.map(rel));
             Activity::tool(name, summary, path.map(str::to_owned))
         }
         // request_user_input は Codex の質問のツールで、questions の各要素が question と、label を持つ
         // options を持つ（codex-rs/protocol/src/request_user_input.rs）。
         "AskUserQuestion" | "request_user_input" => {
             let first = tool_input.and_then(|v| v.pointer("/questions/0"));
-            let summary = match first
+            let question = first
                 .and_then(|q| q.get("question"))
                 .and_then(Value::as_str)
-            {
-                Some(q) => format!("質問: {q}"),
-                None => "質問".to_owned(),
-            };
+                .map(str::to_owned);
+            let summary = labeled("質問", "Question", question);
             let options: Vec<&str> = first
                 .and_then(|q| q.get("options"))
                 .and_then(Value::as_array)
@@ -224,7 +229,8 @@ pub fn tool_activity(tool_name: &str, tool_input: Option<&Value>, cwd: Option<&s
         }
         "ExitPlanMode" => Activity::tool(
             name,
-            "計画の承認を依頼".to_owned(),
+            lang.pick("計画の承認を依頼", "Plan approval requested")
+                .to_owned(),
             get("planFilePath").map(str::to_owned),
         ),
         _ => {
@@ -330,10 +336,42 @@ mod tests {
     use serde_json::json;
 
     fn act(name: &str, input: Value) -> (String, Option<String>) {
-        let a = tool_activity(name, Some(&input), Some("/w/proj"));
+        let a = tool_activity(Lang::Ja, name, Some(&input), Some("/w/proj"));
         assert_eq!(a.kind, ActivityKind::Tool);
         assert_eq!(a.tool.as_deref(), Some(name));
         (a.summary, a.detail)
+    }
+
+    #[test]
+    fn english_summaries_keep_the_same_targets() {
+        let en = |name: &str, input: Value| {
+            tool_activity(Lang::En, name, Some(&input), Some("/w/proj")).summary
+        };
+        assert_eq!(
+            en("Edit", json!({"file_path": "/w/proj/src/a.rs"})),
+            "Edit: src/a.rs"
+        );
+        assert_eq!(
+            en("Glob", json!({"pattern": "**/*.ts"})),
+            "Find files: **/*.ts"
+        );
+        assert_eq!(en("WebSearch", json!({})), "Web search");
+        assert_eq!(
+            en(
+                "apply_patch",
+                json!({"command": "*** Begin Patch\n*** Update File: a.rs\n*** Add File: b.rs\n*** Add File: c.rs\n*** End Patch"})
+            ),
+            "Edit: a.rs and 2 more"
+        );
+        assert_eq!(
+            en(
+                "AskUserQuestion",
+                json!({"questions": [{"question": "Which?"}]})
+            ),
+            "Question: Which?"
+        );
+        assert_eq!(en("ExitPlanMode", json!({})), "Plan approval requested");
+        assert_eq!(en("mcp__mashu__task_get", json!({})), "mashu: task get");
     }
 
     #[test]

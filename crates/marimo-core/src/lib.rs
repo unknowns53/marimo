@@ -3,6 +3,7 @@ pub mod antigravity;
 pub mod appicon;
 pub mod codex;
 pub mod hermes;
+pub mod lang;
 pub mod opencode;
 pub mod paths;
 pub mod process;
@@ -16,6 +17,7 @@ pub mod transcript;
 pub mod winfocus;
 
 pub use activity::{Activity, ActivityKind};
+pub use lang::{Lang, LangSetting};
 pub use paths::MarimoHome;
 pub use state::{
     AgentRun, CodexRateLimits, CodexRateWindow, ContextUsage, HookInput, HostProcess, Origin,

@@ -1,3 +1,4 @@
+use marimo_core::Lang;
 use serde_json::{Map, Value, json};
 
 // フックの設定の形（イベントごとの matcher グループの配列と、その中の hooks 配列）は
@@ -167,23 +168,33 @@ impl Marimo {
         }
     }
 
-    fn wrapped_statusline(&self, original: &str) -> Result<String, String> {
+    fn wrapped_statusline(&self, original: &str, lang: Lang) -> Result<String, String> {
         match &self.status_line {
             StatusLinePolicy::Wrap => Ok(format!(
                 "{} statusline -- sh -c {}",
                 self.quoted,
                 quote_always(original)
             )),
-            StatusLinePolicy::ShellAgnostic { plain: None } => Err(format!(
-                "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、既存の statusLine を書き換えませんでした。{LIMITS_HINT}"
-            )),
+            StatusLinePolicy::ShellAgnostic { plain: None } => Err(match lang {
+                Lang::Ja => format!(
+                    "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、既存の statusLine を書き換えませんでした。{LIMITS_HINT_JA}"
+                ),
+                Lang::En => format!(
+                    "Left the existing statusLine unchanged because the marimo-hook path contains spaces or other characters that cannot be written so that Git Bash and PowerShell read it the same way. {LIMITS_HINT_EN}"
+                ),
+            }),
             StatusLinePolicy::ShellAgnostic { plain: Some(p) } => {
                 if plain_words(original) {
                     Ok(format!("{p} statusline -- {original}"))
                 } else {
-                    Err(format!(
-                        "既存の statusLine に Git Bash と PowerShell で読み方の違う引用符や記号が含まれるため、書き換えませんでした。{LIMITS_HINT}"
-                    ))
+                    Err(match lang {
+                        Lang::Ja => format!(
+                            "既存の statusLine に Git Bash と PowerShell で読み方の違う引用符や記号が含まれるため、書き換えませんでした。{LIMITS_HINT_JA}"
+                        ),
+                        Lang::En => format!(
+                            "Left the existing statusLine unchanged because it contains quotes or symbols that Git Bash and PowerShell read differently. {LIMITS_HINT_EN}"
+                        ),
+                    })
                 }
             }
         }
@@ -313,11 +324,12 @@ impl UninstallReport {
     }
 }
 
-pub fn install(settings: &mut Value, marimo: &Marimo) -> Result<InstallReport, String> {
-    let root = settings
-        .as_object_mut()
-        .ok_or("settings.json の最上位が JSON のオブジェクトではありません")?;
-    check_hooks_shape(root, &EVENTS)?;
+pub fn install(settings: &mut Value, marimo: &Marimo, lang: Lang) -> Result<InstallReport, String> {
+    let root = settings.as_object_mut().ok_or(lang.pick(
+        "settings.json の最上位が JSON のオブジェクトではありません",
+        "The top level of settings.json is not a JSON object",
+    ))?;
+    check_hooks_shape(root, &EVENTS, lang)?;
 
     let mut added = Vec::new();
     let mut migrated = Vec::new();
@@ -351,11 +363,11 @@ pub fn install(settings: &mut Value, marimo: &Marimo) -> Result<InstallReport, S
                 continue;
             }
         }
-        push_group(root, event, marimo.hook_handler())?;
+        push_group(root, event, marimo.hook_handler(), lang)?;
         added.push(event);
     }
 
-    let status_line = install_status_line(root, marimo);
+    let status_line = install_status_line(root, marimo, lang);
     Ok(InstallReport {
         added,
         migrated,
@@ -364,15 +376,20 @@ pub fn install(settings: &mut Value, marimo: &Marimo) -> Result<InstallReport, S
     })
 }
 
-fn push_group(root: &mut Map<String, Value>, event: &str, handler: Value) -> Result<(), String> {
+fn push_group(
+    root: &mut Map<String, Value>,
+    event: &str,
+    handler: Value,
+    lang: Lang,
+) -> Result<(), String> {
     root.entry("hooks")
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
-        .ok_or("hooks がオブジェクトではありません")?
+        .ok_or_else(|| not_an_object(lang))?
         .entry(event)
         .or_insert_with(|| Value::Array(Vec::new()))
         .as_array_mut()
-        .ok_or_else(|| format!("hooks.{event} が配列ではありません"))?
+        .ok_or_else(|| not_an_array(event, lang))?
         .push(json!({ "hooks": [handler] }));
     Ok(())
 }
@@ -386,11 +403,15 @@ pub struct CodexInstallReport {
 /// Codex はフックの定義を正規化したもののハッシュで信頼を覚えるので、すでに同じコマンドの
 /// ハンドラがあるイベントには手を付けない。書き直すと利用者が /hooks で信頼し直すことになる。
 /// marimo-hook の場所が変わって別のコマンドで登録されているものは、二重に動かないよう取り除く。
-pub fn install_codex(file: &mut Value, command: &str) -> Result<CodexInstallReport, String> {
+pub fn install_codex(
+    file: &mut Value,
+    command: &str,
+    lang: Lang,
+) -> Result<CodexInstallReport, String> {
     let root = file
         .as_object_mut()
-        .ok_or("hooks.json の最上位が JSON のオブジェクトではありません")?;
-    check_hooks_shape(root, &CODEX_EVENTS)?;
+        .ok_or_else(|| hooks_json_not_an_object(lang))?;
+    check_hooks_shape(root, &CODEX_EVENTS, lang)?;
     let mut added = Vec::new();
     let mut already = Vec::new();
     for event in CODEX_EVENTS {
@@ -428,17 +449,17 @@ pub fn install_codex(file: &mut Value, command: &str) -> Result<CodexInstallRepo
             "command": command,
             "timeout": HOOK_TIMEOUT_SECS,
         });
-        push_group(root, event, handler)?;
+        push_group(root, event, handler, lang)?;
         added.push(event);
     }
     Ok(CodexInstallReport { added, already })
 }
 
-pub fn uninstall_codex(file: &mut Value) -> Result<Vec<String>, String> {
+pub fn uninstall_codex(file: &mut Value, lang: Lang) -> Result<Vec<String>, String> {
     let root = file
         .as_object_mut()
-        .ok_or("hooks.json の最上位が JSON のオブジェクトではありません")?;
-    check_hooks_shape(root, &CODEX_EVENTS)?;
+        .ok_or_else(|| hooks_json_not_an_object(lang))?;
+    check_hooks_shape(root, &CODEX_EVENTS, lang)?;
     Ok(remove_handlers(root, is_marimo_codex_handler))
 }
 
@@ -537,10 +558,10 @@ fn is_marimo_antigravity_entry(entry: &Value) -> bool {
 
 /// agy の hooks.json に marimo のフックを足す。既に同じものがあれば false を返す。最上位は
 /// フックの名前ごとの設定なので、marimo の名前の項目を一つだけ書き、ほかの項目には触らない。
-pub fn install_antigravity(file: &mut Value, command: &str) -> Result<bool, String> {
+pub fn install_antigravity(file: &mut Value, command: &str, lang: Lang) -> Result<bool, String> {
     let root = file
         .as_object_mut()
-        .ok_or("hooks.json の最上位が JSON のオブジェクトではありません")?;
+        .ok_or_else(|| hooks_json_not_an_object(lang))?;
     let entry = antigravity_entry(command);
     if root.get(ANTIGRAVITY_HOOK_NAME) == Some(&entry) {
         return Ok(false);
@@ -549,9 +570,14 @@ pub fn install_antigravity(file: &mut Value, command: &str) -> Result<bool, Stri
         .get(ANTIGRAVITY_HOOK_NAME)
         .is_some_and(|e| !is_marimo_antigravity_entry(e))
     {
-        return Err(format!(
-            "hooks.json に、marimo のものではない {ANTIGRAVITY_HOOK_NAME:?} という名前のフックがあります"
-        ));
+        return Err(match lang {
+            Lang::Ja => format!(
+                "hooks.json に、marimo のものではない {ANTIGRAVITY_HOOK_NAME:?} という名前のフックがあります"
+            ),
+            Lang::En => format!(
+                "hooks.json already has a hook named {ANTIGRAVITY_HOOK_NAME:?} that is not marimo's"
+            ),
+        });
     }
     root.retain(|_, e| !is_marimo_antigravity_entry(e));
     root.insert(ANTIGRAVITY_HOOK_NAME.to_owned(), entry);
@@ -559,10 +585,10 @@ pub fn install_antigravity(file: &mut Value, command: &str) -> Result<bool, Stri
 }
 
 /// marimo のフックを取り除き、取り除いた名前を返す。古い場所の marimo-hook を指すものも取り除く。
-pub fn uninstall_antigravity(file: &mut Value) -> Result<Vec<String>, String> {
+pub fn uninstall_antigravity(file: &mut Value, lang: Lang) -> Result<Vec<String>, String> {
     let root = file
         .as_object_mut()
-        .ok_or("hooks.json の最上位が JSON のオブジェクトではありません")?;
+        .ok_or_else(|| hooks_json_not_an_object(lang))?;
     let removed: Vec<String> = root
         .iter()
         .filter(|(_, e)| is_marimo_antigravity_entry(e))
@@ -572,16 +598,26 @@ pub fn uninstall_antigravity(file: &mut Value) -> Result<Vec<String>, String> {
     Ok(removed)
 }
 
-const LIMITS_HINT: &str =
+const LIMITS_HINT_JA: &str =
     "marimo が statusLine を受け取れないので、Claude Code の利用制限は statusLine からは届きません";
+const LIMITS_HINT_EN: &str = "marimo cannot receive the statusLine input, so Claude Code usage limits will not come from the statusLine.";
 
-fn install_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> StatusLineChange {
+fn install_status_line(
+    root: &mut Map<String, Value>,
+    marimo: &Marimo,
+    lang: Lang,
+) -> StatusLineChange {
     let Some(existing) = root.get_mut("statusLine") else {
         let Some(after) = marimo.statusline_command() else {
             return StatusLineChange::Untouched {
-                reason: format!(
-                    "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、statusLine を登録しませんでした。{LIMITS_HINT}"
-                ),
+                reason: match lang {
+                    Lang::Ja => format!(
+                        "marimo-hook のパスに空白などが含まれ、Git Bash と PowerShell のどちらでも同じように読める形で書けないため、statusLine を登録しませんでした。{LIMITS_HINT_JA}"
+                    ),
+                    Lang::En => format!(
+                        "Did not register the statusLine because the marimo-hook path contains spaces or other characters that cannot be written so that Git Bash and PowerShell read it the same way. {LIMITS_HINT_EN}"
+                    ),
+                },
             };
         };
         root.insert(
@@ -592,13 +628,18 @@ fn install_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> Status
     };
     let Some(command) = command_status_line(existing) else {
         return StatusLineChange::Untouched {
-            reason: "statusLine が command 形式ではないため、書き換えませんでした".to_owned(),
+            reason: lang
+                .pick(
+                    "statusLine が command 形式ではないため、書き換えませんでした",
+                    "Left unchanged because the statusLine type is not command",
+                )
+                .to_owned(),
         };
     };
     if marimo.statusline_rest(&command).is_some() {
         return StatusLineChange::AlreadyMarimo { current: command };
     }
-    let after = match marimo.wrapped_statusline(&command) {
+    let after = match marimo.wrapped_statusline(&command, lang) {
         Ok(after) => after,
         Err(reason) => return StatusLineChange::Untouched { reason },
     };
@@ -609,13 +650,18 @@ fn install_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> Status
     }
 }
 
-pub fn uninstall(settings: &mut Value, marimo: &Marimo) -> Result<UninstallReport, String> {
-    let root = settings
-        .as_object_mut()
-        .ok_or("settings.json の最上位が JSON のオブジェクトではありません")?;
-    check_hooks_shape(root, &EVENTS)?;
+pub fn uninstall(
+    settings: &mut Value,
+    marimo: &Marimo,
+    lang: Lang,
+) -> Result<UninstallReport, String> {
+    let root = settings.as_object_mut().ok_or(lang.pick(
+        "settings.json の最上位が JSON のオブジェクトではありません",
+        "The top level of settings.json is not a JSON object",
+    ))?;
+    check_hooks_shape(root, &EVENTS, lang)?;
     let removed = remove_handlers(root, |h| handler_is_marimo(h, marimo));
-    let status_line = uninstall_status_line(root, marimo);
+    let status_line = uninstall_status_line(root, marimo, lang);
     Ok(UninstallReport {
         removed,
         status_line,
@@ -669,15 +715,29 @@ fn remove_handlers(root: &mut Map<String, Value>, is_ours: impl Fn(&Value) -> bo
     removed
 }
 
-fn uninstall_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> StatusLineChange {
+fn uninstall_status_line(
+    root: &mut Map<String, Value>,
+    marimo: &Marimo,
+    lang: Lang,
+) -> StatusLineChange {
     let Some(command) = root.get("statusLine").and_then(command_status_line) else {
         return StatusLineChange::Untouched {
-            reason: "marimo の statusLine は登録されていません".to_owned(),
+            reason: lang
+                .pick(
+                    "marimo の statusLine は登録されていません",
+                    "No marimo statusLine is registered",
+                )
+                .to_owned(),
         };
     };
     let Some(rest) = marimo.statusline_rest(&command) else {
         return StatusLineChange::Untouched {
-            reason: "statusLine は marimo のものではないので、そのままにしました".to_owned(),
+            reason: lang
+                .pick(
+                    "statusLine は marimo のものではないので、そのままにしました",
+                    "Left unchanged because the statusLine is not marimo's",
+                )
+                .to_owned(),
         };
     };
     if rest.trim().is_empty() {
@@ -693,27 +753,52 @@ fn uninstall_status_line(root: &mut Map<String, Value>, marimo: &Marimo) -> Stat
             }
         }
         None => StatusLineChange::Untouched {
-            reason: "statusLine は marimo がラップした形として読み取れないので、そのままにしました"
+            reason: lang
+                .pick(
+                    "statusLine は marimo がラップした形として読み取れないので、そのままにしました",
+                    "Left unchanged because the statusLine is not in the form marimo wraps",
+                )
                 .to_owned(),
         },
     }
 }
 
-fn check_hooks_shape(root: &Map<String, Value>, events: &[&str]) -> Result<(), String> {
+fn check_hooks_shape(root: &Map<String, Value>, events: &[&str], lang: Lang) -> Result<(), String> {
     let Some(hooks) = root.get("hooks") else {
         return Ok(());
     };
-    let hooks = hooks
-        .as_object()
-        .ok_or("hooks がオブジェクトではありません")?;
+    let hooks = hooks.as_object().ok_or_else(|| not_an_object(lang))?;
     for event in events {
         if let Some(v) = hooks.get(*event)
             && !v.is_array()
         {
-            return Err(format!("hooks.{event} が配列ではありません"));
+            return Err(not_an_array(event, lang));
         }
     }
     Ok(())
+}
+
+fn not_an_object(lang: Lang) -> String {
+    lang.pick(
+        "hooks がオブジェクトではありません",
+        "hooks is not an object",
+    )
+    .to_owned()
+}
+
+fn not_an_array(event: &str, lang: Lang) -> String {
+    match lang {
+        Lang::Ja => format!("hooks.{event} が配列ではありません"),
+        Lang::En => format!("hooks.{event} is not an array"),
+    }
+}
+
+fn hooks_json_not_an_object(lang: Lang) -> String {
+    lang.pick(
+        "hooks.json の最上位が JSON のオブジェクトではありません",
+        "The top level of hooks.json is not a JSON object",
+    )
+    .to_owned()
 }
 
 fn command_status_line(status_line: &Value) -> Option<String> {
@@ -869,7 +954,7 @@ mod tests {
         for (mut file, changed, names) in cases {
             let before = file.clone();
             assert_eq!(
-                install_antigravity(&mut file, new).map_err(|_| ()),
+                install_antigravity(&mut file, new, Lang::Ja).map_err(|_| ()),
                 changed,
                 "{before}"
             );
@@ -884,7 +969,7 @@ mod tests {
         }
         let mut file = json!({ "marimo": antigravity_entry(new), "lint": other });
         assert_eq!(
-            uninstall_antigravity(&mut file),
+            uninstall_antigravity(&mut file, Lang::Ja),
             Ok(vec!["marimo".to_owned()])
         );
         assert_eq!(file, json!({ "lint": other }));
@@ -935,14 +1020,14 @@ mod tests {
     fn reinstall_adds_only_the_missing_events() {
         let m = Marimo::new("/x/marimo-hook");
         let mut settings = json!({});
-        install(&mut settings, &m).unwrap();
+        install(&mut settings, &m, Lang::Ja).unwrap();
         let hooks = settings["hooks"].as_object_mut().unwrap();
         hooks.remove("SubagentStart");
         hooks.remove("SubagentStop");
         assert_eq!(hooks.len(), 14);
         let before = settings.clone();
 
-        let report = install(&mut settings, &m).unwrap();
+        let report = install(&mut settings, &m, Lang::Ja).unwrap();
         assert_eq!(report.added, ["SubagentStart", "SubagentStop"]);
         assert_eq!(report.already.len(), 14);
         for event in ["SubagentStart", "SubagentStop"] {
@@ -960,7 +1045,7 @@ mod tests {
     fn exec_form_uses_the_native_windows_path() {
         let m = Marimo::windows(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", None);
         let mut settings = json!({});
-        install(&mut settings, &m).unwrap();
+        install(&mut settings, &m, Lang::Ja).unwrap();
         assert_eq!(
             settings["hooks"]["Stop"][0]["hooks"][0],
             exec(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", json!(["hook"]))
@@ -1041,7 +1126,7 @@ mod tests {
             Some(r"C:\Users\user"),
         );
         let mut settings = json!({"model": "opus"});
-        let report = install(&mut settings, &m).unwrap();
+        let report = install(&mut settings, &m, Lang::Ja).unwrap();
         let command = "~/.marimo/bin/marimo-hook.exe statusline";
         assert_eq!(
             report.status_line,
@@ -1055,7 +1140,7 @@ mod tests {
         );
 
         let before = settings.clone();
-        let again = install(&mut settings, &m).unwrap();
+        let again = install(&mut settings, &m, Lang::Ja).unwrap();
         assert!(!again.changed());
         assert_eq!(
             again.status_line,
@@ -1065,7 +1150,7 @@ mod tests {
         );
         assert_eq!(settings, before);
 
-        let report = uninstall(&mut settings, &m).unwrap();
+        let report = uninstall(&mut settings, &m, Lang::Ja).unwrap();
         assert_eq!(
             report.status_line,
             StatusLineChange::Removed {
@@ -1077,12 +1162,12 @@ mod tests {
         // ホームの外に置いた場合の / 区切りの絶対パスも、marimo のものとして取り除く。
         let outside = Marimo::windows(r"D:\tools\marimo-hook.exe", Some(r"C:\Users\user"));
         let mut settings = json!({});
-        install(&mut settings, &outside).unwrap();
+        install(&mut settings, &outside, Lang::Ja).unwrap();
         assert_eq!(
             settings["statusLine"]["command"],
             "D:/tools/marimo-hook.exe statusline"
         );
-        uninstall(&mut settings, &outside).unwrap();
+        uninstall(&mut settings, &outside, Lang::Ja).unwrap();
         assert_eq!(settings, json!({}));
 
         // 既存の statusLine は、どちらのシェルでも同じ語に分かれる場合だけ -- の後ろへそのまま続けてラップし、
@@ -1108,7 +1193,7 @@ mod tests {
         for (command, wrapped) in cases {
             let original = json!({"statusLine": {"type": "command", "command": command}});
             let mut settings = original.clone();
-            let report = install(&mut settings, &m).unwrap();
+            let report = install(&mut settings, &m, Lang::Ja).unwrap();
             let after = format!("{exe} statusline -- {command}");
             if wrapped {
                 assert_eq!(
@@ -1120,7 +1205,7 @@ mod tests {
                 );
                 assert_eq!(settings["statusLine"]["command"], after.as_str());
                 let before = settings.clone();
-                let again = install(&mut settings, &m).unwrap();
+                let again = install(&mut settings, &m, Lang::Ja).unwrap();
                 assert_eq!(
                     again.status_line,
                     StatusLineChange::AlreadyMarimo {
@@ -1139,7 +1224,7 @@ mod tests {
                 );
                 assert_eq!(settings["statusLine"], original["statusLine"]);
             }
-            let report = uninstall(&mut settings, &m).unwrap();
+            let report = uninstall(&mut settings, &m, Lang::Ja).unwrap();
             if wrapped {
                 assert_eq!(
                     report.status_line,
@@ -1155,12 +1240,12 @@ mod tests {
         // 以前のバージョンが Windows でも sh -c の形でラップしていたものは、その形のまま元に戻す。
         let legacy = "C:/Users/user/.marimo/bin/marimo-hook.exe statusline -- sh -c 'bash ~/.claude/statusline.sh'";
         let mut settings = json!({"statusLine": {"type": "command", "command": legacy}});
-        let report = install(&mut settings, &m).unwrap();
+        let report = install(&mut settings, &m, Lang::Ja).unwrap();
         assert!(matches!(
             report.status_line,
             StatusLineChange::AlreadyMarimo { .. }
         ));
-        uninstall(&mut settings, &m).unwrap();
+        uninstall(&mut settings, &m, Lang::Ja).unwrap();
         assert_eq!(
             settings["statusLine"]["command"],
             "bash ~/.claude/statusline.sh"
@@ -1169,7 +1254,7 @@ mod tests {
         // どちらのシェルでも同じに読める形で書けないパスでは、statusLine を登録しない。
         let spaced = Marimo::windows(r"D:\My Tools\marimo-hook.exe", Some(r"C:\Users\user"));
         let mut settings = json!({});
-        let report = install(&mut settings, &spaced).unwrap();
+        let report = install(&mut settings, &spaced, Lang::Ja).unwrap();
         let StatusLineChange::Untouched { reason } = &report.status_line else {
             panic!("{:?}", report.status_line);
         };
@@ -1186,11 +1271,60 @@ mod tests {
         let original =
             json!({"statusLine": {"type": "command", "command": "bash C:/statusline.sh"}});
         let mut settings = original.clone();
-        let report = install(&mut settings, &spaced).unwrap();
+        let report = install(&mut settings, &spaced, Lang::Ja).unwrap();
         let StatusLineChange::Untouched { reason } = &report.status_line else {
             panic!("{:?}", report.status_line);
         };
         assert!(reason.contains("marimo-hook のパス"), "{reason}");
         assert_eq!(settings["statusLine"], original["statusLine"]);
+    }
+
+    #[test]
+    fn reasons_and_errors_follow_the_language() {
+        let home = Some(r"C:\Users\user");
+        let spaced = Marimo::windows(r"D:\My Tools\marimo-hook.exe", home);
+        let m = Marimo::windows(r"C:\Users\user\.marimo\bin\marimo-hook.exe", home);
+        let status = |command: &str| json!({"statusLine": {"type": "command", "command": command}});
+        let cases = [
+            (&spaced, json!({}), "Did not register the statusLine"),
+            (
+                &spaced,
+                status("bash C:/statusline.sh"),
+                "Left the existing statusLine unchanged because the marimo-hook path",
+            ),
+            (&m, status("echo $HOME"), "quotes or symbols"),
+            (
+                &m,
+                json!({"statusLine": {"type": "static"}}),
+                "type is not command",
+            ),
+        ];
+        for (marimo, mut settings, want) in cases {
+            let report = install(&mut settings, marimo, Lang::En).unwrap();
+            let StatusLineChange::Untouched { reason } = &report.status_line else {
+                panic!("{:?}", report.status_line);
+            };
+            assert!(reason.contains(want), "{reason}");
+            assert!(reason.is_ascii(), "{reason}");
+        }
+
+        let cases = [
+            (json!({}), "No marimo statusLine is registered"),
+            (status("bash statusline.sh"), "is not marimo's"),
+        ];
+        for (mut settings, want) in cases {
+            let report = uninstall(&mut settings, &m, Lang::En).unwrap();
+            let StatusLineChange::Untouched { reason } = &report.status_line else {
+                panic!("{:?}", report.status_line);
+            };
+            assert!(reason.contains(want), "{reason}");
+        }
+
+        let err = install(&mut json!([]), &m, Lang::En).unwrap_err();
+        assert_eq!(err, "The top level of settings.json is not a JSON object");
+        let err = install(&mut json!({"hooks": {"Stop": {}}}), &m, Lang::En).unwrap_err();
+        assert_eq!(err, "hooks.Stop is not an array");
+        let err = install_antigravity(&mut json!({"marimo": {}}), "x", Lang::En).unwrap_err();
+        assert!(err.contains("not marimo's"), "{err}");
     }
 }
