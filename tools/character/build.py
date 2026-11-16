@@ -143,7 +143,7 @@ def render(rgb, alpha, fore, canvas):
 
 
 def preview(images, path):
-    # 暗い壁紙と明るい壁紙の両方に重ね、エッジに背景のグレーが残っていないかを目で確かめるための一覧
+    # 暗い壁紙と明るい壁紙の両方に重ね、エッジに背景のグレーが残っていないかを目で確認するための一覧
     tw, th = 240, 360
     sheet = Image.new("RGB", (tw * len(images), th * 2))
     for row, bg in enumerate([(40, 44, 52), (250, 248, 244)]):

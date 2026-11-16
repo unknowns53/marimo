@@ -215,7 +215,7 @@ pub fn started_by_desktop_app(originator: &str) -> bool {
 
 /// 利用者が自分で開いたクライアントから始めた会話かを判断する。macOS と Windows のローカルの rollout で、
 /// デスクトップアプリが "Codex Desktop" を、端末の Codex CLI が "codex-tui" を、VS Code の拡張機能が
-/// "codex_vscode" を書くことを確かめた。`codex exec`（"codex_exec"）や、Claude Code から作業を任された
+/// "codex_vscode" を書くことを確認した。`codex exec`（"codex_exec"）や、Claude Code から作業を任された
 /// codex-async（"codex-async-bridge"）と Codex プラグイン（"Claude Code"）のように、プログラムから始めた
 /// 会話はここに入らない。
 pub fn started_by_hand(originator: &str) -> bool {

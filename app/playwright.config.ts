@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-// Tauri のウィンドウを開かず、headless の Chromium でフロントエンドだけを描いて確かめる。Rust との
+// Tauri のウィンドウを開かず、headless の Chromium でフロントエンドだけを描いて確認する。Rust との
 // やりとりは e2e/tauriMock.ts が mock に差し替える。tauri dev と同時に動かせるよう別の番号で開く。
 const PORT = 1430;
 

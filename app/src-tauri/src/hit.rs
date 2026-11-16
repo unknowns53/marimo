@@ -237,7 +237,7 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
 
 #[cfg(feature = "cursor-replay")]
 mod replay {
-    //! 試験用のビルドだけで使う。実際のマウスを動かさずに開閉の動きを確かめるため、
+    //! 試験用のビルドだけで使う。実際のマウスを動かさずに開閉の動きを確認するため、
     //! MARIMO_CURSOR_REPLAY が指すファイルの「経過ミリ秒 x y」（ウィンドウの左上からの CSS px）の系列を、
     //! 本物のカーソル位置の代わりに入力し、クリックを受け取る領域の変化を stderr へ記録する。
     use std::time::Instant;

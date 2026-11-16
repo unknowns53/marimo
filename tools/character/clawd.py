@@ -189,7 +189,7 @@ def build():
 
 
 def preview(images, path):
-    # 暗い壁紙と明るい壁紙の両方に重ね、飾りの色がどちらでも見えるかを目で確かめる。
+    # 暗い壁紙と明るい壁紙の両方に重ね、飾りの色がどちらでも見えるかを目で確認する。
     tw, th, label = COLS * CELL, ROWS * CELL, 18
     per_row = 5
     lines = (len(images) + per_row - 1) // per_row

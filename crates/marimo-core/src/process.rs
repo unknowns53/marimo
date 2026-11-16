@@ -68,7 +68,7 @@ fn stem(name: &str) -> String {
     name.strip_suffix(".exe").unwrap_or(&name).to_owned()
 }
 
-/// 記録したプロセスが終わったと確かめられたときだけ true を返す。調べる権限が無いなど、確かめられない
+/// 記録したプロセスが終わったと確認できたときだけ true を返す。調べる権限が無いなど、確認できない
 /// ときは動いているものとみなす。
 pub fn has_exited(p: &HostProcess) -> bool {
     imp::has_exited(p)
@@ -149,7 +149,7 @@ mod imp {
         if n != size {
             return Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(0));
         }
-        // SAFETY: proc_pidinfo が構造体の大きさぶんを書いたことを n で確かめた。
+        // SAFETY: proc_pidinfo が構造体の大きさぶんを書いたことを n で確認した。
         Ok(unsafe { info.assume_init() })
     }
 }

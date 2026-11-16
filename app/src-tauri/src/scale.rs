@@ -838,7 +838,7 @@ mod tests {
                 declared["height"].as_f64().unwrap()
             )
         );
-        // ウィンドウの中の配置は style.css が決めるので、同じ寸法を使っていることも確かめる。
+        // ウィンドウの中の配置は style.css が決めるので、同じ寸法を使っていることも確認する。
         let css = include_str!("../../src/style.css");
         for (var, value) in [
             ("--stage-w", STAGE_W),

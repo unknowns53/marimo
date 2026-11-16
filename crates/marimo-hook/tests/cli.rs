@@ -469,7 +469,7 @@ fn statusline_saves_rate_limits() {
 #[test]
 fn statusline_relays_stdin_and_stdout_verbatim() {
     let dir = tempfile::tempdir().unwrap();
-    // 元のコマンドが受け取った stdin をそのまま出力すれば、行きと帰りの両方を一度に確かめられる。
+    // 元のコマンドが受け取った stdin をそのまま出力すれば、行きと帰りの両方を一度に確認できる。
     let out = run(
         dir.path(),
         &["statusline", "--", "cat"],

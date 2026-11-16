@@ -322,7 +322,7 @@ fn meta_from_entry(entry: &Value) -> ChatMeta {
 
 const DISCORD_CHANNELS: &str = "discord://-/channels/";
 
-// Discord の ID（snowflake）は 10 進の数字だけでできている。URL に埋め込む前に確かめる。
+// Discord の ID（snowflake）は 10 進の数字だけでできている。URL に埋め込む前に確認する。
 fn is_snowflake(v: &str) -> bool {
     !v.is_empty() && v.len() <= 20 && v.bytes().all(|b| b.is_ascii_digit())
 }

@@ -69,9 +69,9 @@ const WINDOWS_SHELL: [&str; 7] = [
 ];
 
 // 端末の見分け方の根拠は次のとおり。Terminal.app の TERM_PROGRAM=Apple_Terminal と
-// __CFBundleIdentifier は実機で確かめた。iTerm2 の TERM_PROGRAM=iTerm.app は iTerm2 自身の
+// __CFBundleIdentifier は実機で確認した。iTerm2 の TERM_PROGRAM=iTerm.app は iTerm2 自身の
 // シェル統合スクリプトが同じ値で判定している。Ghostty の TERM_PROGRAM=ghostty と
-// __CFBundleIdentifier=com.mitchellh.ghostty は実機で確かめた。VS Code の TERM_PROGRAM=vscode は
+// __CFBundleIdentifier=com.mitchellh.ghostty は実機で確認した。VS Code の TERM_PROGRAM=vscode は
 // https://code.visualstudio.com/docs/terminal/shell-integration に記載がある。
 pub fn plan(session: &SessionState) -> Target {
     // Hermes は gateway のバックグラウンドで動き、会話はチャットアプリの中にあるので、そのチャンネルを開く。
@@ -180,7 +180,7 @@ fn opencode_terminal_title(title: &str) -> String {
 
 // VS Code の統合ターミナルは持ち主のない ConPTY で動くので、コンソールからたどったウィンドウは
 // 見えないものになり、記録されないと見込んで、エディタにフォルダを渡す経路を先に試す。この見込みは
-// 実機で確かめる必要がある。祖先にエディタの実行ファイルがあれば、それが同じ派生のエディタである。
+// 実機で確認する必要がある。祖先にエディタの実行ファイルがあれば、それが同じ派生のエディタである。
 fn windows_target(origin: Origin, cwd: Option<&str>) -> Target {
     let ancestors: Vec<ProcessRef> = origin
         .ancestors
@@ -271,7 +271,7 @@ const DISCORD_EXES: [&str; 3] = ["Discord.exe", "DiscordPTB.exe", "DiscordCanary
 
 // URL の scheme に結び付いたアプリ（Discord、Claude）が開く。シェルを通さないので、URL の文字が命令として
 // 読まれることはない。Discord を前面に出すのは Discord のリンクのときだけにする。Windows の Discord は、動いている本体へリンクを渡して画面を切り替えるだけで、
-// 前面には出てこない（実機で確かめた）。行を押した直後の marimo は前面に出す権利を持っているので、
+// 前面には出てこない（実機で確認した）。行を押した直後の marimo は前面に出す権利を持っているので、
 // 画面が切り替わるのを少し待ってから、Discord のウィンドウをこちらから前面に出す。
 #[cfg(windows)]
 fn open_link(url: &str) {
@@ -356,7 +356,7 @@ end run
 "#;
 
 // Ghostty の辞書（Ghostty.app の Ghostty.sdef）で、terminal は name、working directory、tty を持ち、
-// focus はそのターミナルのウィンドウを前面に出す。tty は Ghostty 1.4.0 の辞書で確かめたもので、持たない
+// focus はそのターミナルのウィンドウを前面に出す。tty は Ghostty 1.4.0 の辞書で確認したもので、持たない
 // 版ではこの照合を飛ばす。tty が一致するものがあればそれを選ぶ。agy のように端末のタイトルを固定の名前に
 // するツールを、同じ作業フォルダのほかのターミナルと見分けるためである。Claude Code は端末のタイトルを、状態を表す一文字と
 // 空白に続けて会話のタイトルにするので、先頭の一語を除いた残りがタイトルと一致するものを先に探す。

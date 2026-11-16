@@ -93,7 +93,7 @@ run_of() {
 main_run="$(run_of main)" || fail "main の CI の実行が見つかりません。https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions を確認してください。"
 echo "main の CI（${main_run}）がテストとビルドを終えるのを待っています"
 gh run watch "$main_run" --exit-status --interval 30 >/dev/null ||
-  fail "main の CI（${main_run}）が失敗しました。gh run view $main_run --log-failed で理由を確かめ、直してからバージョンを変えずにもう一度実行してください（バージョンのコミットは main に残っています）。タグは付けていません。"
+  fail "main の CI（${main_run}）が失敗しました。gh run view $main_run --log-failed で理由を確認し、直してからバージョンを変えずにもう一度実行してください（バージョンのコミットは main に残っています）。タグは付けていません。"
 
 echo "タグ $tag を push しています"
 git tag "$tag" "$sha"

@@ -9,7 +9,7 @@ const BLINK_MIN_MS = 3000;
 const BLINK_MAX_MS = 6000;
 const BLINK_HOLD_MS = 120;
 const CROSSFADE_MS = 150;
-// 仕草の開始と終了、反応やマウスを載せたときの表情の戻りは時刻で決まるので、この周期で確かめる。
+// 仕草の開始と終了、反応やマウスを載せたときの表情の戻りは時刻で決まるので、この周期で確認する。
 const TICK_MS = 250;
 
 export class StandingRenderer implements CharacterRenderer {

@@ -41,7 +41,7 @@ impl Env {
         let claude = dir.path().join("claude");
         fs::create_dir_all(&claude).unwrap();
         fs::create_dir_all(&home).unwrap();
-        // 出力の言語を OS の言語に左右させない。日本語の文言を確かめるテストが多いので、既定は日本語にする。
+        // 出力の言語を OS の言語に左右させない。日本語の文言を確認するテストが多いので、既定は日本語にする。
         fs::write(home.join("display.json"), r#"{"language":"ja"}"#).unwrap();
         Self {
             home,
@@ -52,7 +52,7 @@ impl Env {
         }
     }
 
-    // 実行ファイルのパスに空白が入る場合の引用も、同時に確かめる。
+    // 実行ファイルのパスに空白が入る場合の引用も、同時に確認する。
     fn with_settings(text: &str) -> Self {
         let env = Self::new("marimo home");
         fs::write(&env.settings, text).unwrap();

@@ -32,7 +32,7 @@ describe("withAcknowledged", () => {
 });
 
 // Rust のメニューバーのアイコンも同じキーで既読を見るので、app/src-tauri/src/acknowledged.rs の
-// trigger_keys_match_the_frontend と同じ文字列であることを確かめる。
+// trigger_keys_match_the_frontend と同じ文字列であることを確認する。
 describe("triggerKey", () => {
   it("matches the keys the Rust side builds", () => {
     const cases: [SessionState, string][] = [

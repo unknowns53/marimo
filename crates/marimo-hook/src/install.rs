@@ -139,7 +139,7 @@ fn unquotable_path(tool: &str, hooks: &str, lang: Lang) -> String {
 }
 
 // Codex のフォルダが無ければ Codex は入っていないものとして、何も表示しない。
-// 信頼の記録は config.toml にあるが、利用者が /hooks で確かめる前提を崩さないよう触らない。
+// 信頼の記録は config.toml にあるが、利用者が /hooks で確認する前提を崩さないよう触らない。
 fn codex(mode: &Mode, opts: &Options, exe: &Path, lang: Lang) -> Result<(), String> {
     let Some(dir) = codex_home().filter(|d| d.is_dir()) else {
         return Ok(());

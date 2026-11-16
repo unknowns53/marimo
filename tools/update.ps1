@@ -9,19 +9,19 @@ marimo を新しいバージョンへ更新します。
 
 .DESCRIPTION
 By default, downloads the latest stable release from GitHub and reinstalls the app. The repository is not touched.
-既定では、最新の正式なリリースを GitHub から取ってきて入れ直します。リポジトリには触れません。
+既定では、最新の正式なリリースを GitHub から取得して入れ直します。リポジトリには触れません。
 
 .PARAMETER Pre
 Downloads the most recently published release whose name starts with v, including prereleases.
-プレリリースも含めて、最も新しく公開された v で始まるリリースを取ってきます。
+プレリリースも含めて、最も新しく公開された v で始まるリリースを取得します。
 
 .PARAMETER Main
 Pulls the latest main and downloads the CI build of that commit from the GitHub releases.
-main の最新を pull し、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
+main の最新を pull し、そのコミットを CI がビルドしたものを GitHub のリリースから取得します。
 
 .PARAMETER NoPull
 Skips checking that the branch is main and pulling, and uses the commit currently checked out. Without -Build, it downloads the build of that commit, so it works only for commits that went through main.
-ブランチが main であることの確認と pull を省き、今チェックアウトしているコミットを使います。-Build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
+ブランチが main であることの確認と pull を省き、今チェックアウトしているコミットを使います。-Build を付けなければ、そのコミットのビルドを取得するので、main を通ったコミットでしか使えません。
 
 .PARAMETER Wait
 Use together with -Main or -NoPull. When the CI build is not ready yet, checks every 30 seconds for up to 30 minutes.
@@ -29,7 +29,7 @@ Use together with -Main or -NoPull. When the CI build is not ready yet, checks e
 
 .PARAMETER Build
 Builds locally instead of downloading. Without -NoPull, pulls the latest main before building. Use it when there is no network connection, or to try a branch other than main.
-取ってくる代わりにローカルでビルドします。-NoPull が無ければ、main の最新を pull してからビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
+取得する代わりにローカルでビルドします。-NoPull が無ければ、main の最新を pull してからビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
 #>
 [CmdletBinding()]
 param(
@@ -142,7 +142,7 @@ function Save-Url([string]$Url, [string]$Path) {
     }
 }
 
-# $Base のリリースから SHA256SUMS とアーカイブを取ってきて確かめ、展開したフォルダを返す。
+# $Base のリリースから SHA256SUMS とアーカイブを取得して確認し、展開したフォルダを返す。
 # 取れないときは $NotReady を表示して止まり、-Wait が無ければ $WaitHint を続けて表示する。
 function Save-Build([string]$Work, [string]$Base, [string]$NotReady, [string]$WaitHint) {
     $archive = 'marimo-windows-x64.zip'
@@ -150,7 +150,7 @@ function Save-Build([string]$Work, [string]$Base, [string]$NotReady, [string]$Wa
     $archivePath = Join-Path $Work $archive
 
     $started = Get-Date
-    # リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、-Wait が無くても 1 分は確かめ直す。
+    # リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、-Wait が無くても 1 分は確認し直す。
     if ($Wait) { $deadline = $started.AddMinutes(30); $interval = 30 }
     else { $deadline = $started.AddMinutes(1); $interval = 10 }
     while ($true) {
@@ -193,7 +193,7 @@ function Get-CommitBuild([string]$Work) {
     $tag = "build-$short"
     $notReady = Msg "コミット $short のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確認してください。アプリは入れ直していません。" "There is no build of commit $short at https://github.com/$slug/releases/tag/$tag. CI has not finished building this commit yet, or the build failed. Check its progress at https://github.com/$slug/actions. The app was not reinstalled."
 
-    Write-Host (Msg "$tag のビルドを取ってきています" "Downloading build $tag")
+    Write-Host (Msg "$tag のビルドを取得しています" "Downloading build $tag")
     # 英語では文を空白でつなぐので、続けて表示する文の頭に空白を入れておく。
     Save-Build $Work "https://github.com/$slug/releases/download/$tag" $notReady (Msg '-Wait を付けると、できあがるまで最大 30 分待ちます。' ' Add -Wait to wait up to 30 minutes for it to finish.')
 }
@@ -230,7 +230,7 @@ function Get-ReleaseBuild([string]$Work) {
     if (-not $tag) { Fail (Msg "$api の応答からリリースのタグを読み取れませんでした。" "Could not read the release tag from the response of $api.") }
     $notReady = Msg "リリース $tag に Windows 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確認してください。アプリは入れ直していません。" "Release $tag is missing the Windows files. Check https://github.com/$slug/releases/tag/$tag. The app was not reinstalled."
 
-    Write-Host (Msg "$kind $tag を取ってきています" "Downloading $tag, $kind")
+    Write-Host (Msg "$kind $tag を取得しています" "Downloading $tag, $kind")
     Save-Build $Work "https://github.com/$slug/releases/download/$tag" $notReady ''
 }
 
@@ -261,7 +261,7 @@ try {
         Write-Host (Msg "-NoPull が指定されたので、今のチェックアウト（$branch）をそのままビルドします" "-NoPull was given, so building the current checkout ($branch) as is")
     } elseif ($NoPull) {
         $branch = git branch --show-current
-        Write-Host (Msg "-NoPull が指定されたので、今のチェックアウト（$branch）のコミットのビルドを取ってきます" "-NoPull was given, so downloading the build of the current checkout ($branch)")
+        Write-Host (Msg "-NoPull が指定されたので、今のチェックアウト（$branch）のコミットのビルドを取得します" "-NoPull was given, so downloading the build of the current checkout ($branch)")
     }
 
     if ($Build) {

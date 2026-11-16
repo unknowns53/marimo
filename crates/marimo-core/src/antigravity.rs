@@ -558,7 +558,7 @@ pub fn step_event(
 }
 
 // agy のツールを、要約の作り方が同じ Claude Code のツールに置き換える。引数の名前は、agy 1.5.8 の
-// transcript に残ったツールの呼び出しで確かめたものと、agy の実行ファイルの中の文字列から拾ったものである。
+// transcript に残ったツールの呼び出しで確認したものと、agy の実行ファイルの中の文字列から拾ったものである。
 fn tool(name: &str, args: &Value) -> (String, Value) {
     // 引数の名前は、CLI では Query のように大文字で始まり、デスクトップアプリでは query のように小文字で始まる。
     let arg = |keys: &[&str]| {

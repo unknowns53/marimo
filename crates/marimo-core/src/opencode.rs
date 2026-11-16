@@ -150,7 +150,7 @@ pub fn translate(input: &OpencodeInput, now_ms: u64) -> Event {
     }
     let event = match input.kind.as_str() {
         // サブエージェントは親の行の作業として見えるので、自分の行を持たせない。プラグインも捨てるが、
-        // 作成のイベントだけは親を持つかをここでも確かめられる。
+        // 作成のイベントだけは親を持つかをここでも確認できる。
         "session.created" if text("/parentID").is_some_and(|p| !p.is_empty()) => {
             return Event::Ignore;
         }

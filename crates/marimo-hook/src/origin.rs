@@ -34,7 +34,7 @@ fn may_have_moved(event: &str) -> bool {
 }
 
 // Claude Code の background session は daemon の pty で動き、claude の環境から TERM_PROGRAM と
-// __CFBundleIdentifier が消えるが、Ghostty がシェルに入れる GHOSTTY_RESOURCES_DIR は残る（実機で確かめた）。
+// __CFBundleIdentifier が消えるが、Ghostty がシェルに入れる GHOSTTY_RESOURCES_DIR は残る（実機で確認した）。
 fn ghostty_clue() -> Option<String> {
     var("GHOSTTY_RESOURCES_DIR").map(|_| "ghostty".to_owned())
 }
@@ -90,7 +90,7 @@ fn ancestors() -> impl Iterator<Item = libc::proc_bsdinfo> {
         if n != size {
             return None;
         }
-        // SAFETY: proc_pidinfo が構造体の大きさぶんを書いたことを n で確かめた。
+        // SAFETY: proc_pidinfo が構造体の大きさぶんを書いたことを n で確認した。
         let info = unsafe { info.assume_init() };
         pid = info.pbi_ppid as libc::c_int;
         Some(info)

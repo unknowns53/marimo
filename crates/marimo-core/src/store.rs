@@ -567,7 +567,7 @@ fn is_temp_file_name(name: &str) -> bool {
 ///
 /// 消したセッションがまだ動いていても、SessionEnd と SubagentStop 以外のフックが次に届けば
 /// `transition` がファイルを作り直すので、行は次の操作で戻る。`transition` がファイルのないセッションに
-/// `Transition::Nothing` を返すイベントを増やすときは、この前提を確かめ直す。
+/// `Transition::Nothing` を返すイベントを増やすときは、この前提を確認し直す。
 pub fn prune_stale_sessions(
     home: &MarimoHome,
     now_ms: u64,
@@ -729,7 +729,7 @@ pub fn refresh_antigravity_steps(
         if events.is_empty() {
             continue;
         }
-        // prune_stale_sessions と同じく、DB を読む間はロックを持たず、書く前にファイルが読んだときのままかを確かめる。
+        // prune_stale_sessions と同じく、DB を読む間はロックを持たず、書く前にファイルが読んだときのままかを確認する。
         let lock = lock_home(home);
         if !lock.is_held() || read_file(&path).ok().as_deref() != Some(read.as_slice()) {
             continue;

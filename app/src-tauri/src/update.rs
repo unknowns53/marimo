@@ -1,7 +1,7 @@
 //! アプリの中から、最新の正式なリリースへ更新する。手順は tools/update.sh と tools/update.ps1 が
 //! 引数なしで行うものと同じ手順にしているので、片方の手順を変えるときはもう片方も揃える。
 //!
-//! 動いているアプリは自分自身を差し替えられないので、取ってきて照合し展開するところまでをアプリで行い、
+//! 動いているアプリは自分自身を差し替えられないので、取得して照合し展開するところまでをアプリで行い、
 //! 差し替えと起動し直しは書き出した補助のスクリプトに任せてアプリは終了する。
 
 use std::cmp::Ordering;
@@ -106,7 +106,7 @@ fn check_now(app: &AppHandle) -> UpdateStatus {
     status
 }
 
-/// 起動の少しあとと、そのあと一日ごとに、新しいバージョンがあるかを確かめる。
+/// 起動の少しあとと、そのあと一日ごとに、新しいバージョンがあるかを確認する。
 pub fn spawn_checker(app: AppHandle) {
     let spawned = std::thread::Builder::new()
         .name("update-check".into())
@@ -430,7 +430,7 @@ fn download(
     archive: &str,
 ) -> Result<(), String> {
     let base = download_base(REPO, tag);
-    // リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、1 分は確かめ直す。
+    // リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、1 分は確認し直す。
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let mut code = fetch_file(

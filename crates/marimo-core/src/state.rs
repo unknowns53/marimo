@@ -81,7 +81,7 @@ pub struct Origin {
     /// 会話の id（`local_` で始まる）で、`claude://code/continue?session=` に渡すとその会話を開ける。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desktop_session: Option<String>,
-    /// 会話ログの各行にある `entrypoint`。値の意味が確かめられるまでは、移動の判断には使わず記録だけする。
+    /// 会話ログの各行にある `entrypoint`。値の意味が確認できるまでは、移動の判断には使わず記録だけする。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entrypoint: Option<String>,
     /// Windows で、フックの親のコンソールからたどった最上位のウィンドウ。Windows でだけ記録する。
@@ -93,7 +93,7 @@ pub struct Origin {
 }
 
 /// Windows のウィンドウと、それを持つプロセス。ウィンドウのハンドルとプロセス ID はどちらも使い回されるので、
-/// プロセスの作成時刻とペアにして、移動するときに同じものかを確かめる。
+/// プロセスの作成時刻とペアにして、移動するときに同じものかを確認する。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowRef {
     pub hwnd: u64,
@@ -102,7 +102,7 @@ pub struct WindowRef {
     pub created: u64,
 }
 
-/// フックを起動したプロセス。プロセス ID は使い回されるので、作成時刻とペアにして同じものかを確かめる。
+/// フックを起動したプロセス。プロセス ID は使い回されるので、作成時刻とペアにして同じものかを確認する。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostProcess {
     pub pid: u32,
@@ -111,7 +111,7 @@ pub struct HostProcess {
     pub created: u64,
 }
 
-/// Windows のプロセス。プロセス ID は使い回されるので、作成時刻とペアにして同じものかを確かめる。
+/// Windows のプロセス。プロセス ID は使い回されるので、作成時刻とペアにして同じものかを確認する。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessRef {
     pub pid: u32,

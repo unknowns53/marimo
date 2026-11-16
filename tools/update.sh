@@ -50,15 +50,15 @@ EOF
   cat >&2 <<'EOF'
 使い方: tools/update.sh [--pre | --main | --no-pull] [--wait] [--build]
 
-既定では、最新の正式なリリースを GitHub から取ってきて入れ替えます。リポジトリには触れません。
+既定では、最新の正式なリリースを GitHub から取得して入れ替えます。リポジトリには触れません。
 
-  --pre      プレリリースも含めて、最も新しく公開された v で始まるリリースを取ってきます。
+  --pre      プレリリースも含めて、最も新しく公開された v で始まるリリースを取得します。
 
-  --main     main の最新を pull し、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
+  --main     main の最新を pull し、そのコミットを CI がビルドしたものを GitHub のリリースから取得します。
   --no-pull  ブランチが main であることの確認と pull を省き、今チェックアウトしているコミットを使います。
-             --build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
+             --build を付けなければ、そのコミットのビルドを取得するので、main を通ったコミットでしか使えません。
   --wait     --main か --no-pull と一緒に使います。CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
-  --build    取ってくる代わりにローカルでビルドします。--no-pull が無ければ、main の最新を pull してからビルドします。
+  --build    取得する代わりにローカルでビルドします。--no-pull が無ければ、main の最新を pull してからビルドします。
              ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
 EOF
 }
@@ -136,7 +136,7 @@ elif [[ $no_pull -eq 1 && $build -eq 1 ]]; then
   msg "--no-pull が指定されたので、今のチェックアウト（${branch}）をそのままビルドします" "--no-pull was given, so building the current checkout ($branch) as is"
 elif [[ $no_pull -eq 1 ]]; then
   branch="$(git branch --show-current || true)"
-  msg "--no-pull が指定されたので、今のチェックアウト（${branch}）のコミットのビルドを取ってきます" "--no-pull was given, so downloading the build of the current checkout ($branch)"
+  msg "--no-pull が指定されたので、今のチェックアウト（${branch}）のコミットのビルドを取得します" "--no-pull was given, so downloading the build of the current checkout ($branch)"
 fi
 
 # フォークから使ったときに、フォーク自身のリリースを取りに行けるよう、origin が GitHub ならそこから決める。
@@ -171,13 +171,13 @@ prepare_download() {
   trap 'rm -rf "$work"' EXIT
 }
 
-# $1 のリリースから SHA256SUMS とアーカイブを取ってきて確かめ、展開したものを bundle と hook に入れる。
+# $1 のリリースから SHA256SUMS とアーカイブを取得して確認し、展開したものを bundle と hook に入れる。
 # 取れないときは $2 を表示して止まり、--wait が無ければ $3 を続けて表示する。
 download_from() {
   local base="$1" not_ready="$2" wait_hint="$3" archive started deadline interval expected actual
   archive="marimo-macos-arm64.tar.gz"
   started=$SECONDS
-  # リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、--wait が無くても 1 分は確かめ直す。
+  # リリースを公開した直後の数十秒は、タグが見えていてもダウンロードが 404 を返すことがあるので、--wait が無くても 1 分は確認し直す。
   if [[ $wait -eq 1 ]]; then
     deadline=$((SECONDS + 1800)) interval=30
   else
@@ -228,7 +228,7 @@ download_commit_build() {
   sha="$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore')"
   [[ -n "$sha" ]] || fail "$(msg "git でビルドを探すコミットを調べられませんでした。" "Could not determine which commit to find a build for (git log failed).")"
   tag="build-${sha:0:12}"
-  msg "$tag のビルドを取ってきています" "Downloading build $tag"
+  msg "$tag のビルドを取得しています" "Downloading build $tag"
   # 英語では文を空白でつなぐので、続けて表示する文の頭に空白を入れておく。
   download_from "https://github.com/$slug/releases/download/$tag" \
     "$(msg "コミット ${sha:0:12} のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確認してください。アプリは差し替えていません。" "There is no build of commit ${sha:0:12} at https://github.com/$slug/releases/tag/$tag. CI has not finished building this commit yet, or the build failed. Check its progress at https://github.com/$slug/actions. The app was not replaced.")" \
@@ -263,7 +263,7 @@ download_release() {
     kind="$(msg "正式なリリース" "the latest stable release")"
   fi
   [[ -n "$tag" ]] || fail "$(msg "$api の応答からリリースのタグを読み取れませんでした。" "Could not read the release tag from the response of $api.")"
-  msg "${kind} $tag を取ってきています" "Downloading $tag, ${kind}"
+  msg "${kind} $tag を取得しています" "Downloading $tag, ${kind}"
   download_from "https://github.com/$slug/releases/download/$tag" \
     "$(msg "リリース $tag に macOS 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確認してください。アプリは差し替えていません。" "Release $tag is missing the macOS files. Check https://github.com/$slug/releases/tag/$tag. The app was not replaced.")" \
     ""
