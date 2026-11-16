@@ -205,6 +205,8 @@ pub struct HookExtras {
     pub link: Option<String>,
     /// フックを起動したプロセス。
     pub host: Option<HostProcess>,
+    /// フックの実行時に会話ログから求めたコンテキストの使用量。状態を変えないイベントでも、行があれば書く。
+    pub context: Option<ContextUsage>,
     /// 行を作らない会話。プログラムから始めた Codex の会話は、利用者が見守る相手ではなく、Claude Code から
     /// 任されたものなら任せた側の行がすでに作業中を示しているので、並べない。既にある行は、ここで消す。
     pub hidden: bool,
@@ -265,6 +267,9 @@ fn apply_session(
             if let Some(host) = extras.host {
                 next.host = Some(host);
             }
+            if let Some(context) = extras.context.clone() {
+                next.context = Some(context);
+            }
             if matches!(input.provider, Provider::Claude | Provider::Antigravity)
                 && input.subagent().is_none()
                 && let Some(p) = input.transcript_path.as_deref().filter(|p| !p.is_empty())
@@ -282,7 +287,13 @@ fn apply_session(
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         },
-        Transition::Nothing => Ok(()),
+        Transition::Nothing => match (current, extras.context.clone()) {
+            (Some(mut session), Some(context)) => {
+                session.context = Some(context);
+                write_json_atomic(path, &session)
+            }
+            _ => Ok(()),
+        },
     }
 }
 

@@ -291,18 +291,13 @@ fn antigravity_hook(event: Option<&str>) -> Result<(), String> {
             .then(|| host(&parsed.hook_event_name, current.as_ref()))
             .flatten(),
         hidden,
+        context: transcript
+            .as_ref()
+            .filter(|_| top && !hidden)
+            .and_then(|t| antigravity::context(t, now_ms())),
         ..store::HookExtras::default()
     };
-    store::apply_hook(&home, &parsed, &extras).map_err(|e| format!("write failed: {e}"))?;
-    let context = transcript
-        .as_ref()
-        .filter(|_| top && !hidden)
-        .and_then(|t| antigravity::context(t, now_ms()));
-    match context {
-        Some(c) => store::apply_context(&home, Provider::Antigravity, &parsed.session_id, c)
-            .map_err(|e| format!("write failed: {e}")),
-        None => Ok(()),
-    }
+    store::apply_hook(&home, &parsed, &extras).map_err(|e| format!("write failed: {e}"))
 }
 
 fn record(label: &str) -> Result<(), String> {
