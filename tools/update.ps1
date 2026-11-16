@@ -109,7 +109,7 @@ function Save-Url([string]$Url, [string]$Path) {
             $response = $_.Exception.Response
             if ($response) { return [int]$response.StatusCode }
             if ($attempt -gt 3) {
-                Fail "$Url を取得できませんでした。ネットワークにつながっているかを確かめてください。つながらないときは -Build でローカルでビルドできます。（$($_.Exception.Message)）"
+                Fail "$Url を取得できませんでした。ネットワークにつながっているかを確認してください。つながらないときは -Build でローカルでビルドできます。（$($_.Exception.Message)）"
             }
             Write-Host "取得できなかったので、5 秒後にやり直します（$attempt / 3 回目、$($_.Exception.Message)）"
             Start-Sleep -Seconds 5
@@ -166,7 +166,7 @@ function Get-CommitBuild([string]$Work) {
     if ($LASTEXITCODE -ne 0 -or -not $sha) { Fail 'git でビルドを探すコミットを調べられませんでした。' }
     $short = $sha.Substring(0, 12)
     $tag = "build-$short"
-    $notReady = "コミット $short のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確かめてください。アプリは入れ直していません。"
+    $notReady = "コミット $short のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確認してください。アプリは入れ直していません。"
 
     Write-Host "$tag のビルドを取ってきています"
     Save-Build $Work "https://github.com/$slug/releases/download/$tag" $notReady '-Wait を付けると、できあがるまで最大 30 分待ちます。'
@@ -202,7 +202,7 @@ function Get-ReleaseBuild([string]$Work) {
         $kind = '正式なリリース'
     }
     if (-not $tag) { Fail "$api の応答からリリースのタグを読み取れませんでした。" }
-    $notReady = "リリース $tag に Windows 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確かめてください。アプリは入れ直していません。"
+    $notReady = "リリース $tag に Windows 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確認してください。アプリは入れ直していません。"
 
     Write-Host "$kind $tag を取ってきています"
     Save-Build $Work "https://github.com/$slug/releases/download/$tag" $notReady ''
@@ -323,7 +323,7 @@ try {
     Start-Process -FilePath $installedExe
 
     if (-not $installOk) {
-        Fail "marimo-hook install が失敗しました。アプリはすでに新しいものに入れ直して起動しています。上のメッセージを確かめてから、$retryInstall。"
+        Fail "marimo-hook install が失敗しました。アプリはすでに新しいものに入れ直して起動しています。上のメッセージを確認してから、$retryInstall。"
     }
     Write-Host '更新が終わりました'
 } finally {

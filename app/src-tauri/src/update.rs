@@ -580,7 +580,7 @@ fn system32(parts: &[&str]) -> Option<PathBuf> {
 }
 
 const NETWORK_ERROR: &str =
-    "GitHub に接続できませんでした。ネットワークにつながっているかを確かめてください。";
+    "GitHub に接続できませんでした。ネットワークが有効であることを確認してください。";
 
 fn curl(url: &str) -> Command {
     let mut command = Command::new(curl_program());
@@ -876,7 +876,7 @@ launch
 
 if [[ $install_ok -eq 0 ]]; then
   # 一時フォルダは終わると消えるので、install をやり直すときは更新ごとやり直してもらう。
-  fail "marimo-hook install が失敗しました。アプリはすでに新しいものに差し替えて起動しています。上のメッセージを確かめてから、tools/update.sh を実行してください。"
+  fail "marimo-hook install が失敗しました。アプリは最新バージョンとして起動に成功しています。上記のメッセージを確認してから、tools/update.sh を実行してください。"
 fi
 say "更新が終わりました"
 "#;
@@ -957,7 +957,7 @@ try {
 
     if (-not $installOk) {
         # 一時フォルダは終わると消えるので、install をやり直すときは更新ごとやり直してもらう。
-        Fail "marimo-hook install が失敗しました。アプリはすでに新しいものに入れ直して起動しています。上のメッセージを確かめてから、tools\update.ps1 を実行してください。"
+        Fail "marimo-hook install が失敗しました。アプリはすでに新しいものに入れ直して起動しています。上記のメッセージを確認してから、tools\update.ps1 を実行してください。"
     }
     Write-Log '更新が終わりました'
 } catch {

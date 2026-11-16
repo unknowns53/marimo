@@ -5,9 +5,9 @@ use marimo_core::Origin;
 // どのアプリから起動したかを示す公式の環境変数は Claude Code のドキュメントに無いので、
 // OS と端末が設定するものだけを使う。Terminal.app では TERM_PROGRAM=Apple_Terminal と
 // __CFBundleIdentifier=com.apple.Terminal、デスクトップアプリの Code タブでは
-// __CFBundleIdentifier=com.anthropic.claudefordesktop が、フックの環境に入ることを確かめてある。
+// __CFBundleIdentifier=com.anthropic.claudefordesktop が、フックの環境に入ることを確認してある。
 // Code タブの CLI の環境にある CLAUDE_CODE_HOST_SESSION_ID は、アプリの会話の記録
-// （claude-code-sessions の local_<id>.json）の sessionId と同じ値であることを確かめてある。
+// （claude-code-sessions の local_<id>.json）の sessionId と同じ値であることを確認してある。
 pub fn detect(event: &str, codex_originator: Option<&str>) -> Origin {
     let mut origin = Origin {
         bundle_id: var("__CFBundleIdentifier"),

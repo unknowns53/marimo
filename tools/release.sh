@@ -90,7 +90,7 @@ run_of() {
   return 1
 }
 
-main_run="$(run_of main)" || fail "main の CI の実行が見つかりません。https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions を確かめてください。タグは付けていません。"
+main_run="$(run_of main)" || fail "main の CI の実行が見つかりません。https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions を確認してください。"
 echo "main の CI（${main_run}）がテストとビルドを終えるのを待っています"
 gh run watch "$main_run" --exit-status --interval 30 >/dev/null ||
   fail "main の CI（${main_run}）が失敗しました。gh run view $main_run --log-failed で理由を確かめ、直してからバージョンを変えずにもう一度実行してください（バージョンのコミットは main に残っています）。タグは付けていません。"
@@ -99,8 +99,8 @@ echo "タグ $tag を push しています"
 git tag "$tag" "$sha"
 git push -q origin "$tag"
 
-tag_run="$(run_of "$tag")" || fail "タグの CI の実行が見つかりません。リリースができているかを gh release view $tag で確かめてください。"
+tag_run="$(run_of "$tag")" || fail "タグの CI の実行が見つかりません。リリースができているかを gh release view $tag で確認してください。"
 echo "タグの CI（${tag_run}）がリリースを公開するのを待っています"
 gh run watch "$tag_run" --exit-status --interval 15 >/dev/null ||
-  fail "タグの CI（${tag_run}）が失敗しました。gh run view $tag_run --log-failed で理由を確かめてください。"
+  fail "タグの CI（${tag_run}）が失敗しました。gh run view $tag_run --log-failed で理由を確認してください。"
 gh release view "$tag" --json url,isPrerelease --jq '"\(if .isPrerelease then "プレリリース" else "正式なリリース" end)を公開しました: \(.url)"'

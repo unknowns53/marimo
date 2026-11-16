@@ -110,7 +110,7 @@ repo_slug() {
 fetch() {
   local url="$1" dest="$2" code
   code="$(curl -sSL --retry 3 --connect-timeout 20 -o "$dest" -w '%{http_code}' "$url")" ||
-    fail "$url を取得できませんでした。ネットワークにつながっているかを確かめてください。つながらないときは --build でローカルでビルドできます。"
+    fail "$url を取得できませんでした。ネットワークにつながっているかを確認してください。つながらないときは --build でローカルでビルドできます。"
   case "$code" in
     200) return 0 ;;
     404) return 1 ;;
@@ -184,7 +184,7 @@ download_commit_build() {
   tag="build-${sha:0:12}"
   echo "$tag のビルドを取ってきています"
   download_from "https://github.com/$slug/releases/download/$tag" \
-    "コミット ${sha:0:12} のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確かめてください。アプリは差し替えていません。" \
+    "コミット ${sha:0:12} のビルドが https://github.com/$slug/releases/tag/$tag にありません。CI がまだこのコミットのビルドを終えていないか、ビルドに失敗しています。https://github.com/$slug/actions で進み具合を確認してください。アプリは差し替えていません。" \
     "--wait を付けると、できあがるまで最大 30 分待ちます。"
 }
 
@@ -218,7 +218,7 @@ download_release() {
   [[ -n "$tag" ]] || fail "$api の応答からリリースのタグを読み取れませんでした。"
   echo "${kind} $tag を取ってきています"
   download_from "https://github.com/$slug/releases/download/$tag" \
-    "リリース $tag に macOS 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確かめてください。アプリは差し替えていません。" \
+    "リリース $tag に macOS 用のファイルがそろっていません。https://github.com/$slug/releases/tag/$tag を確認してください。アプリは差し替えていません。" \
     ""
 }
 
@@ -276,6 +276,6 @@ echo "marimo を起動しています"
 open "$app_dest"
 
 if [[ $install_ok -eq 0 ]]; then
-  fail "marimo-hook install が失敗しました。アプリはすでに新しいものに差し替えて起動しています。上のメッセージを確かめてから、${retry_install}。"
+  fail "marimo-hook install が失敗しました。アプリはすでに新しいものに差し替えて起動しています。上のメッセージを確認してから、${retry_install}。"
 fi
 echo "更新が終わりました"

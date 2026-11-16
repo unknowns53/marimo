@@ -583,7 +583,7 @@ pub fn prune_stale_sessions(
         let path = entry.path();
         // 会話ログとプロセスを調べる間はロックを持たない。フックはロックを 300 ミリ秒しか待たずに書くので、
         // 持ったまま時間をかけると、その間にフックが書いた新しい状態を古い判定で消しうる。判定のあとでロックを取り、
-        // ファイルが読んだときのままであることを確かめてから書き直すか消す。
+        // ファイルが読んだときのままであることを確認してから書き直すか消す。
         let session_file = is_session_file_name(&name);
         let (read, stale, next) = if session_file {
             let read = read_file(&path).ok();

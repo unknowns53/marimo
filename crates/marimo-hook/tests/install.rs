@@ -332,7 +332,7 @@ fn install_then_uninstall_restores_realistic_settings() {
 #[test]
 fn minimal_settings_round_trip() {
     // install の前から空だった hooks は、marimo の分を取り除いて空になったものと区別できない。
-    // 空の hooks は無いのと同じ意味なので、消えることを仕様として確かめておく。
+    // 空の hooks は無いのと同じ意味なので、消えることを仕様として確認しておく。
     let cases = [
         (json!({}), None),
         (json!({"model": "sonnet"}), None),

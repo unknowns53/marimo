@@ -25,7 +25,7 @@ pub fn save(home: &MarimoHome, keys: &[String]) -> io::Result<()> {
 }
 
 /// フロントエンドの triggerKey（app/src/acknowledged.ts）と同じ形のキー。既読の集合はフロントエンドが
-/// この形で作って送ってくるので、一文字でも違うと既読を見落とす。両方のテストで同じ文字列を確かめている。
+/// この形で作って送ってくるので、一文字でも違うと既読を見落とす。両方のテストで同じ文字列を確認している。
 pub fn trigger_key(s: &SessionState) -> String {
     let id = if s.provider == marimo_core::Provider::Claude {
         s.session_id.clone()

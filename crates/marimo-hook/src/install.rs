@@ -51,7 +51,7 @@ pub fn run(mode: Mode, args: &[OsString]) -> Result<(), String> {
     }
 }
 
-const CODEX_TRUST_NOTE: &str = "Codex は、利用者が Codex CLI の /hooks でフックを確かめて信頼するまで、追加したフックを実行しません。marimo-hook の場所が変わったときは、もう一度 /hooks で信頼してください。\n";
+const CODEX_TRUST_NOTE: &str = "Codex は、利用者が Codex CLI の /hooks でフックを確認後信頼するまで、追加したフックを実行しません。marimo-hook の場所が変わったときは、もう一度 /hooks で信頼してください。\n";
 
 // Codex のフォルダが無ければ Codex は入っていないものとして、何も表示しない。
 // 信頼の記録は config.toml にあるが、利用者が /hooks で確かめる前提を崩さないよう触らない。
