@@ -72,11 +72,10 @@ Right-click the character or the panel to open the icon's menu without the sessi
 
 Choose **Settings…** from the right-click menu or the icon's menu to open the "marimo Settings" window. If it is already open, it comes to the front. This is an ordinary window with a frame, and you close it with its close button. Changes made in the window apply to the character and panel immediately, and are saved for the next start (see [Files and data](development.md#files-and-data) for where). If you change the display from a menu or a panel button while the window is open, the window follows.
 
-The left side of the window lists six sections: **Display**, **Bubbles**, **Character**, **Usage limits**, **Startup**, and **Updates**. The settings of the selected section appear on the right. **Display** is selected when the window opens.
+The left side of the window lists seven sections: **Display**, **Bubbles**, **Character**, **Usage limits**, **Startup**, **Updates**, and **Language**. The settings of the selected section appear on the right. **Display** is selected when the window opens.
 
 | Section | Setting | What it does |
 | --- | --- | --- |
-| Display | Language | Chooses the interface language, **日本語** or **English**. Until you choose one, marimo follows the OS language (see [Language](#language)) |
 | Display | Show character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
 | Display | Panel | Chooses how the panel is shown: **Details** or **Counts** (see [Switching the display](#switching-the-display)) |
 | Display | Sort order | Chooses how the panel orders sessions: **Start time**, **Status**, or **Last update** (see [Sort order](#sort-order)) |
@@ -88,6 +87,7 @@ The left side of the window lists six sections: **Display**, **Bubbles**, **Char
 | Usage limits | Refresh interval | Chooses how often the checked tools are asked to refresh their usage limits: **Never**, **Every 5 min**, **Every 10 min**, **Every 15 min**, **Every 30 min**, or **Every 60 min**. The default is **Never** (see [Usage limits](#usage-limits)) |
 | Startup | Launch at login | Turns launching at login on or off. It is off by default (see [Launching at login](#launching-at-login)) |
 | Updates | Current version, latest release, last checked | Shows the version of the running marimo and the latest stable release found at the last check, and updates marimo if a newer version exists (see [Checking for updates](#checking-for-updates)) |
+| Language | 日本語, English | Chooses the interface language, **日本語** or **English**. Until you choose one, marimo follows the OS language (see [Language](#language)) |
 
 ### Language
 

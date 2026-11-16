@@ -37,9 +37,6 @@ export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-// 言語の名前は、選ぶ人が読める言語で書く。
-export const LANGUAGE_NAMES: Record<Lang, string> = { ja: "日本語", en: "English" };
-
 /**
  * HTML の地の文は日本語で書き、英語を data-en に持たせる。最初に切り替えるときに日本語を data-ja へ残し、
  * 日本語へ戻すときに使う。data-en-title、data-en-aria-label は同じ名前の属性を切り替える。

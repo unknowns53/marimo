@@ -264,6 +264,10 @@ input[type="range"] {
   margin: 4px 0 0;
 }
 
+.radio-list.narrow {
+  max-width: 320px;
+}
+
 .radio-list .what {
   display: block;
   font-weight: 500;

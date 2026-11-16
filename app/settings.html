@@ -15,6 +15,7 @@
         <li><button type="button" class="item" data-section="usage"><span class="primary" data-en="Usage limits">利用制限</span><span class="secondary" data-en="Tools and refresh interval">出すツールと再取得の間隔</span></button></li>
         <li><button type="button" class="item" data-section="startup"><span class="primary" data-en="Startup">起動</span><span class="secondary" data-en="Launch at login">ログイン時の起動</span></button></li>
         <li><button type="button" class="item" data-section="update"><span class="primary" data-en="Updates">更新</span><span class="secondary" id="update-summary" data-en="Current version and checks">現在のバージョンと確認</span></button></li>
+        <li><button type="button" class="item" data-section="language"><span class="primary" data-en="Language">言語</span><span class="secondary" data-en="Interface and output">画面と出力の言語</span></button></li>
       </ul>
     </nav>
 
@@ -22,10 +23,6 @@
       <form id="settings" class="detail">
         <section id="section-display">
           <h1 class="title" data-en="Display">表示</h1>
-          <div class="field">
-            <label class="label" for="language" data-en="Language">言語</label>
-            <select id="language" name="language"></select>
-          </div>
           <label class="check"><input type="checkbox" name="show_character" /><span data-en="Show character">立ち絵を表示</span></label>
           <div class="field">
             <span class="label" data-en="Panel">パネル</span>
@@ -113,6 +110,14 @@
             <button type="button" class="btn" id="check-update" data-en="Check for Updates">更新を確認</button>
           </div>
           <p id="update-status" class="sub" role="status" aria-live="polite"></p>
+        </section>
+
+        <section id="section-language" hidden>
+          <h1 class="title" data-en="Language">言語</h1>
+          <div class="radio-list narrow">
+            <label><input type="radio" name="language" value="ja" /><span><span class="what">日本語</span></span></label>
+            <label><input type="radio" name="language" value="en" /><span><span class="what">English</span></span></label>
+          </div>
         </section>
       </form>
     </main>

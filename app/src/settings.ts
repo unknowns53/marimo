@@ -2,9 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 
 import {
-  LANGUAGES,
   LANGUAGE_EVENT,
-  LANGUAGE_NAMES,
   setLang,
   t,
   translateDocument,
@@ -44,7 +42,6 @@ const opacityInput = $<HTMLInputElement>("panel-opacity");
 const scaleInput = $<HTMLInputElement>("scale");
 const bubbleSecondsSelect = $<HTMLSelectElement>("bubble-seconds");
 const characterSelect = $<HTMLSelectElement>("character-select");
-const languageSelect = $<HTMLSelectElement>("language");
 const usageRefreshSelect = $<HTMLSelectElement>("usage-refresh");
 const sectionButtons = [...document.querySelectorAll<HTMLButtonElement>("#sections [data-section]")];
 const versionNode = $("version");
@@ -70,7 +67,6 @@ function request(r: SettingsRequest): void {
 
 function render(next: SettingsState): void {
   state = next;
-  fillSelect(languageSelect, LANGUAGES.map((l) => [l, LANGUAGE_NAMES[l]]));
   fillSelect(
     bubbleSecondsSelect,
     bubbleSecondsOptions(next.bubble.bubble_seconds).map((s) => [String(s), bubbleSecondsLabel(s)]),
