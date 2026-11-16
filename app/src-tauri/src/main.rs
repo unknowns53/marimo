@@ -15,7 +15,6 @@ mod watch;
 mod window_pos;
 
 use std::collections::HashSet;
-use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use marimo_core::{Lang, LangSetting, MarimoHome, Provider, Snapshot, store};
@@ -312,12 +311,7 @@ fn quit(app: AppHandle) {
 /// 試しに動かしただけで登録を奪わないよう何もしない。
 fn follow_autostart_path(app: &AppHandle) {
     use tauri_plugin_autostart::ManagerExt;
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let in_source_tree = match (std::env::current_exe(), source_root.canonicalize()) {
-        (Ok(exe), Ok(root)) => exe.canonicalize().is_ok_and(|exe| exe.starts_with(root)),
-        _ => false,
-    };
-    if in_source_tree {
+    if update::in_source_tree() {
         return;
     }
     let autolaunch = app.autolaunch();

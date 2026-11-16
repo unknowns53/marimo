@@ -181,8 +181,8 @@ async fn blocking<T: Send + 'static>(
     })?
 }
 
-/// main.rs の follow_autostart_path と同じ判定で、ソースツリーのビルド用フォルダから起動したかを返す。
-fn in_source_tree() -> bool {
+/// ソースツリーのビルド用フォルダから起動したかを返す。
+pub(crate) fn in_source_tree() -> bool {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     match (std::env::current_exe(), source_root.canonicalize()) {
         (Ok(exe), Ok(root)) => exe.canonicalize().is_ok_and(|exe| exe.starts_with(root)),
