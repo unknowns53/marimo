@@ -1117,7 +1117,7 @@ mod tests {
             ("/tmp/a b", "'/tmp/a b'", "'/tmp/a b'"),
             ("it's", r"'it'\''s'", "'it''s'"),
             ("$HOME `x` \"y\"", "'$HOME `x` \"y\"'", "'$HOME `x` \"y\"'"),
-            ("鷹\u{2019}s", "'鷹\u{2019}s'", "'鷹\u{2019}\u{2019}s'"),
+            ("日\u{2019}s", "'日\u{2019}s'", "'日\u{2019}\u{2019}s'"),
         ] {
             assert_eq!(
                 (sh_quote(raw), ps_quote(raw)),
