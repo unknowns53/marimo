@@ -1289,6 +1289,33 @@ mod tests {
         assert_eq!(read_codex_rate_limits(&home), Some(codex_limits(10, 5.0)));
     }
 
+    // 状態を変えるイベントでも変えないイベントでも、フックが持ってきたコンテキストの使用量を書く。
+    #[test]
+    fn hook_context_is_written_whether_or_not_the_state_changes() {
+        let (_d, home) = home();
+        let usage = |tokens| ContextUsage {
+            used_percentage: None,
+            total_input_tokens: Some(tokens),
+            context_window_size: None,
+            updated_at: 1,
+            source: None,
+        };
+        for (event, tokens) in [("SessionStart", 100), ("PreInvocation", 200)] {
+            let mut input: HookInput = serde_json::from_value(
+                json!({"session_id":"c1","hook_event_name":event,"cwd":"/w"}),
+            )
+            .unwrap();
+            input.provider = Provider::Antigravity;
+            let extras = HookExtras {
+                context: Some(usage(tokens)),
+                ..HookExtras::default()
+            };
+            apply_hook(&home, &input, &extras).unwrap();
+            let session = read_session(&home, Provider::Antigravity, "c1").unwrap();
+            assert_eq!(session.context, Some(usage(tokens)), "{event}");
+        }
+    }
+
     #[test]
     fn reads_claude_code_cached_usage() {
         let config = |cached_account: &str| {
