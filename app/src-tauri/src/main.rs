@@ -15,7 +15,7 @@ mod watch;
 mod window_pos;
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 
 use marimo_core::{Lang, LangSetting, MarimoHome, Provider, Snapshot, store};
 use serde::Serialize;
@@ -29,6 +29,9 @@ struct AppState {
     // 立ち絵の縦横比は選んだキャラクターの manifest にあり、読むのはフロントエンドなので、
     // 知らされるまでは前回保存した比を使う。
     aspect: Mutex<f64>,
+    // 立ち絵の倍率。display.json へは scale_saver が遅れて書くので、ウィンドウの配置にはこちらを使う。
+    scale: Mutex<f64>,
+    scale_saver: mpsc::Sender<f64>,
     tray: OnceLock<tray::Tray>,
     // フロントエンドが既読にしたトリガー。メニューバーのアイコンを決めるのに使う。
     acknowledged: Mutex<HashSet<String>>,
@@ -58,6 +61,10 @@ impl LanguageState {
 impl AppState {
     fn aspect(&self) -> f64 {
         *self.aspect.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn scale(&self) -> f64 {
+        *self.scale.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn corner(&self) -> window_pos::Corner {
@@ -96,7 +103,7 @@ fn relayout(app: &AppHandle, pos: (i32, i32)) -> ((i32, i32), window_pos::Corner
     let Some(window) = app.get_webview_window("main") else {
         return (pos, current);
     };
-    let (scale, aspect) = (scale::load(&state.home), state.aspect());
+    let (scale, aspect) = (state.scale(), state.aspect());
     let Some(size) = window_pos::Screen::outer(&window) else {
         return (pos, current);
     };
@@ -134,18 +141,17 @@ fn get_dialogue(state: State<'_, AppState>) -> Value {
 
 #[tauri::command]
 fn get_scale(state: State<'_, AppState>) -> f64 {
-    scale::load(&state.home)
+    state.scale()
 }
 
 // 同期コマンドは Tauri のメインスレッドで順に実行されるので、ホイールで続けて
-// 呼ばれてもウィンドウの大きさの変更が入れ違うことはない。
+// 呼ばれてもウィンドウの大きさの変更が入れ違うことはない。保存は scale::spawn_saver のスレッドに任せる。
 #[tauri::command]
 fn set_scale(app: AppHandle, state: State<'_, AppState>, scale: f64) -> f64 {
     let scale = scale::clamp(scale);
+    *state.scale.lock().unwrap_or_else(|e| e.into_inner()) = scale;
     resize(&app, scale, state.aspect());
-    if let Err(e) = scale::save(&state.home, scale) {
-        eprintln!("marimo: cannot save scale: {e}");
-    }
+    let _ = state.scale_saver.send(scale);
     scale
 }
 
@@ -244,7 +250,7 @@ fn set_character(state: State<'_, AppState>, id: String) -> Result<(), String> {
 fn set_stage_aspect(app: AppHandle, state: State<'_, AppState>, aspect: f64) {
     let aspect = scale::clamp_aspect(aspect);
     *state.aspect.lock().unwrap_or_else(|e| e.into_inner()) = aspect;
-    resize(&app, scale::load(&state.home), aspect);
+    resize(&app, state.scale(), aspect);
     if let Err(e) = scale::save_aspect(&state.home, aspect) {
         eprintln!("marimo: cannot save stage aspect: {e}");
     }
@@ -332,6 +338,7 @@ fn main() {
     let context = tauri::generate_context!();
     let hits = Arc::new(hit::HitState::default());
     let aspect = scale::load_aspect(&home);
+    let initial_scale = scale::load(&home);
 
     // LaunchAgent は System Events への自動操作の許可を求めずに登録できる。
     // plist の名前は既定だと製品名の marimo になり、同名の別アプリと重なりうるので
@@ -354,6 +361,8 @@ fn main() {
             hits: hits.clone(),
             icons: OnceLock::new(),
             aspect: Mutex::new(aspect),
+            scale: Mutex::new(initial_scale),
+            scale_saver: scale::spawn_saver(home.clone()),
             tray: OnceLock::new(),
             acknowledged: Mutex::new(acknowledged::load(&home).into_iter().collect()),
             corner: Mutex::new(window_pos::Corner::default()),
@@ -400,9 +409,9 @@ fn main() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window is declared in tauri.conf.json");
-            let (w, h) = scale::window_size(scale::load(&home), aspect);
+            let (w, h) = scale::window_size(initial_scale, aspect);
             let corner = window_pos::start(&window, &home, (w, h), |c| {
-                scale::stage_rect(scale::load(&home), aspect, c)
+                scale::stage_rect(initial_scale, aspect, c)
             });
             *app.state::<AppState>()
                 .corner

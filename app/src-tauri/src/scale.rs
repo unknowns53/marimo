@@ -1,5 +1,8 @@
 use std::fs;
 use std::io;
+use std::sync::{Mutex, mpsc};
+use std::thread;
+use std::time::Duration;
 
 use marimo_core::{LangSetting, MarimoHome, store};
 use serde::{Deserialize, Serialize};
@@ -221,6 +224,20 @@ struct Display {
     // ほかの項目を保存するときに消さないためである。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     language: Option<String>,
+    // このバージョンが知らない項目。新しいバージョンが書いた項目を、古いバージョンで保存したときに消さない。
+    #[serde(flatten)]
+    other: serde_json::Map<String, serde_json::Value>,
+}
+
+// display.json を書くのはこのアプリだけだが、倍率は spawn_saver のスレッドが書き、ほかの項目はメインスレッドが書く。
+// 読んでから書き戻すまでの間に別の項目の保存が割り込んで消えないよう、プロセスの中で一つずつにする。
+static DISPLAY_LOCK: Mutex<()> = Mutex::new(());
+
+fn update_display(home: &MarimoHome, edit: impl FnOnce(&mut Display)) -> io::Result<()> {
+    let _guard = DISPLAY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut d = read_display(home);
+    edit(&mut d);
+    store::write_json_durable(&home.display_file(), &d)
 }
 
 fn read_display(home: &MarimoHome) -> Display {
@@ -244,10 +261,31 @@ pub fn load(home: &MarimoHome) -> f64 {
 }
 
 pub fn save(home: &MarimoHome, scale: f64) -> io::Result<()> {
-    let mut d = read_display(home);
-    d.stage_scale = Some(scale);
-    d.scale = None;
-    store::write_json_durable(&home.display_file(), &d)
+    update_display(home, |d| {
+        d.stage_scale = Some(scale);
+        d.scale = None;
+    })
+}
+
+// スライダーのドラッグやホイールでは倍率が続けて届く。display.json は write_json_durable で書き、macOS の
+// sync_all は F_FULLFSYNC になって一回に数十ミリ秒かかるので、届くたびにメインスレッドで書くとウィンドウの
+// 大きさの変更が詰まる。別のスレッドで、この時間届かなくなってから最後の値だけを書く。
+const SCALE_SAVE_AFTER: Duration = Duration::from_millis(300);
+
+/// 送られた倍率を、続けて届く間は待ってから保存するスレッドを起こす。
+pub fn spawn_saver(home: MarimoHome) -> mpsc::Sender<f64> {
+    let (tx, rx) = mpsc::channel::<f64>();
+    thread::spawn(move || {
+        while let Ok(mut scale) = rx.recv() {
+            while let Ok(next) = rx.recv_timeout(SCALE_SAVE_AFTER) {
+                scale = next;
+            }
+            if let Err(e) = save(&home, scale) {
+                eprintln!("marimo: cannot save scale: {e}");
+            }
+        }
+    });
+    tx
 }
 
 /// 新しいキーも以前の panel_mode も保存されていなければ None を返し、フロントエンドに既定を決めさせる。
@@ -277,19 +315,19 @@ pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
 }
 
 pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Result<()> {
-    let mut d = read_display(home);
-    d.show_character = Some(display.show_character);
-    d.panel_style = Some(
-        match display.panel_style {
-            PanelStyle::Detail => "detail",
-            PanelStyle::Counts => "counts",
-        }
-        .to_owned(),
-    );
-    d.row_order = Some(display.row_order.as_str().to_owned());
-    d.panel_opacity = Some(clamp_opacity(display.panel_opacity).into());
-    d.panel_mode = None;
-    store::write_json_durable(&home.display_file(), &d)
+    update_display(home, |d| {
+        d.show_character = Some(display.show_character);
+        d.panel_style = Some(
+            match display.panel_style {
+                PanelStyle::Detail => "detail",
+                PanelStyle::Counts => "counts",
+            }
+            .to_owned(),
+        );
+        d.row_order = Some(display.row_order.as_str().to_owned());
+        d.panel_opacity = Some(clamp_opacity(display.panel_opacity).into());
+        d.panel_mode = None;
+    })
 }
 
 /// 保存されていない項目や解釈できない値は、既定（種類は出す、秒数は押すまで）にする。
@@ -313,12 +351,12 @@ pub fn load_bubble_settings(home: &MarimoHome) -> BubbleSettings {
 }
 
 pub fn save_bubble_settings(home: &MarimoHome, settings: BubbleSettings) -> io::Result<()> {
-    let mut d = read_display(home);
-    d.bubble_waiting = Some(settings.bubble_waiting.into());
-    d.bubble_done = Some(settings.bubble_done.into());
-    d.bubble_error = Some(settings.bubble_error.into());
-    d.bubble_seconds = Some(settings.bubble_seconds.min(MAX_BUBBLE_SECONDS).into());
-    store::write_json_durable(&home.display_file(), &d)
+    update_display(home, |d| {
+        d.bubble_waiting = Some(settings.bubble_waiting.into());
+        d.bubble_done = Some(settings.bubble_done.into());
+        d.bubble_error = Some(settings.bubble_error.into());
+        d.bubble_seconds = Some(settings.bubble_seconds.min(MAX_BUBBLE_SECONDS).into());
+    })
 }
 
 /// 0 は再取得しないことを表し、保存されていないときや解釈できない値のときもそうする。Claude Code、
@@ -332,9 +370,9 @@ pub fn load_usage_refresh_minutes(home: &MarimoHome) -> u32 {
 }
 
 pub fn save_usage_refresh_minutes(home: &MarimoHome, minutes: u32) -> io::Result<()> {
-    let mut d = read_display(home);
-    d.usage_refresh_minutes = Some(minutes.min(MAX_USAGE_REFRESH_MINUTES).into());
-    store::write_json_durable(&home.display_file(), &d)
+    update_display(home, |d| {
+        d.usage_refresh_minutes = Some(minutes.min(MAX_USAGE_REFRESH_MINUTES).into());
+    })
 }
 
 /// 保存されていないツールや解釈できない値は、出すことにする。
@@ -355,9 +393,9 @@ pub fn load_usage_tools(home: &MarimoHome) -> UsageTools {
 }
 
 pub fn save_usage_tools(home: &MarimoHome, tools: UsageTools) -> io::Result<()> {
-    let mut d = read_display(home);
-    d.usage_tools = serde_json::to_value(tools).ok();
-    store::write_json_durable(&home.display_file(), &d)
+    update_display(home, |d| {
+        d.usage_tools = serde_json::to_value(tools).ok();
+    })
 }
 
 fn characters() -> Vec<String> {
@@ -386,9 +424,9 @@ pub fn save_character(home: &MarimoHome, id: &str) -> io::Result<()> {
             "unknown character",
         ));
     }
-    let mut d = read_display(home);
-    d.character = Some(id.to_owned());
-    store::write_json_durable(&home.display_file(), &d)
+    update_display(home, |d| {
+        d.character = Some(id.to_owned());
+    })
 }
 
 // 縦横比は選んだキャラクターの manifest にあり、読めるのはフロントエンドだけである。起動のたびに
@@ -401,15 +439,15 @@ pub fn load_aspect(home: &MarimoHome) -> f64 {
 }
 
 pub fn save_aspect(home: &MarimoHome, aspect: f64) -> io::Result<()> {
-    let mut d = read_display(home);
-    d.stage_aspect = Some(clamp_aspect(aspect));
-    store::write_json_durable(&home.display_file(), &d)
+    update_display(home, |d| {
+        d.stage_aspect = Some(clamp_aspect(aspect));
+    })
 }
 
 pub fn save_language(home: &MarimoHome, setting: LangSetting) -> io::Result<()> {
-    let mut d = read_display(home);
-    d.language = Some(setting.as_str().to_owned());
-    store::write_json_durable(&home.display_file(), &d)
+    update_display(home, |d| {
+        d.language = Some(setting.as_str().to_owned());
+    })
 }
 
 pub fn clamp_aspect(aspect: f64) -> f64 {
@@ -607,7 +645,7 @@ mod tests {
 
         fs::write(
             home.display_file(),
-            r#"{"scale": 1.3, "panel_mode": "list"}"#,
+            r#"{"scale": 1.3, "panel_mode": "list", "future_key": [1]}"#,
         )
         .unwrap();
         save_panel_display(
@@ -622,7 +660,7 @@ mod tests {
             serde_json::from_slice(&fs::read(home.display_file()).unwrap()).unwrap();
         assert_eq!(
             saved,
-            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status", "panel_opacity": 0.8})
+            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status", "panel_opacity": 0.8, "future_key": [1]})
         );
     }
 
@@ -871,6 +909,7 @@ mod tests {
         for (content, expected) in [
             (r#"{"scale": 0.6}"#, 1.0),
             (r#"{"scale": 1.0}"#, 1.67),
+            (r#"{"scale": 1}"#, 1.67),
             (r#"{"scale": 2.5}"#, MAX),
             (r#"{"scale": 1.0, "stage_scale": 0.8}"#, 0.8),
         ] {
