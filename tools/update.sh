@@ -299,7 +299,7 @@ if pgrep -f "$running_pattern" >/dev/null; then
     sleep 0.5
   done
   if pgrep -f "$running_pattern" >/dev/null; then
-    fail "$(msg "marimo が終了しません。右クリックメニューの「終了」で終了してから、もう一度実行してください。アプリは差し替えていません。" "marimo did not quit. Choose Quit from the right-click menu, then run again. The app was not replaced.")"
+    fail "$(msg "marimo が終了しません。右クリックメニューの「終了」で終了してから、もう一度実行してください。アプリは差し替えていません。" "marimo did not quit. Choose \"Quit\" from the right-click menu, then run again. The app was not replaced.")"
   fi
 fi
 

@@ -4,24 +4,31 @@
 
 <#
 .SYNOPSIS
+Updates marimo to a newer version.
 marimo を新しいバージョンへ更新します。
 
 .DESCRIPTION
+By default, downloads the latest stable release from GitHub and reinstalls the app. The repository is not touched.
 既定では、最新の正式なリリースを GitHub から取ってきて入れ直します。リポジトリには触れません。
 
 .PARAMETER Pre
+Downloads the most recently published release whose name starts with v, including prereleases.
 プレリリースも含めて、最も新しく公開された v で始まるリリースを取ってきます。
 
 .PARAMETER Main
+Pulls the latest main and downloads the CI build of that commit from the GitHub releases.
 main の最新を pull し、そのコミットを CI がビルドしたものを GitHub のリリースから取ってきます。
 
 .PARAMETER NoPull
+Skips checking that the branch is main and pulling, and uses the commit currently checked out. Without -Build, it downloads the build of that commit, so it works only for commits that went through main.
 ブランチが main であることの確認と pull を省き、今チェックアウトしているコミットを使います。-Build を付けなければ、そのコミットのビルドを取ってくるので、main を通ったコミットでしか使えません。
 
 .PARAMETER Wait
+Use together with -Main or -NoPull. When the CI build is not ready yet, checks every 30 seconds for up to 30 minutes.
 -Main か -NoPull と一緒に使います。CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
 
 .PARAMETER Build
+Builds locally instead of downloading. Without -NoPull, pulls the latest main before building. Use it when there is no network connection, or to try a branch other than main.
 取ってくる代わりにローカルでビルドします。-NoPull が無ければ、main の最新を pull してからビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
 #>
 [CmdletBinding()]
@@ -322,7 +329,7 @@ try {
     Write-Host (Msg "$($installer.Name) でアプリを入れ直しています" "Reinstalling the app with $($installer.Name)")
     $setup = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
     if ($setup.ExitCode -ne 0) {
-        Fail (Msg "インストーラが失敗しました（終了コード $($setup.ExitCode)）。marimo を終了できなかった場合に起こるので、立ち絵を右クリックして「終了」を選んでから、もう一度実行してください。" "The installer failed (exit code $($setup.ExitCode)). This happens when marimo could not be closed. Right-click the character, choose Quit, then run again.")
+        Fail (Msg "インストーラが失敗しました（終了コード $($setup.ExitCode)）。marimo を終了できなかった場合に起こるので、立ち絵を右クリックして「終了」を選んでから、もう一度実行してください。" "The installer failed (exit code $($setup.ExitCode)). This happens when marimo could not be closed. Right-click the character, choose ""Quit"", then run again.")
     }
     if (-not (Test-Path -LiteralPath $installedExe)) {
         Fail (Msg "インストーラは成功を返しましたが、$installedExe が見つかりません。" "The installer reported success, but $installedExe was not found.")
