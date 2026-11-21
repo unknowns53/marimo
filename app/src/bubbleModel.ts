@@ -9,6 +9,8 @@ export interface BubbleView {
   sessionKey: string;
   status: Status;
   text: string;
+  /** 同じ優先度で他に未対応のセッションが何件あるか。0 ならバッジを出さない。 */
+  others: number;
 }
 
 type Pick = (lines: string[]) => string | undefined;
@@ -48,17 +50,20 @@ export class BubbleModel {
     if (this.expiredKey && !snapshot?.sessions.some((s) => triggerKey(s) === this.expiredKey)) {
       this.expiredKey = null;
     }
-    const next = this.candidate(snapshot);
+    const { chosen: next, others } = this.pickCandidate(snapshot);
     if (!next) {
       this.current = null;
       return null;
     }
     const key = triggerKey(next);
-    if (this.current?.key === key) return this.current;
+    if (this.current?.key === key) {
+      if (this.current.others !== others) this.current = { ...this.current, others };
+      return this.current;
+    }
     this.triedKey = key;
     const template = this.pick(linesFor(dialogue, categoryFor(next)));
     this.current = template
-      ? { key, sessionKey: sessionKey(next), status: next.status, text: fillTemplate(template, next) }
+      ? { key, sessionKey: sessionKey(next), status: next.status, text: fillTemplate(template, next), others }
       : null;
     return this.current;
   }
@@ -92,10 +97,17 @@ export class BubbleModel {
   // 更新の新しい順は通知などで入れ替わり、吹き出しが行き来してしまうからである。
   // それ以外は集約で選ばれる順（優先度、同じなら新しい順）に、閉じられていない最初のものを選ぶ。
   private candidate(snapshot: Snapshot | null): SessionState | null {
-    if (!snapshot || !SPEAKING.has(snapshot.aggregate) || !this.enabled(snapshot.aggregate)) return null;
+    return this.pickCandidate(snapshot).chosen;
+  }
+
+  private pickCandidate(snapshot: Snapshot | null): { chosen: SessionState | null; others: number } {
+    if (!snapshot || !SPEAKING.has(snapshot.aggregate) || !this.enabled(snapshot.aggregate)) {
+      return { chosen: null, others: 0 };
+    }
     const eligible = snapshot.sessions.filter(
       (s) => s.status === snapshot.aggregate && !this.ack.has(s) && triggerKey(s) !== this.expiredKey,
     );
-    return eligible.find((s) => triggerKey(s) === this.current?.key) ?? eligible[0] ?? null;
+    const chosen = eligible.find((s) => triggerKey(s) === this.current?.key) ?? eligible[0] ?? null;
+    return { chosen, others: chosen ? Math.max(0, eligible.length - 1) : 0 };
   }
 }

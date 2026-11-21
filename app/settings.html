@@ -13,6 +13,7 @@
         <li><button type="button" class="item" data-section="bubble"><span class="primary" data-en="Bubbles">吹き出し</span><span class="secondary" data-en="When to show and for how long">出す状態と表示時間</span></button></li>
         <li><button type="button" class="item" data-section="character"><span class="primary" data-en="Character">キャラクター</span><span class="secondary" data-en="Choice and size">立ち絵の選択と大きさ</span></button></li>
         <li><button type="button" class="item" data-section="usage"><span class="primary" data-en="Usage limits">利用制限</span><span class="secondary" data-en="Tools and refresh interval">出すツールと再取得の間隔</span></button></li>
+        <li><button type="button" class="item" data-section="shortcuts"><span class="primary" data-en="Shortcuts">ショートカット</span><span class="secondary" data-en="Global keyboard shortcuts">キーボード操作の割り当て</span></button></li>
         <li><button type="button" class="item" data-section="startup"><span class="primary" data-en="Startup">起動</span><span class="secondary" data-en="Launch at login">ログイン時の起動</span></button></li>
         <li><button type="button" class="item" data-section="update"><span class="primary" data-en="Updates">更新</span><span class="secondary" id="update-summary" data-en="Current version and checks">現在のバージョンと確認</span></button></li>
         <li><button type="button" class="item" data-section="language"><span class="primary" data-en="Language">言語</span><span class="secondary" data-en="Interface and output">画面と出力の言語</span></button></li>
@@ -42,6 +43,10 @@
           <div class="field">
             <label class="label" for="panel-opacity"><span data-en="Background opacity">背景の不透明度</span><output for="panel-opacity" data-for="panel_opacity"></output></label>
             <input id="panel-opacity" type="range" name="panel_opacity" />
+          </div>
+          <div class="field">
+            <span class="label" data-en="Window position">ウィンドウの位置</span>
+            <button type="button" class="btn" id="reset-position" data-en="Reset to Default Position">既定の位置に戻す</button>
           </div>
         </section>
 
@@ -78,16 +83,49 @@
           <div class="field">
             <span class="label" data-en="Show for">出すツール</span>
             <div class="checks">
-              <label class="check"><input type="checkbox" name="usage_claude" />Claude Code</label>
-              <label class="check"><input type="checkbox" name="usage_codex" />Codex</label>
-              <label class="check"><input type="checkbox" name="usage_antigravity" />Antigravity</label>
+              <div class="usage-row">
+                <label class="check"><input type="checkbox" name="usage_claude" />Claude Code</label>
+                <span class="usage-meta" id="usage-status-claude"></span>
+              </div>
+              <div class="usage-row">
+                <label class="check"><input type="checkbox" name="usage_codex" />Codex</label>
+                <span class="usage-meta" id="usage-status-codex"></span>
+              </div>
+              <div class="usage-row">
+                <label class="check"><input type="checkbox" name="usage_antigravity" />Antigravity</label>
+                <span class="usage-meta" id="usage-status-antigravity"></span>
+              </div>
             </div>
           </div>
           <div class="field">
             <label class="label" for="usage-refresh" data-en="Refresh interval">再取得の間隔</label>
             <select id="usage-refresh" name="usage_refresh_minutes"></select>
-            <p class="hint" data-en="How often the checked tools refresh their usage limits">チェックしたツールに利用制限を再取得させる間隔</p>
+            <p class="hint" data-en="How often the checked tools refresh their usage limits. Antigravity and the Claude desktop app's Code tab need a refresh interval or manual refresh to appear.">チェックしたツールに利用制限を再取得させる間隔。Antigravity やデスクトップアプリの Code タブでは、間隔を選ぶか下のボタンから取得します</p>
           </div>
+          <div class="actions">
+            <button type="button" class="btn" id="refresh-usage" data-en="Refresh Now">今すぐ再取得</button>
+          </div>
+        </section>
+
+        <section id="section-shortcuts" hidden>
+          <h1 class="title" data-en="Shortcuts">ショートカット</h1>
+          <p class="hint" data-en="Optional global shortcuts that work from any app. Click a box and press a key combination with at least one modifier key.">他のアプリを操作しているときにも使えるキーボード操作です。枠を押して修飾キーを含む組み合わせを入力してください。</p>
+          <div class="field">
+            <span class="label" data-en="Jump to next session needing attention">要対応のセッションへ移動</span>
+            <div class="shortcut-row">
+              <button type="button" class="shortcut-input" data-shortcut="focus_urgent"></button>
+              <button type="button" class="btn" data-shortcut-clear="focus_urgent" data-en="Clear">クリア</button>
+            </div>
+            <p class="hint" data-en="Focuses the highest-priority waiting, error, or done session">承認待ち、エラー、完了のうち最も優先度の高いセッションへ移動します</p>
+          </div>
+          <div class="field">
+            <span class="label" data-en="Show or hide marimo">marimo の表示と非表示を切り替え</span>
+            <div class="shortcut-row">
+              <button type="button" class="shortcut-input" data-shortcut="toggle_visible"></button>
+              <button type="button" class="btn" data-shortcut-clear="toggle_visible" data-en="Clear">クリア</button>
+            </div>
+          </div>
+          <p id="shortcut-status" class="sub error" role="status" aria-live="polite"></p>
         </section>
 
         <section id="section-startup" hidden>
@@ -108,6 +146,7 @@
           <div class="actions">
             <button type="button" class="btn primary" id="install-update" hidden></button>
             <button type="button" class="btn" id="check-update" data-en="Check for Updates">更新を確認</button>
+            <button type="button" class="btn" id="open-release-notes" data-en="Release Notes" hidden>変更内容を見る</button>
           </div>
           <p id="update-status" class="sub" role="status" aria-live="polite"></p>
         </section>

@@ -28,6 +28,7 @@ const SESSION_EVENT: &str = "tray-session";
 // キーが何であっても固定の項目の ID にならないよう、別の接頭辞にする。
 const SESSION_PREFIX: &str = "tray-session:";
 const TOGGLE: &str = "tray:toggle";
+const RESET_POSITION: &str = "tray:reset-position";
 const SHOW_CHARACTER: &str = "tray:show-character";
 const STYLE_DETAIL: &str = "tray:style-detail";
 const STYLE_COUNTS: &str = "tray:style-counts";
@@ -45,6 +46,7 @@ pub struct Tray {
     sessions: Mutex<Vec<MenuItemKind<Wry>>>,
     attention: Mutex<Attention>,
     toggle: MenuItem<Wry>,
+    reset_position: MenuItem<Wry>,
     show_character: CheckMenuItem<Wry>,
     detail: CheckMenuItem<Wry>,
     counts: CheckMenuItem<Wry>,
@@ -98,6 +100,7 @@ impl Tray {
             .unwrap_or(true);
         let results = [
             self.toggle.set_text(toggle_label(visible, lang)),
+            self.reset_position.set_text(reset_position_label(lang)),
             self.show_character.set_text(show_character_label(lang)),
             self.detail.set_text(detail_label(lang)),
             self.counts.set_text(counts_label(lang)),
@@ -283,6 +286,10 @@ fn toggle_label(visible: bool, lang: Lang) -> &'static str {
     }
 }
 
+fn reset_position_label(lang: Lang) -> &'static str {
+    lang.pick("位置をリセット", "Reset Position")
+}
+
 fn show_character_label(lang: Lang) -> &'static str {
     lang.pick("立ち絵を表示", "Show Character")
 }
@@ -334,6 +341,13 @@ fn icon(attention: Attention) -> (Image<'static>, bool) {
 
 pub fn build(app: &AppHandle, display: PanelDisplay, lang: Lang) -> tauri::Result<Tray> {
     let toggle_item = MenuItem::with_id(app, TOGGLE, toggle_label(true, lang), true, None::<&str>)?;
+    let reset_position = MenuItem::with_id(
+        app,
+        RESET_POSITION,
+        reset_position_label(lang),
+        true,
+        None::<&str>,
+    )?;
     let show_character = CheckMenuItem::with_id(
         app,
         SHOW_CHARACTER,
@@ -390,6 +404,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay, lang: Lang) -> tauri::Resul
         app,
         &[
             &toggle_item,
+            &reset_position,
             &PredefinedMenuItem::separator(app)?,
             &show_character,
             &detail,
@@ -427,6 +442,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay, lang: Lang) -> tauri::Resul
         sessions: Mutex::new(Vec::new()),
         attention: Mutex::new(Attention::None),
         toggle: toggle_item,
+        reset_position,
         show_character,
         detail,
         counts,
@@ -483,6 +499,7 @@ fn chosen_display(id: &str, current: PanelDisplay) -> Option<PanelDisplay> {
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
         TOGGLE => toggle(app),
+        RESET_POSITION => crate::reset_position(app),
         MARK_ALL_READ => {
             if let Err(e) = app.emit(MARK_ALL_READ_EVENT, ()) {
                 eprintln!("marimo: cannot send the tray choice: {e}");
@@ -517,16 +534,17 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
             if let Some(tray) = state.tray.get() {
                 tray.reflect(saved);
             }
-            if saved == next
-                && let Err(e) = app.emit(PANEL_DISPLAY_EVENT, saved)
-            {
-                eprintln!("marimo: cannot send the tray choice: {e}");
+            if saved == next {
+                crate::sync_window_character(app, saved.show_character);
+                if let Err(e) = app.emit(PANEL_DISPLAY_EVENT, saved) {
+                    eprintln!("marimo: cannot send the tray choice: {e}");
+                }
             }
         }
     }
 }
 
-fn toggle(app: &AppHandle) {
+pub(crate) fn toggle(app: &AppHandle) {
     let visible = app
         .get_webview_window("main")
         .and_then(|w| w.is_visible().ok())

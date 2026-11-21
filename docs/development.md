@@ -265,6 +265,7 @@ The fields of `display.json` are as follows. When a value is missing or invalid,
 | `bubble_seconds` | Seconds until a speech bubble closes on its own (an integer from 0 to 3600). 0 keeps it until clicked | 0. Numbers above the limit are moved to the limit |
 | `usage_refresh_minutes` | The interval for refreshing usage limits (in minutes, an integer from 0 to 1440). 0 means never | 0. Numbers above the limit are moved to the limit |
 | `usage_tools` | Which tools' values appear in the usage limits row: an object with booleans for `claude`, `codex`, and `antigravity`. Tools set to `false` are not refreshed | `true` for missing tools and non-boolean values |
+| `shortcuts` | Global keyboard shortcuts: an object with string fields `focus_urgent` and `toggle_visible` | Both unset (disabled) |
 | `character` | The name of the selected character | |
 | `stage_aspect` | The aspect ratio (height divided by width) of the selected character's area. Saved whenever the user interface reports it, and at the next start the window opens at this ratio from the beginning, so the window does not move right after startup | 1.5. Kept within 0.25 to 4.0 |
 

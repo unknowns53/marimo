@@ -229,6 +229,17 @@ fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> (Corner
     )
 }
 
+/// 保存した位置を削除し、ウィンドウを主モニタの右下（既定の位置）へ戻す。`size` は論理 px。
+pub fn reset(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> Corner {
+    let (w, h) = to_physical(size, screen.factor());
+    screen.set_size(w, h);
+    if let Some((x, y)) = default_position(screen, w, h) {
+        screen.set_position(x, y);
+    }
+    let _ = fs::remove_file(home.window_file());
+    Corner::default()
+}
+
 // 立ち絵のある隅の角を動かさずに大きさを変え、立ち絵が画面上で動かないようにする。
 // そのうえで、はみ出した分は画面内へ押し戻す。`size` は論理 px。
 pub fn resize_keeping_corner(screen: &impl Screen, size: (f64, f64), corner: Corner) {
@@ -692,5 +703,38 @@ mod tests {
                 .map(|b| serde_json::from_slice::<SavedPosition>(&b).unwrap());
             assert_eq!(written, after, "{label}");
         }
+    }
+
+    #[test]
+    fn reset_moves_to_default_corner_and_clears_saved_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = MarimoHome::at(dir.path());
+        fs::write(
+            home.window_file(),
+            r#"{"x":100,"y":100,"left":true,"top":true}"#,
+        )
+        .unwrap();
+        let opened = Rect {
+            x: 100,
+            y: 100,
+            w: 1000,
+            h: 800,
+        };
+        let screen = FakeScreen {
+            outer: opened,
+            placed: Cell::new(opened),
+            asleep: false,
+        };
+        assert_eq!(reset(&screen, &home, (500.0, 400.0)), BR);
+        assert_eq!(
+            screen.placed.get(),
+            Rect {
+                x: 3000 - 1000 - 48,
+                y: 1950 - 800 - 48,
+                w: 1000,
+                h: 800,
+            }
+        );
+        assert!(!home.window_file().exists());
     }
 }

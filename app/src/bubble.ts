@@ -6,10 +6,20 @@ export class Bubble {
     node.addEventListener("click", onClick);
   }
 
-  show(text: string, title: string): void {
-    renderPhrases(this.node, text);
+  show(text: string, title: string, others = 0): void {
+    const body = document.createElement("span");
+    body.className = "bubble-text";
+    renderPhrases(body, text);
+    const children: Node[] = [body];
+    if (others > 0) {
+      const more = document.createElement("span");
+      more.className = "bubble-more";
+      more.textContent = `+${others}`;
+      children.push(more);
+    }
+    this.node.replaceChildren(...children);
     this.node.title = title;
-    fitToLines(this.node);
+    fitToLines(this.node, body);
     this.node.classList.add("show");
   }
 
@@ -58,10 +68,10 @@ function renderPhrases(node: HTMLElement, text: string): void {
  * 折り返した文章のボックスは CSS だけでは最大の幅のまま残り、行が短いと右に大きな余白ができる。
  * 描いた行の幅を測り、いちばん長い行にボックスの幅を合わせる。
  */
-export function fitToLines(node: HTMLElement): void {
+export function fitToLines(node: HTMLElement, measure: Node = node): void {
   node.style.width = "";
   const range = document.createRange();
-  range.selectNodeContents(node);
+  range.selectNodeContents(measure);
   const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0);
   const lines = new Set(rects.map((r) => Math.round(r.top)));
   if (lines.size < 2) return;

@@ -56,13 +56,18 @@ describe("BubbleModel", () => {
   it("switches to the next waiting session when the current one resolves", () => {
     const m = model();
     const first = m.update(snap(session("a", "waiting", 2), session("b", "waiting", 3)), DIALOGUE);
-    expect(first?.sessionKey).toBe("b");
-    // a の更新が新しくなって並びが入れ替わっても、b の吹き出しを保つ。
+    expect([first?.sessionKey, first?.others]).toEqual(["b", 1]);
+    // a の更新が新しくなって並びが入れ替わっても、b の吹き出しを保ち、件数の変化だけ追従する。
     expect(
       m.update(snap(session("a", "waiting", 2, 20), session("b", "waiting", 3)), DIALOGUE)?.sessionKey,
     ).toBe("b");
+    const more = m.update(
+      snap(session("a", "waiting", 2, 20), session("b", "waiting", 3), session("c", "waiting", 4)),
+      DIALOGUE,
+    );
+    expect([more?.sessionKey, more?.text, more?.others]).toEqual(["b", first?.text, 2]);
     const next = m.update(snap(session("a", "waiting", 2, 20), session("b", "working", 30)), DIALOGUE);
-    expect(next?.sessionKey).toBe("a");
+    expect([next?.sessionKey, next?.others]).toEqual(["a", 0]);
   });
 
   it("follows the aggregate state", () => {

@@ -319,8 +319,64 @@ input[type="range"] {
   white-space: pre-wrap;
 }
 
-#update-status.error {
+#update-status.error,
+.sub.error {
   color: var(--danger);
+}
+
+/* 利用制限のツールごとの状態 */
+.usage-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.usage-meta {
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-meta.error {
+  color: var(--danger);
+}
+
+/* ショートカットの入力 */
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shortcut-input {
+  min-width: 180px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shortcut-input:hover {
+  background: var(--hover);
+}
+
+.shortcut-input.empty {
+  color: var(--text-3);
+}
+
+.shortcut-input.recording {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .btn {

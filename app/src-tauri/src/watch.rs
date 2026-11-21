@@ -7,9 +7,9 @@ use marimo_core::time::now_ms;
 use marimo_core::{MarimoHome, antigravity, store};
 use notify::{Event, RecursiveMode, Watcher};
 use rusqlite::{Connection, OpenFlags};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
-use crate::tray;
+use crate::{AppState, tray};
 
 pub const SNAPSHOT_EVENT: &str = "snapshot";
 
@@ -62,6 +62,9 @@ pub fn spawn(app: AppHandle, home: MarimoHome) {
             previous = Some(snapshot.clone());
             tray::show_status(&app, &snapshot);
             let _ = app.emit(SNAPSHOT_EVENT, snapshot);
+            if let Some(state) = app.try_state::<AppState>() {
+                state.usage_refresh.emit(&app, &home);
+            }
         }
     });
 }

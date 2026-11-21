@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { limitLine, RATE_STALE_MS, windowLabel } from "./limits";
+import { setLang } from "./i18n";
+import { limitLine, limitTooltip, RATE_STALE_MS, windowLabel } from "./limits";
 import type { CodexRateLimits, RateLimits } from "./types";
+
+afterEach(() => setLang("ja"));
 
 const NOW = 1_800_000_000_000;
 const future = NOW / 1000 + 3600;
@@ -38,7 +41,18 @@ describe("windowLabel", () => {
 describe("limitLine", () => {
   it("keeps the Claude-only line unmarked when there is no Codex data", () => {
     expect(limitLine({ claude: claude(NOW - 5), codex: null, antigravity: null }, NOW)).toEqual({
-      groups: [{ provider: "claude", text: "5h 12% · 7d 30%", updatedAt: NOW - 5, stale: false }],
+      groups: [
+        {
+          provider: "claude",
+          text: "5h 12% · 7d 30%",
+          updatedAt: NOW - 5,
+          stale: false,
+          resets: [
+            { label: "5h", at: future },
+            { label: "7d", at: future },
+          ],
+        },
+      ],
       marked: false,
       updatedAt: NOW - 5,
     });
@@ -86,5 +100,29 @@ describe("limitLine", () => {
     ]);
     const onlyAntigravity = limitLine({ claude: null, codex: null, antigravity }, NOW);
     expect([onlyAntigravity?.marked, onlyAntigravity?.groups.map((g) => g.provider)]).toEqual([true, ["antigravity"]]);
+  });
+
+  it("includes reset times and update time in the tooltip", () => {
+    const now = new Date(2026, 10, 21, 14, 5).getTime();
+    const sameDay = Math.floor(new Date(2026, 10, 21, 19, 0).getTime() / 1000);
+    const nextDay = Math.floor(new Date(2026, 10, 24, 9, 30).getTime() / 1000);
+    const group = {
+      provider: "claude" as const,
+      text: "5h 12% · 7d 30%",
+      updatedAt: now,
+      stale: false,
+      resets: [
+        { label: "5h", at: sameDay },
+        { label: "7d", at: nextDay },
+      ],
+    };
+    expect(limitTooltip(group, "Claude Code", now)).toBe(
+      "Claude Code\n5h リセット 19:00 · 7d リセット 11/24 09:30\n14:05 更新",
+    );
+    expect(limitTooltip({ ...group, resets: [] }, "Claude Code", now)).toBe("Claude Code 14:05 更新");
+    setLang("en");
+    expect(limitTooltip(group, "Claude Code", now)).toBe(
+      "Claude Code\n5h resets 19:00 · 7d resets Nov 24, 09:30\nUpdated 14:05",
+    );
   });
 });

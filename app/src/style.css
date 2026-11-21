@@ -189,6 +189,21 @@ body {
   cursor: pointer;
 }
 
+.bubble-more {
+  position: absolute;
+  top: -8px;
+  right: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bubble-fg);
+  color: var(--bubble-bg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
 /* 画面の隅で場所を取りすぎないよう、立ち絵の倍率とは別に幅を決める。 */
 /* パネルは立ち絵の左に、下端を揃えて置く。行が増えるとパネルだけが上へ伸びる。上辺の外のタブと
    合わせてウィンドウの上端から --panel-top-room だけ下までで止め、それより多い行は #rows の中でスクロールさせる。 */
@@ -233,9 +248,6 @@ body {
   flex: none;
 }
 
-/* パネルの右上の外に付ける切り替え。行と重ならず、パネルが上へ伸びても一緒に動く。
-   文字一つだと「今の表示」と「押すとなる表示」のどちらか読み分けられないので、
-   二つの表示を並べて今の方だけを明るくする。並べ方の切り替えも同じ形で左上に付ける。 */
 /* 並べ方は押すたびに次へ移る 1 個のボタンにし、パネルの上辺の外にタブのように付ける。 */
 #row-order {
   position: absolute;
@@ -268,9 +280,43 @@ body {
   opacity: 0.7;
 }
 
-#row-order button:hover {
+#row-order button:hover,
+#row-order button.hover {
   background: rgba(255, 255, 255, 0.16);
   opacity: 1;
+}
+
+/* 立ち絵を隠しているときや行で埋まっているときも掴みやすいよう、パネル上辺の右側に小さなドラッグ用の掴みしろを置く。 */
+#panel-drag {
+  position: absolute;
+  bottom: 100%;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--panel-tab-h);
+  padding: 0 10px;
+  box-sizing: border-box;
+  border-radius: 6px 6px 0 0;
+  background: var(--panel-bg);
+  cursor: grab;
+}
+
+#panel-drag::before {
+  content: "";
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+#panel-drag:hover::before,
+#panel-drag.hover::before {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+#panel-drag:active {
+  cursor: grabbing;
 }
 
 /* 1 段目は状態の点、名前、コンテキスト使用率、2 段目はどのツールかを示すマーク、要約、最後の更新からの時間。
@@ -291,8 +337,16 @@ body {
   margin-top: 1px;
 }
 
+.row.hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .row.read {
   opacity: 0.45;
+}
+
+.row.read.hover {
+  opacity: 0.65;
 }
 
 .row > .dot,
@@ -516,6 +570,10 @@ body {
   cursor: pointer;
 }
 
+.counts-group.clickable.hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .counts-line {
   display: flex;
   flex-wrap: wrap;
@@ -614,9 +672,16 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 0;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border-radius: 6px;
   opacity: 0.6;
   cursor: pointer;
+}
+
+.today-line.hover {
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 0.9;
 }
 
 .today-marker {
@@ -625,9 +690,15 @@ body {
   text-align: center;
 }
 
-/* 立ち絵を隠すときは、場所を詰めずに見えなくするだけにして、ウィンドウとパネルの位置を変えない。 */
+/* 立ち絵を隠すときはウィンドウもパネル幅へ詰めるので、パネルをウィンドウの左右いっぱいに置く。 */
 #app.character-hidden #stage {
-  visibility: hidden;
+  display: none;
+}
+
+#app.character-hidden #panel,
+#app.left.character-hidden #panel {
+  right: var(--margin);
+  left: var(--margin);
 }
 
 #limits {

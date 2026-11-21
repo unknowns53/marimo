@@ -193,6 +193,19 @@ pub fn read_session(
     serde_json::from_slice(&bytes).ok()
 }
 
+/// 利用者がパネルから手動で消したセッションのファイルを削除する。すでになければ何もしない。
+pub fn delete_session(home: &MarimoHome, provider: Provider, session_id: &str) -> io::Result<bool> {
+    let Some(path) = home.session_file(provider, session_id) else {
+        return Ok(false);
+    };
+    let _lock = lock_home(home);
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 /// フックの入力以外にフックの実行時だけ分かる情報。会話ログの読み取りはロックを取る前に済ませる。
 #[derive(Debug, Clone, Default)]
 pub struct HookExtras {
@@ -1836,5 +1849,21 @@ mod tests {
             s.activity.map(|a| a.detail),
             Some(Some("echo hi".to_owned()))
         );
+    }
+
+    #[test]
+    fn delete_session_removes_existing_file_and_ignores_missing() {
+        let (_dir, home) = home();
+        let input = HookInput {
+            provider: Provider::Claude,
+            session_id: "s-del".to_owned(),
+            hook_event_name: "UserPromptSubmit".to_owned(),
+            ..HookInput::default()
+        };
+        apply_hook(&home, &input, &HookExtras::default()).unwrap();
+        assert!(read_session(&home, Provider::Claude, "s-del").is_some());
+        assert!(delete_session(&home, Provider::Claude, "s-del").unwrap());
+        assert!(read_session(&home, Provider::Claude, "s-del").is_none());
+        assert!(!delete_session(&home, Provider::Claude, "s-del").unwrap());
     }
 }

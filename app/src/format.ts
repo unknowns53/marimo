@@ -61,9 +61,26 @@ export function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k` : String(n);
 }
 
+const EN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 export function formatClock(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** 日時を同じ日なら時刻だけ、別の日なら月日付きで表す。利用制限のリセット時刻などに使う。 */
+export function formatDateTime(ms: number, now: number): string {
+  const d = new Date(ms);
+  const base = new Date(now);
+  const time = formatClock(ms);
+  if (
+    d.getFullYear() === base.getFullYear() &&
+    d.getMonth() === base.getMonth() &&
+    d.getDate() === base.getDate()
+  ) {
+    return time;
+  }
+  return t(`${d.getMonth() + 1}/${d.getDate()} ${time}`, `${EN_MONTHS[d.getMonth()]} ${d.getDate()}, ${time}`);
 }
 
 /** ツールチップや利用制限の行で、最後に値が届いた時刻を示す。 */

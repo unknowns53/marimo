@@ -125,6 +125,15 @@ pub struct UsageTools {
     pub antigravity: bool,
 }
 
+/// 任意のグローバルショートカット。空または None の項目は登録しない（既定はどちらも無効）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Shortcuts {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_urgent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toggle_visible: Option<String>,
+}
+
 impl Default for UsageTools {
     fn default() -> Self {
         Self {
@@ -216,6 +225,8 @@ struct Display {
     usage_refresh_minutes: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     usage_tools: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shortcuts: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -398,6 +409,30 @@ pub fn save_usage_tools(home: &MarimoHome, tools: UsageTools) -> io::Result<()> 
     })
 }
 
+/// 空文字列や解釈できない値は未設定（None）として読む。既定はどちらも無効。
+pub fn load_shortcuts(home: &MarimoHome) -> Shortcuts {
+    let d = read_display(home);
+    let field = |key: &str| {
+        d.shortcuts
+            .as_ref()
+            .and_then(|s| s.get(key))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
+    Shortcuts {
+        focus_urgent: field("focus_urgent"),
+        toggle_visible: field("toggle_visible"),
+    }
+}
+
+pub fn save_shortcuts(home: &MarimoHome, shortcuts: &Shortcuts) -> io::Result<()> {
+    update_display(home, |d| {
+        d.shortcuts = serde_json::to_value(shortcuts).ok();
+    })
+}
+
 fn characters() -> Vec<String> {
     serde_json::from_str(CHARACTER_INDEX).unwrap_or_default()
 }
@@ -476,15 +511,28 @@ pub fn clamp(scale: f64) -> f64 {
 }
 
 // 行と吹き出しの文字は倍率で変えないので、ウィンドウは立ち絵が大きくなった分だけ広げる。
-pub fn window_size(scale: f64, aspect: f64) -> (f64, f64) {
+// 立ち絵を隠しているときはパネルの幅だけに詰め、画面の左右どちらの端にも寄せられるようにする。
+pub fn window_size_for(scale: f64, aspect: f64, show_character: bool) -> (f64, f64) {
+    if !show_character {
+        return ((MARGIN + PANEL_W + MARGIN).round(), PANEL_COLUMN_H.round());
+    }
     let width = MARGIN + PANEL_W + MARGIN + STAGE_W * scale + MARGIN;
     let height = PANEL_COLUMN_H.max(MARGIN + STAGE_W * aspect * scale + BUBBLE_ROOM);
     (width.round(), height.round())
 }
 
 /// style.css の #stage と同じ置き方で、ウィンドウの中の立ち絵の領域を返す。
-pub fn stage_rect(scale: f64, aspect: f64, corner: Corner) -> StageRect {
-    let (width, height) = window_size(scale, aspect);
+/// 立ち絵を隠しているときはパネルの領域を返し、ドラッグ後に画面のどの半分へ置いたかで上下左右の隅を決める。
+pub fn stage_rect_for(scale: f64, aspect: f64, corner: Corner, show_character: bool) -> StageRect {
+    let (width, height) = window_size_for(scale, aspect, show_character);
+    if !show_character {
+        return StageRect {
+            x: MARGIN,
+            y: MARGIN,
+            w: PANEL_W,
+            h: (height - MARGIN * 2.0).max(1.0),
+        };
+    }
     let (w, h) = (STAGE_W * scale, STAGE_W * aspect * scale);
     StageRect {
         x: if corner.left {
@@ -870,7 +918,7 @@ mod tests {
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let declared = &conf["app"]["windows"][0];
         assert_eq!(
-            window_size(DEFAULT, DEFAULT_ASPECT),
+            window_size_for(DEFAULT, DEFAULT_ASPECT, true),
             (
                 declared["width"].as_f64().unwrap(),
                 declared["height"].as_f64().unwrap()
@@ -896,11 +944,47 @@ mod tests {
             (1.0, 100.0, (444.0, 560.0)),
         ] {
             assert_eq!(
-                window_size(scale, clamp_aspect(aspect)),
+                window_size_for(scale, clamp_aspect(aspect), true),
                 size,
                 "scale {scale} aspect {aspect}"
             );
         }
+        // 立ち絵を隠しているときは倍率や縦横比によらずパネル幅だけに詰める。
+        assert_eq!(window_size_for(4.0, DEFAULT_ASPECT, false), (328.0, 380.0));
+    }
+
+    #[test]
+    fn shortcuts_round_trip_and_fall_back_to_empty() {
+        let (_d, home) = home();
+        let cases = [
+            (r#"{}"#, (None, None)),
+            (
+                r#"{"shortcuts": {"focus_urgent": "Shift+Command+M", "toggle_visible": "  "}}"#,
+                (Some("Shift+Command+M"), None),
+            ),
+            (
+                r#"{"shortcuts": {"focus_urgent": 123, "toggle_visible": "Alt+Space"}}"#,
+                (None, Some("Alt+Space")),
+            ),
+            (r#"{"shortcuts": false}"#, (None, None)),
+        ];
+        for (content, (focus, toggle)) in cases {
+            fs::write(home.display_file(), content).unwrap();
+            assert_eq!(
+                load_shortcuts(&home),
+                Shortcuts {
+                    focus_urgent: focus.map(str::to_owned),
+                    toggle_visible: toggle.map(str::to_owned),
+                },
+                "content {content:?}"
+            );
+        }
+        let saved = Shortcuts {
+            focus_urgent: Some("Control+Alt+M".into()),
+            toggle_visible: None,
+        };
+        save_shortcuts(&home, &saved).unwrap();
+        assert_eq!(load_shortcuts(&home), saved);
     }
 
     #[test]

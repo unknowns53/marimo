@@ -288,6 +288,75 @@ fn open_link(url: &str) {
     open(&[url]);
 }
 
+/// 既定のブラウザで外部 URL を開く。呼び出し側が安全な URL のみを渡す。
+pub fn open_external_url(url: &str) {
+    let url = url.to_owned();
+    std::thread::spawn(move || open_link(&url));
+}
+
+/// 文字列を OS のクリップボードへ書き込む。非アクティブな常駐ウィンドウでも動作するよう、WebView ではなく OS の手段を使う。
+pub fn copy_text(text: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut child = Command::new("/usr/bin/pbcopy")
+            .env("LANG", "en_US.UTF-8")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("cannot start pbcopy: {e}"))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(text.as_bytes())
+                .map_err(|e| format!("cannot write to pbcopy: {e}"))?;
+        }
+        let status = child
+            .wait()
+            .map_err(|e| format!("cannot wait for pbcopy: {e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("pbcopy exited with {status}"))
+        }
+    }
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("powershell.exe");
+        command
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        crate::update::hide_console(&mut command);
+        let mut child = command
+            .spawn()
+            .map_err(|e| format!("cannot start powershell: {e}"))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(text.as_bytes())
+                .map_err(|e| format!("cannot write to clipboard: {e}"))?;
+        }
+        let status = child
+            .wait()
+            .map_err(|e| format!("cannot wait for clipboard: {e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("Set-Clipboard exited with {status}"))
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = text;
+        Err("clipboard copy is not supported on this platform".into())
+    }
+}
+
 #[cfg(windows)]
 fn focus_on_windows(
     window: Option<WindowRef>,

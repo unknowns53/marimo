@@ -66,6 +66,7 @@ const panelElements = {
   rows: $("rows"),
   limits: $("limits"),
   order: $("row-order"),
+  drag: $("panel-drag"),
 };
 const bubbleNode = $("bubble");
 const acknowledged = new Acknowledged((keys) =>
@@ -180,6 +181,7 @@ function showSpeech(): void {
         `クリックするとセッションへ移動します（${READ_KEY} を押しながらクリックすると閉じます）`,
         `Click to go to the session (${READ_KEY}-click to dismiss)`,
       ),
+      view.others,
     );
   }
   else bubble.hide();
@@ -214,16 +216,18 @@ function placeBubble(): void {
   const bottom = box.top - BUBBLE_GAP_PX;
   const width = bubbleNode.offsetWidth;
   const [left, right] = app.classList.contains("left") ? [box.left, box.left + width] : [box.right - width, box.right];
-  const tops = [rectOf(panelElements.panel), rectOf(panelElements.order)]
+  const tops = [rectOf(panelElements.panel), rectOf(panelElements.order), rectOf(panelElements.drag)]
     .filter((r): r is Rect => r !== null && r.x + r.w > left && r.x < right)
     .map((r) => r.y - BUBBLE_GAP_PX);
-  const lift = Math.max(0, Math.min(bottom - Math.min(bottom, ...tops), bottom - bubbleNode.offsetHeight));
+  // 複数件バッジ（+N）が吹き出しの上辺から 8px ほど飛び出すので、ウィンドウの上端に少し余白を残す。
+  const badgeHeadroom = 10;
+  const lift = Math.max(0, Math.min(bottom - Math.min(bottom, ...tops), bottom - bubbleNode.offsetHeight - badgeHeadroom));
   bubbleNode.style.setProperty("--bubble-lift", `${lift}px`);
 }
 
 function collectHitRegions(): HitRegions {
-  // 並べ方のボタンはパネルの上辺の外に付けるので、パネルとは別に加える。
-  const rects = [rectOf(panelElements.panel), rectOf(panelElements.order)];
+  // 並べ方のボタンとドラッグ用の掴みしろはパネルの上辺の外に付けるので、パネルとは別に加える。
+  const rects = [rectOf(panelElements.panel), rectOf(panelElements.order), rectOf(panelElements.drag)];
   // 広げたレイヤーはパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
   for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
@@ -316,6 +320,12 @@ function syncTraySessions(): void {
 function selectTraySession(key: string): void {
   const session = shown?.sessions.find((s) => sessionKey(s) === key);
   if (session) selectSession(session);
+}
+
+// グローバルショートカットが Rust 側でフォーカス移動したあと、既読と吹き出しの更新だけを揃える。
+function markShortcutSessionRead(key: string): void {
+  const session = shown?.sessions.find((s) => sessionKey(s) === key);
+  if (session) markRead(session);
 }
 
 // 承認待ちは、解決するまで残す行なので対象にしない。
@@ -565,9 +575,55 @@ function panelStyleLabel(style: PanelStyle): string {
   return style === "detail" ? t("詳細を表示", "Show Details") : t("件数だけ表示", "Show Counts Only");
 }
 
-async function openMenu(): Promise<void> {
+interface ContextTarget {
+  session?: SessionState;
+  onLimits?: boolean;
+}
+
+async function openMenu(ctx: ContextTarget = {}): Promise<void> {
+  const leading = [];
+  if (ctx.session) {
+    const s = ctx.session;
+    if (MARKABLE.has(s.status) && !acknowledged.has(s)) {
+      leading.push(
+        await MenuItem.new({
+          text: t("既読にする", "Mark as Read"),
+          action: () => markRead(s),
+        }),
+      );
+    }
+    if (s.cwd) {
+      const cwd = s.cwd;
+      leading.push(
+        await MenuItem.new({
+          text: t("作業フォルダのパスをコピー", "Copy Working Directory"),
+          action: () => void invoke("copy_text", { text: cwd }).catch((e) => console.error("copy", e)),
+        }),
+      );
+    }
+    leading.push(
+      await MenuItem.new({
+        text: t("このセッションを一覧から消す", "Remove from List"),
+        action: () =>
+          void invoke("remove_session", {
+            provider: s.provider ?? "claude",
+            sessionId: s.session_id,
+          }).catch((e) => console.error("remove session", e)),
+      }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+    );
+  } else if (ctx.onLimits) {
+    leading.push(
+      await MenuItem.new({
+        text: t("利用制限を今すぐ再取得", "Refresh Usage Limits Now"),
+        action: () => void invoke("refresh_usage_now").catch((e) => console.error("refresh usage", e)),
+      }),
+      await PredefinedMenuItem.new({ item: "Separator" }),
+    );
+  }
   const menu = await Menu.new({
     items: [
+      ...leading,
       await CheckMenuItem.new({
         text: t("立ち絵を表示", "Show Character"),
         checked: panelDisplay.show_character,
@@ -645,6 +701,17 @@ function bindWindowControls(): void {
   });
   document.addEventListener("contextmenu", (e) => {
     e.preventDefault();
+    const target = e.target as HTMLElement | null;
+    const key = target?.closest<HTMLElement>(".row")?.dataset.sessionKey;
+    const session = key ? shown?.sessions.find((s) => sessionKey(s) === key) : undefined;
+    if (session) {
+      void openMenu({ session });
+      return;
+    }
+    if (target?.closest("#limits")) {
+      void openMenu({ onLimits: true });
+      return;
+    }
     void openMenu();
   });
 }
@@ -687,6 +754,7 @@ async function start(): Promise<void> {
   });
   await listen("tray-mark-all-read", markAllRead);
   await listen<string>("tray-session", (e) => selectTraySession(e.payload));
+  await listen<string>("shortcut-mark-read", (e) => markShortcutSessionRead(e.payload));
   await listen<SettingsRequest>(SETTINGS_REQUEST_EVENT, (e) => void handleSettingsRequest(e.payload));
   await listen<Corner>("layout", (e) => applyLayout(e.payload));
   applyLayout(await invoke<Corner>("get_layout").catch(() => ({ left: false, top: false })));

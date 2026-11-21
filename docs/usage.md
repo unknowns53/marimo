@@ -46,6 +46,7 @@ Right-click the icon to open the following menu. When sessions need your attenti
 | Waiting, Error, and Done sessions | Lists waiting sessions, then unread error sessions, then unread done sessions, with the most recently updated first within each state. Each item shows the state, the same name as in the panel, and the conversation title if known (shortened if long). Choosing one jumps to the session and marks it as read, just like clicking it in the panel (see [Jumping to a session](#jumping-to-a-session)). If there are no such sessions, neither the list nor the separator is shown |
 | N More | The list shows up to 10 sessions; this item gives the number left out when there are more. It cannot be chosen |
 | Hide marimo, Show marimo | Hides or shows the window. Only the one that applies to the current state is shown |
+| Reset Position | Clears the saved window position and moves the window back to the lower right of the main monitor, showing it if hidden |
 | Show Character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
 | Show Details, Show Counts Only | Switches how the panel is shown (see [Switching the display](#switching-the-display)) |
 | Sort Order | Chooses how the panel orders sessions from a submenu of **Start Time**, **Status**, and **Last Update** (see [Sort order](#sort-order)) |
@@ -66,13 +67,15 @@ While the window is hidden, the icon and the session list in its menu keep follo
 
 ## The right-click menu
 
-Right-click the character or the panel to open the icon's menu without the session list, **N More**, **Hide marimo**, and **Show marimo**. Each item works the same as in the table in [The menu bar and notification area icon](#the-menu-bar-and-notification-area-icon). Other settings are in the [settings](#settings) window.
+Right-click the character or the panel to open the icon's menu without the session list, **N More**, **Hide marimo**, **Show marimo**, and **Reset Position**. Each item works the same as in the table in [The menu bar and notification area icon](#the-menu-bar-and-notification-area-icon).
+
+When you right-click a session row in the panel, session-specific items appear at the top: **Mark as Read** (for unread done or error sessions), **Copy Working Directory** (when the working directory is known), and **Remove from List**. Right-clicking the usage limits row adds **Refresh Usage Limits Now** at the top. Other settings are in the [settings](#settings) window.
 
 ## Settings
 
-Choose **Settings…** from the right-click menu or the icon's menu to open the "marimo Settings" window. If it is already open, it comes to the front. This is an ordinary window with a frame, and you close it with its close button. Changes made in the window apply to the character and panel immediately, and are saved for the next start (see [Files and data](development.md#files-and-data) for where). If you change the display from a menu or a panel button while the window is open, the window follows.
+Choose **Settings…** from the right-click menu or the icon's menu to open the "marimo Settings" window. If it is already open, it comes to the front. This is an ordinary window with a frame, and you close it with its close button or the Esc key. Changes made in the window apply to the character and panel immediately, and are saved for the next start (see [Files and data](development.md#files-and-data) for where). If you change the display from a menu or a panel button while the window is open, the window follows.
 
-The left side of the window lists seven sections: **Display**, **Bubbles**, **Character**, **Usage limits**, **Startup**, **Updates**, and **Language**. The settings of the selected section appear on the right. **Display** is selected when the window opens.
+The left side of the window lists eight sections: **Display**, **Bubbles**, **Character**, **Usage limits**, **Shortcuts**, **Startup**, **Updates**, and **Language**. The settings of the selected section appear on the right. **Display** is selected when the window opens.
 
 | Section | Setting | What it does |
 | --- | --- | --- |
@@ -80,13 +83,15 @@ The left side of the window lists seven sections: **Display**, **Bubbles**, **Ch
 | Display | Panel | Chooses how the panel is shown: **Details** or **Counts** (see [Switching the display](#switching-the-display)) |
 | Display | Sort order | Chooses how the panel orders sessions: **Start time**, **Status**, or **Last update** (see [Sort order](#sort-order)) |
 | Display | Background opacity | Changes how solid the panel background is with a slider (see [Background opacity](#background-opacity)) |
+| Display | Window position | Click **Reset to Default Position** to move the window back to the lower right of the main monitor |
 | Bubbles | Show for (Waiting, Done, Error), Display time | Chooses which states show speech bubbles and how long until they close on their own (see [Speech bubbles](#speech-bubbles)) |
 | Character | Character | Chooses the character. The change takes effect immediately. If switching fails, the previous character stays |
 | Character | Size | Changes the size of the character with a slider (see [Size](#size)) |
-| Usage limits | Show for (Claude Code, Codex, Antigravity) | Chooses which tools' values appear in the usage limits row. All are shown by default. Tools you uncheck are not asked to refresh their usage limits (see [Usage limits](#usage-limits)) |
-| Usage limits | Refresh interval | Chooses how often the checked tools are asked to refresh their usage limits: **Never**, **Every 5 min**, **Every 10 min**, **Every 15 min**, **Every 30 min**, or **Every 60 min**. The default is **Never** (see [Usage limits](#usage-limits)) |
+| Usage limits | Show for (Claude Code, Codex, Antigravity) | Chooses which tools' values appear in the usage limits row. All are shown by default. Tools you uncheck are not asked to refresh their usage limits. The last update time or any refresh error is shown beside each tool (see [Usage limits](#usage-limits)) |
+| Usage limits | Refresh interval, Refresh Now | Chooses how often the checked tools are asked to refresh their usage limits: **Never**, **Every 5 min**, **Every 10 min**, **Every 15 min**, **Every 30 min**, or **Every 60 min**. The default is **Never**. Click **Refresh Now** to refresh immediately regardless of the interval (see [Usage limits](#usage-limits)) |
+| Shortcuts | Jump to next session needing attention, Show or hide marimo | Assigns optional global keyboard shortcuts that work from any app. Both are unset by default. Click a box and press a combination with at least one modifier key to set it; click **Clear** or press Backspace / Delete to remove it |
 | Startup | Launch at login | Turns launching at login on or off. It is off by default (see [Launching at login](#launching-at-login)) |
-| Updates | Current version, latest release, last checked | Shows the version of the running marimo and the latest stable release found at the last check, and updates marimo if a newer version exists (see [Checking for updates](#checking-for-updates)) |
+| Updates | Current version, latest release, last checked | Shows the version of the running marimo and the latest stable release found at the last check, and updates marimo if a newer version exists. Click **Release Notes** to open the GitHub release page (see [Checking for updates](#checking-for-updates)) |
 | Language | 日本語, English | Chooses the interface language, **日本語** or **English**. Until you choose one, marimo follows the OS language (see [Language](#language)) |
 
 ### Language
@@ -128,7 +133,7 @@ These and **Sort Order** can be changed from the right-click menu, the icon's me
 
 The detailed panel shows parts of file names and commands, so switch to **Show Counts Only** when you show your screen to others. The counts row shows neither file names nor commands, and the details appear on top of it only while you point at it. To hide the window entirely, click the menu bar icon.
 
-Turning off **Show Character** hides the character and speech bubbles. The window size and panel position do not change. Right-click an empty part of the panel to open the menu, and drag it to move the window. While the character is hidden, no speech bubbles are shown; when you turn **Show Character** back on, a bubble appears if the state it is about still continues. Turning the wheel over the character is not available, so change the size with **Size** in the settings window.
+Turning off **Show Character** hides the character and speech bubbles and shrinks the window to the panel's width so you can place it flush against either edge of the screen. Drag an empty part of the panel or the grip on its upper-right edge to move the window, and right-click the panel to open the menu. While the character is hidden, no speech bubbles are shown; when you turn **Show Character** back on, a bubble appears if the state it is about still continues. Turning the wheel over the character is not available, so change the size with **Size** in the settings window.
 
 ## Reading the panel
 
@@ -160,7 +165,7 @@ Below the sessions and above the usage limits row, a faint line such as "Read to
   <img src="images/screenshot-counts.png" width="516" alt="The counts-only display. The panel is collapsed to a single line, 'Waiting 1 · Working 2 · Done 1', and the usage limits row">
 </p>
 
-The **Counts** panel shows the number of sessions in each state on a single counts row, together with the color dots (for example, "Waiting 1 · Working 3 · Done 2"). States with no sessions are left out. When there is nothing to count, it shows "No active sessions". Clicking the counts row jumps to the waiting, error, or done session with the highest priority.
+The **Counts** panel shows the number of sessions in each state on a single counts row, together with the color dots (for example, "Waiting 1 · Working 3 · Done 2"). States with no sessions are left out. When there is nothing to count, it shows "No active sessions", followed by the "Read today" line if any sessions were marked as read today. Clicking the counts row jumps to the waiting, error, or done session with the highest priority.
 
 Point at the counts row to see the detailed panel on top of it. These details have no limit on the number of sessions either, and scroll when they do not fit in the window. While the mouse stays over the details, they do not close, even while you scroll. The details also include the "Read today" line below the sessions.
 
@@ -235,7 +240,7 @@ The read records are saved in `~/.marimo/acknowledged.json`, so the same done or
 
 By default, a speech bubble stays on screen while the state it announces remains the overall state: until approval for waiting, until the next prompt for done, and until the state changes for errors. The line does not change while the same trigger lasts.
 
-Click a speech bubble to jump to its session, just like clicking the session in the panel. The bubble closes and does not reappear while the same session stays in the same state. Click it while holding Option (Alt on systems other than macOS) to close it without jumping. When several sessions qualify, the bubble is about the session chosen as the overall state, and switches to the next session once that one is resolved.
+Click a speech bubble to jump to its session, just like clicking the session in the panel. The bubble closes and does not reappear while the same session stays in the same state. Click it while holding Option (Alt on systems other than macOS) to close it without jumping. When several sessions qualify, the bubble is about the session chosen as the overall state, shows a badge such as "+2" at the upper right when other sessions with the same priority are also waiting for attention, and switches to the next session once the shown one is resolved.
 
 The speech bubble appears just above the character area. For short characters such as Clawd, a bubble with a long line could overlap the panel, so only then is it lifted above the top of the panel.
 
@@ -307,7 +312,7 @@ When there are Codex or Antigravity values, the values are listed in the order C
 
 Codex window names are decided from the window length that Codex reports: `7d` if it divides evenly into days, `5h` if it divides evenly into hours, and otherwise the number of minutes (for example, `90m`). A window whose length was not reported is shown as a percentage without a name.
 
-The time at the right edge is the newest update time among the values shown. Point at a value to see its own update time in a tooltip. The update time is when the value arrived from statusLine or was obtained with `/usage` for Claude Code, when the value was written to the record or queried by marimo for Codex, and when `agy -p /usage` ran for Antigravity.
+The time at the right edge is the newest update time among the values shown. Point at a value to see each window's reset time and its own update time in a tooltip. The update time is when the value arrived from statusLine or was obtained with `/usage` for Claude Code, when the value was written to the record or queried by marimo for Codex, and when `agy -p /usage` ran for Antigravity. Right-clicking the usage limits row also offers **Refresh Usage Limits Now**.
 
 Values 30 minutes or more past their last update are likely to have drifted from the actual values, so they are shown faintly. Staleness is judged for each value separately. If you set the **Refresh interval** longer than 30 minutes, Antigravity's values are shown faintly during the latter part of each interval. Values for windows whose reset time has passed are not shown.
 
@@ -372,7 +377,7 @@ On Windows, you can also update without the script by running the locally rebuil
 
 First, check in the table in [Usage limits](#usage-limits) when the tool's values are updated. When the **Refresh interval** is **Never**, neither the values nor the time change while you are not working locally, and after 30 minutes they are shown faintly.
 
-If they do not update even though a **Refresh interval** is chosen, either the `claude` or `codex` command cannot be found, or refreshing fails. Where marimo looks for the commands is described in [What marimo runs](development.md#what-marimo-runs). The reason for a failure is printed to standard error when you start the app from a terminal.
+If they do not update even though a **Refresh interval** is chosen, either the `claude`, `codex`, or `agy` command cannot be found, or refreshing fails. Where marimo looks for the commands is described in [What marimo runs](development.md#what-marimo-runs). The reason for a failure is shown beside each tool under **Usage limits** in the settings window, and is also printed to standard error when you start the app from a terminal.
 
 If Claude Code's values do not change even though you work in the CLI, run `install` with `--dry-run` and check what it says about statusLine. If the existing statusLine could not be wrapped, or registration failed because of the path of marimo-hook, the reason is shown. Even then, choosing a **Refresh interval** makes the values appear (see [How statusLine is wrapped](development.md#how-statusline-is-wrapped)).
 
@@ -406,7 +411,7 @@ Sessions whose tool did not report an end leave the panel, or return to idle, af
 | The SubagentStart and SubagentStop hooks are not registered in Claude Code | The session stays working for about 30 minutes after the subagent ends. Running `install` again adds only the missing hooks |
 | Anything else, including Antigravity done and error sessions | Session files with no update for 24 hours are deleted, so the session disappears within about a day at most. Done and error sessions collapse once marked as read. Temporary files left behind by interrupted writes are also deleted after 24 hours |
 
-A session shown as working because a subagent was running returns to done or error if the parent conversation is done or errored. Sessions that disappeared come back to the panel when work resumes, because the next hook creates the file again. To remove one right away, quit marimo and delete the corresponding file in `~/.marimo/sessions/`.
+A session shown as working because a subagent was running returns to done or error if the parent conversation is done or errored. Sessions that disappeared come back to the panel when work resumes, because the next hook creates the file again. To remove one right away, right-click the session in the panel and choose **Remove from List**.
 
 ### Clicking a session on Windows does not switch to it
 
@@ -422,7 +427,7 @@ Discord starts through `%LOCALAPPDATA%\Discord\Update.exe`, so the setting may b
 
 ### The window is off screen
 
-Quit marimo, delete `~/.marimo/window.json`, and start marimo again. The window appears in its default position (the lower right of the main monitor).
+Right-click the menu bar or notification area icon and choose **Reset Position**, or click **Reset to Default Position** under **Display** in the settings window, to move the window back to the lower right of the main monitor. Quitting marimo, deleting `~/.marimo/window.json`, and starting it again does the same.
 
 ### Resetting all state
 

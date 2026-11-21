@@ -12,6 +12,13 @@ pub fn open_settings(app: AppHandle) {
     open(&app);
 }
 
+#[tauri::command]
+pub fn close_settings(app: AppHandle) {
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.close();
+    }
+}
+
 /// Windows の WebView2 はウィンドウを作るときにメインスレッドのメッセージループを要するので、メインスレッドで
 /// 待つ同期コマンドやメニューのイベントからは作らず、非同期の実行環境へ回す。
 pub fn open(app: &AppHandle) {

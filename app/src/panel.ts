@@ -1,7 +1,7 @@
 import { MARKABLE, sessionKey } from "./acknowledged";
-import { chatTitle, folderName, formatAge, formatClock, formatTokens, formatUpdated } from "./format";
+import { chatTitle, folderName, formatAge, formatTokens, formatUpdated } from "./format";
 import { plural, t } from "./i18n";
-import { limitLine, type LimitLine, type LimitSources } from "./limits";
+import { limitLine, limitTooltip, type LimitLine, type LimitSources } from "./limits";
 import {
   countLabel,
   hasContent,
@@ -34,6 +34,7 @@ export interface PanelElements {
   rows: HTMLElement;
   limits: HTMLElement;
   order: HTMLElement;
+  drag: HTMLElement;
 }
 
 const PROVIDER_NAME: Record<Provider, string> = {
@@ -77,7 +78,7 @@ function press(e: MouseEvent, session: SessionState, actions: RowActions): void 
 }
 
 export function renderPanel(
-  { panel, rows, limits, order }: PanelElements,
+  { panel, rows, limits, order, drag }: PanelElements,
   view: PanelView,
   rateLimits: LimitSources,
   icons: AppIcons,
@@ -86,24 +87,26 @@ export function renderPanel(
   todayOpen: boolean,
 ): void {
   const line = limitLine(rateLimits, now);
-  if (line) renderLimits(limits, line, icons);
+  if (line) renderLimits(limits, line, icons, now);
   let children: HTMLElement[];
-  if (!hasContent(view)) {
-    // 件数だけの表示は件数の行に重ねる詳細でだけ今日の既読を見せるので、件数が無ければ出さない。
-    const today = view.style === "detail" ? todayChildren(view.plan, icons, now, actions, todayOpen) : [];
+  const empty = !hasContent(view);
+  if (empty) {
+    // 進行中のセッションが無くても、件数だけの表示を含めて今日の既読へすぐ戻れるようにする。
+    const today = todayChildren(view.plan, icons, now, actions, todayOpen);
     children = [el("div", "empty", t("進行中のセッションはありません", "No active sessions")), ...today];
   } else if (view.style === "counts") children = [renderCounts(view, icons, now, actions, todayOpen)];
   else children = detailChildren(view.plan, icons, now, actions, todayOpen);
   const kept = keepScroll(rows);
   rows.replaceChildren(...children);
-  // 件数の行のレイヤーは #rows の外へ伸びるので、件数だけの表示では #rows をスクロールコンテナにしない。
+  // 件数の行のレイヤーは #rows の外へ伸びるので、件数の行が出ている間は #rows をスクロールコンテナにしない。
   // スクロールコンテナは内容をコンテナの外へはみ出させず、レイヤーが切れてしまうからである。
-  rows.classList.toggle("row-scroll", view.style === "detail");
+  rows.classList.toggle("row-scroll", view.style === "detail" || empty);
   limits.hidden = line === null;
   panel.hidden = false;
   fitLayers(rows);
   restoreScroll(rows, kept);
   renderOrder(order, view.order);
+  drag.title = t("ドラッグしてウィンドウを移動", "Drag to move window");
 }
 
 function renderOrder(group: HTMLElement, order: RowOrder): void {
@@ -263,6 +266,7 @@ function renderRow(
   actions: RowActions,
 ): HTMLElement {
   const row = el("div", read ? "row read" : "row");
+  row.dataset.sessionKey = sessionKey(s);
   const summary = s.activity?.summary || fallbackSummary(s.status);
   const detail = s.activity?.detail ?? "";
   const place = [s.title, s.cwd ?? s.session_id].filter(Boolean).join("\n");
@@ -367,21 +371,21 @@ export function renderContext(s: SessionState): HTMLElement {
 }
 
 // 古さはグループごとに示す。全部のグループが古いときは、以前のバージョンと同じく行全体を薄くする。
-function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons): void {
+function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, now: number): void {
   const allStale = line.groups.every((g) => g.stale);
   let values: HTMLElement;
   if (line.marked) {
     values = el("span", "limit-values marked");
     for (const g of line.groups) {
       const group = el("span", !allStale && g.stale ? "limit-group stale" : "limit-group");
-      const name = PROVIDER_NAME[g.provider];
-      const clock = formatClock(g.updatedAt);
-      group.title = t(`${name} ${clock} 更新`, `${name} updated ${clock}`);
+      group.title = limitTooltip(g, PROVIDER_NAME[g.provider], now);
       group.append(providerMarker(g.provider, icons), el("span", "", g.text));
       values.append(group);
     }
   } else {
     values = el("span", "limit-values", line.groups.map((g) => g.text).join(" · "));
+    const first = line.groups[0];
+    if (first) values.title = limitTooltip(first, PROVIDER_NAME[first.provider], now);
   }
   container.replaceChildren(values, el("span", "limit-time", formatUpdated(line.updatedAt)));
   container.classList.toggle("stale", allStale);

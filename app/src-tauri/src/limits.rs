@@ -2,14 +2,16 @@ use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use marimo_core::paths::user_home;
 use marimo_core::time::now_ms;
-use marimo_core::{MarimoHome, antigravity, codex, store};
+use marimo_core::{Lang, MarimoHome, antigravity, codex, store};
+use serde::Serialize;
 use serde_json::{Value, json};
+use tauri::{AppHandle, Emitter};
 
 use crate::scale;
 use crate::update::hide_console;
@@ -18,6 +20,165 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_GRACE: Duration = Duration::from_secs(3);
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
 const PRINT_TIMEOUT: Duration = Duration::from_secs(60);
+
+pub const USAGE_STATUS_EVENT: &str = "usage-status";
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ToolUsageStatus {
+    pub updated_at: Option<u64>,
+    pub refreshing: bool,
+    pub error: Option<String>,
+}
+
+/// 設定のウィンドウの「利用制限」に出す、ツールごとの最新の取得時刻・取得中・失敗理由。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct UsageStatus {
+    pub claude: ToolUsageStatus,
+    pub codex: ToolUsageStatus,
+    pub antigravity: ToolUsageStatus,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Tool {
+    Claude,
+    Codex,
+    Antigravity,
+}
+
+#[derive(Default)]
+struct RefreshInner {
+    wake_gen: u64,
+    force_claude: u64,
+    force_codex: u64,
+    force_antigravity: u64,
+    claude: ToolUsageStatus,
+    codex: ToolUsageStatus,
+    antigravity: ToolUsageStatus,
+}
+
+impl RefreshInner {
+    fn tool_mut(&mut self, tool: Tool) -> &mut ToolUsageStatus {
+        match tool {
+            Tool::Claude => &mut self.claude,
+            Tool::Codex => &mut self.codex,
+            Tool::Antigravity => &mut self.antigravity,
+        }
+    }
+
+    fn force_gen(&self, tool: Tool) -> u64 {
+        match tool {
+            Tool::Claude => self.force_claude,
+            Tool::Codex => self.force_codex,
+            Tool::Antigravity => self.force_antigravity,
+        }
+    }
+}
+
+/// 三つの利用制限ワーカーへ設定変更と手動再取得を伝え、取得状態を設定のウィンドウへ届ける。
+#[derive(Default)]
+pub struct UsageRefresh {
+    inner: Mutex<RefreshInner>,
+    wake: Condvar,
+}
+
+impl UsageRefresh {
+    /// 設定で間隔や対象ツールを変えたときにワーカーを起こし、30 秒待たずに期限を判定し直させる。
+    pub fn notify_settings_changed(&self) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.wake_gen = inner.wake_gen.wrapping_add(1);
+        self.wake.notify_all();
+    }
+
+    /// チェックされているツールの利用制限を、間隔によらず今すぐ再取得させる。
+    pub fn refresh_now(&self, home: &MarimoHome) {
+        let tools = scale::load_usage_tools(home);
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if tools.claude {
+            inner.force_claude = inner.force_claude.wrapping_add(1);
+        }
+        if tools.codex {
+            inner.force_codex = inner.force_codex.wrapping_add(1);
+        }
+        if tools.antigravity {
+            inner.force_antigravity = inner.force_antigravity.wrapping_add(1);
+        }
+        inner.wake_gen = inner.wake_gen.wrapping_add(1);
+        self.wake.notify_all();
+    }
+
+    pub fn snapshot(&self, home: &MarimoHome) -> UsageStatus {
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut status = UsageStatus {
+            claude: inner.claude.clone(),
+            codex: inner.codex.clone(),
+            antigravity: inner.antigravity.clone(),
+        };
+        drop(inner);
+        status.claude.updated_at = store::read_rate_limits(home).map(|l| l.updated_at);
+        status.codex.updated_at = store::read_codex_rate_limits(home).map(|l| l.observed_at);
+        status.antigravity.updated_at =
+            store::read_antigravity_rate_limits(home).map(|l| l.updated_at);
+        status
+    }
+
+    fn take_force(&self, tool: Tool, seen: &mut u64) -> bool {
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let current = inner.force_gen(tool);
+        if current != *seen {
+            *seen = current;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn set_refreshing(&self, app: &AppHandle, home: &MarimoHome, tool: Tool, refreshing: bool) {
+        {
+            let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let entry = inner.tool_mut(tool);
+            entry.refreshing = refreshing;
+            if refreshing {
+                entry.error = None;
+            }
+        }
+        self.emit(app, home);
+    }
+
+    fn finish(&self, app: &AppHandle, home: &MarimoHome, tool: Tool, error: Option<String>) {
+        {
+            let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let entry = inner.tool_mut(tool);
+            entry.refreshing = false;
+            entry.error = error;
+        }
+        self.emit(app, home);
+    }
+
+    pub fn emit(&self, app: &AppHandle, home: &MarimoHome) {
+        if let Err(e) = app.emit(USAGE_STATUS_EVENT, self.snapshot(home)) {
+            eprintln!("marimo: cannot emit usage status: {e}");
+        }
+    }
+
+    fn wait(&self, seen_wake: &mut u64) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if inner.wake_gen == *seen_wake {
+            let (guard, _) = self
+                .wake
+                .wait_timeout(inner, CHECK_INTERVAL)
+                .unwrap_or_else(|e| e.into_inner());
+            inner = guard;
+        }
+        *seen_wake = inner.wake_gen;
+    }
+}
+
+fn not_found_message(program: &str, lang: Lang) -> String {
+    lang.pick(
+        format!("{program} コマンドが見つかりません"),
+        format!("{program} command was not found"),
+    )
+}
 
 /// 設定のウィンドウで選んだ再取得の間隔（分）で、保存している値を観測した時刻がその間隔より古いかを見る。
 /// フックや statusLine が新しい値を届けている間は起動しない。起動に失敗し続けても間隔より頻繁には
@@ -32,21 +193,26 @@ fn refresh_due(minutes: u32, observed_ms: Option<u64>, last_refresh: Option<Inst
 /// 再取得の間隔を選んでいれば、Codex の利用制限を Codex 自身の `codex app-server` に問い合わせて書く。
 /// rollout の token_count は Codex がターンを進めたときにしか書かれないので、使っていない間も値を
 /// 新しく保てる。
-pub fn spawn_codex(home: MarimoHome) {
+pub fn spawn_codex(app: AppHandle, home: MarimoHome, refresh: Arc<UsageRefresh>) {
     thread::spawn(move || {
         let mut last_refresh = None;
         let mut last_error = None;
+        let mut seen_force = 0;
+        let mut seen_wake = 0;
         loop {
-            // 設定のウィンドウで変えた間隔を次の周期から使うよう、毎回読む。
             let minutes = scale::load_usage_refresh_minutes(&home);
             let observed = store::read_codex_rate_limits(&home).map(|l| l.observed_at);
-            if scale::load_usage_tools(&home).codex && refresh_due(minutes, observed, last_refresh)
+            let forced = refresh.take_force(Tool::Codex, &mut seen_force);
+            if scale::load_usage_tools(&home).codex
+                && (forced || refresh_due(minutes, observed, last_refresh))
             {
                 last_refresh = Some(Instant::now());
+                refresh.set_refreshing(&app, &home, Tool::Codex, true);
+                let lang = crate::lang(&app);
                 let names = program_names("codex");
                 let read = user_home()
                     .and_then(|h| find_program(&names, &h))
-                    .ok_or_else(|| "codex was not found".to_owned())
+                    .ok_or_else(|| not_found_message("codex", lang))
                     .and_then(|program| read_codex(&program));
                 let written = read.and_then(|result| {
                     let limits =
@@ -61,9 +227,10 @@ pub fn spawn_codex(home: MarimoHome) {
                 if let Some(e) = error.as_ref().filter(|e| last_error.as_ref() != Some(*e)) {
                     eprintln!("marimo: cannot read Codex rate limits: {e}");
                 }
-                last_error = error;
+                last_error = error.clone();
+                refresh.finish(&app, &home, Tool::Codex, error);
             }
-            thread::sleep(CHECK_INTERVAL);
+            refresh.wait(&mut seen_wake);
         }
     });
 }
@@ -72,7 +239,7 @@ pub fn spawn_codex(home: MarimoHome) {
 /// statusLine はデスクトップアプリの Code タブでは呼ばれず、CLI でも応答が届いたときにしか新しい値を
 /// 持たない。再取得の間隔を選んでいれば、Claude Code に `/usage` を実行させてこの値を再取得させる。
 /// ファイルは Claude Code が頻繁に書き換えるので、更新時刻が変わったときだけ読む。
-pub fn spawn_claude(home: MarimoHome) {
+pub fn spawn_claude(app: AppHandle, home: MarimoHome, refresh: Arc<UsageRefresh>) {
     thread::spawn(move || {
         let Some(user_home) = user_home() else {
             return;
@@ -81,24 +248,34 @@ pub fn spawn_claude(home: MarimoHome) {
         let mut seen = None;
         let mut last_refresh = None;
         let mut last_error = None;
+        let mut seen_force = 0;
+        let mut seen_wake = 0;
         loop {
             let minutes = scale::load_usage_refresh_minutes(&home);
             let observed = store::read_rate_limits(&home).map(|l| l.updated_at);
-            if scale::load_usage_tools(&home).claude && refresh_due(minutes, observed, last_refresh)
+            let forced = refresh.take_force(Tool::Claude, &mut seen_force);
+            let mut ran_refresh = false;
+            let mut refresh_error = None;
+            if scale::load_usage_tools(&home).claude
+                && (forced || refresh_due(minutes, observed, last_refresh))
             {
+                ran_refresh = true;
                 last_refresh = Some(Instant::now());
+                refresh.set_refreshing(&app, &home, Tool::Claude, true);
+                let lang = crate::lang(&app);
                 let names = program_names("claude");
                 let error = find_program(&names, &user_home)
-                    .ok_or_else(|| "claude was not found".to_owned())
+                    .ok_or_else(|| not_found_message("claude", lang))
                     .and_then(|program| refresh_claude(&program, home.root()))
                     .err();
                 if let Some(e) = error.as_ref().filter(|e| last_error.as_ref() != Some(*e)) {
                     eprintln!("marimo: cannot refresh Claude rate limits: {e}");
                 }
-                last_error = error;
+                last_error = error.clone();
+                refresh_error = error;
             }
             let modified = std::fs::metadata(&config).and_then(|m| m.modified()).ok();
-            if modified.is_some() && modified != seen {
+            if modified.is_some() && (modified != seen || ran_refresh) {
                 seen = modified;
                 let limits = store::read_file(&config)
                     .ok()
@@ -108,28 +285,36 @@ pub fn spawn_claude(home: MarimoHome) {
                     eprintln!("marimo: cannot save Claude rate limits: {e}");
                 }
             }
-            thread::sleep(CHECK_INTERVAL);
+            if ran_refresh {
+                refresh.finish(&app, &home, Tool::Claude, refresh_error);
+            }
+            refresh.wait(&mut seen_wake);
         }
     });
 }
 
 /// 再取得の間隔を選んでいれば、Antigravity の利用制限を `agy -p /usage` で問い合わせて書く。
 /// agy のフックの入力は利用制限を持たないので、ほかに値が届く経路は無い。
-pub fn spawn_antigravity(home: MarimoHome) {
+pub fn spawn_antigravity(app: AppHandle, home: MarimoHome, refresh: Arc<UsageRefresh>) {
     thread::spawn(move || {
         let mut last_refresh = None;
         let mut last_error = None;
+        let mut seen_force = 0;
+        let mut seen_wake = 0;
         loop {
             let minutes = scale::load_usage_refresh_minutes(&home);
             let observed = store::read_antigravity_rate_limits(&home).map(|l| l.updated_at);
+            let forced = refresh.take_force(Tool::Antigravity, &mut seen_force);
             if scale::load_usage_tools(&home).antigravity
-                && refresh_due(minutes, observed, last_refresh)
+                && (forced || refresh_due(minutes, observed, last_refresh))
             {
                 last_refresh = Some(Instant::now());
+                refresh.set_refreshing(&app, &home, Tool::Antigravity, true);
+                let lang = crate::lang(&app);
                 let names = program_names("agy");
                 let written = user_home()
                     .and_then(|h| find_program(&names, &h))
-                    .ok_or_else(|| "agy was not found".to_owned())
+                    .ok_or_else(|| not_found_message("agy", lang))
                     .and_then(|program| read_antigravity(&program, &home))
                     .and_then(|output| {
                         let limits = antigravity::rate_limits_from_usage(&output, now_ms())
@@ -141,9 +326,10 @@ pub fn spawn_antigravity(home: MarimoHome) {
                 if let Some(e) = error.as_ref().filter(|e| last_error.as_ref() != Some(*e)) {
                     eprintln!("marimo: cannot read Antigravity rate limits: {e}");
                 }
-                last_error = error;
+                last_error = error.clone();
+                refresh.finish(&app, &home, Tool::Antigravity, error);
             }
-            thread::sleep(CHECK_INTERVAL);
+            refresh.wait(&mut seen_wake);
         }
     });
 }

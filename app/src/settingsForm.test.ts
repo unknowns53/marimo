@@ -6,13 +6,16 @@ import { DEFAULT_PANEL_DISPLAY } from "./panelModel";
 import {
   bubbleSecondsLabel,
   bubbleSecondsOptions,
+  formatShortcut,
   formValues,
   opacityPercent,
   requestFor,
   scaleLabel,
+  shortcutFromKeyEvent,
   usageRefreshLabel,
   usageRefreshOptions,
   type FormControl,
+  type ShortcutKeyInput,
 } from "./settingsForm";
 import type { SettingsRequest, SettingsState } from "./settingsProtocol";
 
@@ -140,5 +143,34 @@ describe("requestFor", () => {
     for (const [label, c, phase, expected] of cases) {
       expect(requestFor(c, phase), label).toEqual(expected);
     }
+  });
+});
+
+describe("shortcuts", () => {
+  it("builds shortcut strings from modified key events and formats them per OS", () => {
+    const key = (code: string, mods: Partial<ShortcutKeyInput> = {}): ShortcutKeyInput => ({
+      code,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      ...mods,
+    });
+    const cases: [string, ShortcutKeyInput, boolean, string | null][] = [
+      ["mac cmd+shift+m", key("KeyM", { metaKey: true, shiftKey: true }), true, "Shift+Command+M"],
+      ["win ctrl+alt+space", key("Space", { ctrlKey: true, altKey: true }), false, "Control+Alt+Space"],
+      ["no modifier rejected", key("KeyM"), true, null],
+      ["modifier alone rejected", key("MetaLeft", { metaKey: true }), true, null],
+      ["function key", key("F12", { ctrlKey: true }), false, "Control+F12"],
+      ["unknown code", key("Unidentified", { ctrlKey: true }), false, null],
+    ];
+    for (const [label, input, isMac, expected] of cases) {
+      expect(shortcutFromKeyEvent(input, isMac), label).toBe(expected);
+    }
+    expect(formatShortcut("Shift+Command+M", true)).toBe("⇧ ⌘ M");
+    expect(formatShortcut("Control+Alt+Space", false)).toBe("Ctrl+Alt+Space");
+    expect(formatShortcut(null, true)).toBe("未設定");
+    setLang("en");
+    expect(formatShortcut(null, false)).toBe("Not set");
   });
 });

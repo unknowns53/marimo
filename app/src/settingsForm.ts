@@ -46,6 +46,111 @@ export function scaleLabel(scale: number): string {
   return t(`${scale.toFixed(1)} 倍`, `${scale.toFixed(1)}×`);
 }
 
+export interface ShortcutKeyInput {
+  code: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+}
+
+const MODIFIER_CODES = new Set([
+  "MetaLeft",
+  "MetaRight",
+  "ControlLeft",
+  "ControlRight",
+  "AltLeft",
+  "AltRight",
+  "ShiftLeft",
+  "ShiftRight",
+]);
+
+const SPECIAL_KEY_CODES: Record<string, string> = {
+  Space: "Space",
+  Enter: "Enter",
+  Tab: "Tab",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  Home: "Home",
+  End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
+  Minus: "Minus",
+  Equal: "Equal",
+  BracketLeft: "BracketLeft",
+  BracketRight: "BracketRight",
+  Backslash: "Backslash",
+  Semicolon: "Semicolon",
+  Quote: "Quote",
+  Comma: "Comma",
+  Period: "Period",
+  Slash: "Slash",
+  Backquote: "Backquote",
+};
+
+function keyFromCode(code: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+  return SPECIAL_KEY_CODES[code] ?? null;
+}
+
+/**
+ * キー入力から Tauri の global-shortcut が解釈する文字列を組み立てる。
+ * 通常のタイピングを奪わないよう、修飾キーが 1 つ以上押されているときだけ返す。
+ */
+export function shortcutFromKeyEvent(input: ShortcutKeyInput, isMac: boolean): string | null {
+  if (MODIFIER_CODES.has(input.code)) return null;
+  const key = keyFromCode(input.code);
+  if (!key) return null;
+  const mods: string[] = [];
+  if (isMac) {
+    if (input.ctrlKey) mods.push("Control");
+    if (input.altKey) mods.push("Alt");
+    if (input.shiftKey) mods.push("Shift");
+    if (input.metaKey) mods.push("Command");
+  } else {
+    if (input.ctrlKey) mods.push("Control");
+    if (input.altKey) mods.push("Alt");
+    if (input.shiftKey) mods.push("Shift");
+    if (input.metaKey) mods.push("Super");
+  }
+  if (mods.length === 0) return null;
+  return [...mods, key].join("+");
+}
+
+const MAC_SYMBOLS: Record<string, string> = {
+  Command: "⌘",
+  CommandOrControl: "⌘",
+  Super: "⌘",
+  Control: "⌃",
+  Alt: "⌥",
+  Shift: "⇧",
+  Up: "↑",
+  Down: "↓",
+  Left: "←",
+  Right: "→",
+};
+
+const WIN_LABELS: Record<string, string> = {
+  Command: "Win",
+  CommandOrControl: "Ctrl",
+  Super: "Win",
+  Control: "Ctrl",
+  Alt: "Alt",
+  Shift: "Shift",
+};
+
+/** 保存しているショートカット文字列を、OS に合った見やすい表記へ整える。 */
+export function formatShortcut(value: string | null, isMac: boolean): string {
+  if (!value) return t("未設定", "Not set");
+  const parts = value.split("+").filter(Boolean);
+  if (isMac) return parts.map((p) => MAC_SYMBOLS[p] ?? p).join(" ");
+  return parts.map((p) => WIN_LABELS[p] ?? p).join("+");
+}
+
 /**
  * フォームの部品の name ごとの値。チェックボックスは真偽値、それ以外は value に入れる文字列で、
  * null はその設定を読めず操作できないことを表す。

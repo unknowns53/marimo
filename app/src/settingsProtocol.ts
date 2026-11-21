@@ -61,6 +61,8 @@ export interface UpdateStatus {
   /** 確認した時刻（UNIX 時刻のミリ秒）。 */
   checked_at: number | null;
   error: string | null;
+  /** 確認済みの最新リリースのページ URL。 */
+  release_url: string | null;
 }
 
 export const UPDATE_STATUS_EVENT = "update-status";
@@ -69,4 +71,25 @@ export const UPDATE_PROGRESS_EVENT = "update-progress";
 export interface UpdateProgress {
   stage: "download" | "verify" | "extract" | "restart";
   message: string;
+}
+
+/** limits.rs の ToolUsageStatus / UsageStatus と同じ形。 */
+export interface ToolUsageStatus {
+  updated_at: number | null;
+  refreshing: boolean;
+  error: string | null;
+}
+
+export interface UsageStatus {
+  claude: ToolUsageStatus;
+  codex: ToolUsageStatus;
+  antigravity: ToolUsageStatus;
+}
+
+export const USAGE_STATUS_EVENT = "usage-status";
+
+/** scale.rs の Shortcuts と同じ形。null は無効を表す。 */
+export interface Shortcuts {
+  focus_urgent: string | null;
+  toggle_visible: string | null;
 }

@@ -49,6 +49,8 @@ pub struct UpdateStatus {
     /// 確認した時刻（UNIX 時刻のミリ秒）。まだ確認していないときは None。
     checked_at: Option<u64>,
     error: Option<String>,
+    /// 最新リリースのページ URL。確認済みのリリースがあるときだけ入れる。
+    release_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,15 +69,21 @@ fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+fn release_page(repo: &str, version: &str) -> String {
+    format!("https://github.com/{repo}/releases/tag/v{version}")
+}
+
 fn status_of(checked: Option<&Checked>) -> UpdateStatus {
     let current = current_version();
     let latest = checked.and_then(|c| c.result.as_ref().ok()).cloned();
+    let release_url = latest.as_deref().map(|v| release_page(REPO, v));
     UpdateStatus {
         current: current.to_string(),
         newer: latest.as_deref().is_some_and(|l| is_newer(l, current)),
         latest,
         checked_at: checked.map(|c| c.at),
         error: checked.and_then(|c| c.result.as_ref().err()).cloned(),
+        release_url,
     }
 }
 
@@ -126,6 +134,21 @@ pub fn spawn_checker(app: AppHandle) {
 #[tauri::command]
 pub fn update_status() -> UpdateStatus {
     status_of(STATUS.lock().unwrap_or_else(|e| e.into_inner()).as_ref())
+}
+
+/// 確認済みの最新リリースの変更内容ページを既定のブラウザで開く。
+#[tauri::command]
+pub fn open_release_notes() {
+    let url = STATUS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|c| c.result.as_ref().ok())
+        .map_or_else(
+            || format!("https://github.com/{REPO}/releases"),
+            |v| release_page(REPO, v),
+        );
+    crate::focus::open_external_url(&url);
 }
 
 #[tauri::command]
