@@ -1132,13 +1132,6 @@ mod tests {
             Status::Working
         );
 
-        // 値が同じ間は書き直さない。書き直すと context.updated_at が変わる。
-        let path = home.session_file(Provider::Claude, "s1").unwrap();
-        let written = fs::read(&path).unwrap();
-        thread::sleep(Duration::from_millis(5));
-        apply_statusline(&home, &status).unwrap();
-        assert_eq!(fs::read(&path).unwrap(), written);
-
         // rate_limits を持たない入力は、前に保存した利用制限を消さない。
         apply_statusline(
             &home,

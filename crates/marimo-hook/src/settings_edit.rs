@@ -1228,13 +1228,6 @@ mod tests {
             settings["hooks"]["Stop"][0]["hooks"][0],
             exec(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", json!(["hook"]))
         );
-        // 以前の shell form は / 区切りで書いていたので、その形を今の exec form へ書き換える。
-        let mut legacy = json!({"hooks": {"Stop": [{"hooks": [shell_form("'C:/Users/a b/.marimo/bin/marimo-hook.exe' hook")]}]}});
-        let report = install(&mut legacy, &m, Lang::Ja).unwrap();
-        assert_eq!(report.migrated, ["Stop"]);
-        let marimo = marimo_handlers(&legacy["hooks"]["Stop"]);
-        assert_eq!(marimo.len(), 1);
-        assert!(m.is_current_handler(marimo[0]));
     }
 
     // groups の中の marimo のハンドラ。

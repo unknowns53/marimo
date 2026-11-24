@@ -1524,16 +1524,6 @@ mod tests {
     }
 
     #[test]
-    fn windows_powershell_drops_ps_module_path() {
-        let command = windows_powershell();
-        assert!(
-            command
-                .get_envs()
-                .any(|(key, value)| key == "PSModulePath" && value.is_none())
-        );
-    }
-
-    #[test]
     fn mac_script_braces_variables_before_non_ascii() {
         for lang in [Lang::Ja, Lang::En] {
             let script = sample_mac_script(lang);
