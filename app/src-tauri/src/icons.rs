@@ -48,15 +48,26 @@ fn platform_pngs() -> [Option<Vec<u8>>; 4] {
     .map(mac::app_icon_png)
 }
 
-// OpenCode と Antigravity のデスクトップアプリを MSIX のパッケージとして読む手がかりが無いので、文字のマークで出す。
+// Claude と Codex のデスクトップアプリは MSIX のパッケージとして入る。Antigravity を同梱する Gemini の
+// デスクトップアプリは MSIX ではなく、%LOCALAPPDATA%\Google\Gemini\Gemini.exe に入る。OpenCode のデスクトップアプリは
+// 読む手がかりが無いので、文字のマークで出す。
 #[cfg(windows)]
 fn platform_pngs() -> [Option<Vec<u8>>; 4] {
-    let mut logos = marimo_core::appicon::package_logos(
-        &["Claude_pzs8sxrjxfjjc", "OpenAI.Codex_2p2nqsd0c76g0"],
-        ICON_PX as f32,
-    )
-    .into_iter();
-    [logos.next().flatten(), logos.next().flatten(), None, None]
+    use marimo_core::appicon::{IconSource, app_icons};
+    let mut sources = vec![
+        IconSource::Package("Claude_pzs8sxrjxfjjc"),
+        IconSource::Package("OpenAI.Codex_2p2nqsd0c76g0"),
+    ];
+    let gemini = std::env::var_os("LOCALAPPDATA")
+        .map(|dir| std::path::PathBuf::from(dir).join(r"Google\Gemini\Gemini.exe"));
+    sources.extend(gemini.map(IconSource::Exe));
+    let mut icons = app_icons(sources, ICON_PX).into_iter();
+    [
+        icons.next().flatten(),
+        icons.next().flatten(),
+        None,
+        icons.next().flatten(),
+    ]
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
