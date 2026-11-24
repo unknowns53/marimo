@@ -337,11 +337,17 @@ pub fn spawn_antigravity(app: AppHandle, home: MarimoHome, refresh: Arc<UsageRef
 /// `claude -p "/usage"` はモデルへリクエストを送らずに、Claude Code 自身が利用状況を取得して
 /// cachedUsageUtilization を書き直す。会話ログを残さないよう --no-session-persistence を付け、marimo の
 /// フックがこの呼び出しを行として拾わないよう、フックをすべて止める。
+/// 利用制限は claude.ai でログインしたアカウントのものなので、認証の環境変数は外す。自動実行のために
+/// `claude setup-token` のトークンを環境変数に置いていると、Claude Code はログインよりそちらを使い、
+/// 利用状況を取得できないまま終わる。
 fn refresh_claude(program: &Path, cwd: &Path) -> Result<(), String> {
     let mut command = Command::new(program);
     command
         .args(["-p", "/usage", "--no-session-persistence", "--settings"])
         .arg(r#"{"disableAllHooks": true}"#)
+        .env_remove("CLAUDE_CODE_OAUTH_TOKEN")
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("ANTHROPIC_AUTH_TOKEN")
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
