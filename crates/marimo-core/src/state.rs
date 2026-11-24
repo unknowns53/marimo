@@ -1859,7 +1859,7 @@ mod tests {
                 Some(e) => write(transition(e, Some(&with_agent), 30)),
                 None => with_agent.clone(),
             };
-            assert_eq!(s.status, Status::Working, "{expected:?}");
+            assert_eq!(s.agents.len(), 1, "{expected:?}");
             let after = write(transition(&interrupt, Some(&s), 40));
             assert_eq!(
                 (after.status, after.own_status, after.agents.len()),
