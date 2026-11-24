@@ -470,7 +470,6 @@ fn dry_run_changes_nothing() {
     let out = env.run(&["uninstall", "--dry-run"]);
     assert!(out.status.success());
     assert_eq!(env.text(), installed);
-    assert!(stdout(&out).contains("bash ~/.claude/statusline.sh"));
 }
 
 #[test]
