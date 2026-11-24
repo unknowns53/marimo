@@ -14,9 +14,8 @@
         <li><button type="button" class="item" data-section="character"><span class="primary" data-en="Character">キャラクター</span><span class="secondary" data-en="Choice and size">立ち絵の選択と大きさ</span></button></li>
         <li><button type="button" class="item" data-section="usage"><span class="primary" data-en="Usage limits">利用制限</span><span class="secondary" data-en="Tools and refresh interval">出すツールと再取得の間隔</span></button></li>
         <li><button type="button" class="item" data-section="shortcuts"><span class="primary" data-en="Shortcuts">ショートカット</span><span class="secondary" data-en="Global keyboard shortcuts">キーボード操作の割り当て</span></button></li>
-        <li><button type="button" class="item" data-section="startup"><span class="primary" data-en="Startup">起動</span><span class="secondary" data-en="Launch at login">ログイン時の起動</span></button></li>
         <li><button type="button" class="item" data-section="update"><span class="primary" data-en="Updates">更新</span><span class="secondary" id="update-summary" data-en="Current version and checks">現在のバージョンと確認</span></button></li>
-        <li><button type="button" class="item" data-section="language"><span class="primary" data-en="Language">言語</span><span class="secondary" data-en="Interface and output">画面と出力の言語</span></button></li>
+        <li><button type="button" class="item" data-section="general"><span class="primary" data-en="General">一般</span><span class="secondary" data-en="Startup and language">起動と言語</span></button></li>
       </ul>
     </nav>
 
@@ -129,11 +128,6 @@
           <p id="shortcut-status" class="sub error" role="status" aria-live="polite"></p>
         </section>
 
-        <section id="section-startup" hidden>
-          <h1 class="title" data-en="Startup">起動</h1>
-          <label class="check"><input type="checkbox" name="autostart" /><span data-en="Launch at login">ログイン時に起動</span></label>
-        </section>
-
         <section id="section-update" hidden>
           <h1 class="title" data-en="Updates">更新</h1>
           <dl class="fields">
@@ -152,11 +146,18 @@
           <p id="update-status" class="sub" role="status" aria-live="polite"></p>
         </section>
 
-        <section id="section-language" hidden>
-          <h1 class="title" data-en="Language">言語</h1>
-          <div class="radio-list narrow">
-            <label><input type="radio" name="language" value="ja" /><span><span class="what">日本語</span></span></label>
-            <label><input type="radio" name="language" value="en" /><span><span class="what">English</span></span></label>
+        <section id="section-general" hidden>
+          <h1 class="title" data-en="General">一般</h1>
+          <div class="field">
+            <span class="label" data-en="Startup">起動</span>
+            <label class="check"><input type="checkbox" name="autostart" /><span data-en="Launch at login">ログイン時に起動</span></label>
+          </div>
+          <div class="field">
+            <span class="label" data-en="Language">言語</span>
+            <div class="radio-list narrow">
+              <label><input type="radio" name="language" value="ja" /><span><span class="what">日本語</span></span></label>
+              <label><input type="radio" name="language" value="en" /><span><span class="what">English</span></span></label>
+            </div>
           </div>
         </section>
       </form>
