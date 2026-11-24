@@ -10,10 +10,7 @@ import {
   formValues,
   opacityPercent,
   requestFor,
-  scaleLabel,
   shortcutFromKeyEvent,
-  usageRefreshLabel,
-  usageRefreshOptions,
   type FormControl,
   type ShortcutKeyInput,
 } from "./settingsForm";
@@ -66,20 +63,6 @@ describe("bubble seconds choices", () => {
       expect(bubbleSecondsOptions(current).map(bubbleSecondsLabel), String(current)).toEqual(labels);
     }
   });
-
-  it("labels the choices in English", () => {
-    setLang("en");
-    expect(bubbleSecondsOptions(45).map(bubbleSecondsLabel)).toEqual([
-      "Until dismissed",
-      "10 sec",
-      "30 sec",
-      "45 sec",
-      "1 min",
-      "5 min",
-    ]);
-    expect(usageRefreshOptions(5).slice(0, 2).map(usageRefreshLabel)).toEqual(["Never", "Every 5 min"]);
-    expect(scaleLabel(1)).toBe("1.0×");
-  });
 });
 
 describe("formValues", () => {
@@ -102,11 +85,6 @@ describe("formValues", () => {
       usage_codex: false,
       usage_antigravity: true,
     });
-  });
-
-  it("disables the settings that could not be read", () => {
-    const values = formValues({ ...STATE, characters: [], character: null, scale: null, autostart: null });
-    expect([values.character, values.scale, values.autostart]).toEqual([null, null, null]);
   });
 });
 

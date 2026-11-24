@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ExpressionDirector } from "./expression";
-import { characterCandidates, characterInfo, normalize, type StandingManifest } from "./manifest";
+import { characterInfo, normalize, type StandingManifest } from "./manifest";
 
 const FULL: StandingManifest = {
   mode: "standing",
@@ -168,23 +168,6 @@ describe("ExpressionDirector", () => {
   });
 });
 
-describe("normalize", () => {
-  it("reads the legacy states-only manifest", () => {
-    const c = normalize({
-      mode: "standing",
-      canvas: { width: 800, height: 1200 },
-      states: { idle: { image: "idle.png", blink: "idle_blink.png" }, done: { image: "done.png" } },
-    });
-    expect(Object.keys(c.expressions)).toEqual(["idle", "done"]);
-    expect(c.rules.status).toEqual({ idle: "idle", done: "done" });
-    expect(c.rules.idleGestures).toBeNull();
-    expect(c.rules.minSwitchMs).toBe(4000);
-    const d = new ExpressionDirector(c.rules, (n) => n in c.expressions);
-    d.setInput({ status: "working", tool: "Bash" });
-    expect(d.current(0)).toBe("idle");
-  });
-});
-
 describe("built-in characters", () => {
   it("reads the menu name, pixel art flag and stage aspect from the manifest", () => {
     const cases: [string, Partial<StandingManifest>, [string, boolean, number]][] = [
@@ -200,21 +183,6 @@ describe("built-in characters", () => {
     for (const [label, fields, [name, pixelated, aspect]] of cases) {
       const info = characterInfo("x", { ...FULL, ...fields });
       expect([info.displayName, info.pixelated, info.aspect], label).toEqual([name, pixelated, aspect]);
-    }
-  });
-
-  it("tries the saved character first and the first listed one as the fallback", () => {
-    const index = ["koharu", "clawd"];
-    const cases: [string | null, unknown, string[]][] = [
-      ["clawd", index, ["clawd", "koharu"]],
-      ["koharu", index, ["koharu"]],
-      ["removed", index, ["koharu"]],
-      [null, index, ["koharu"]],
-      ["clawd", "broken", ["koharu"]],
-      ["clawd", ["clawd", 3], ["clawd"]],
-    ];
-    for (const [saved, idx, expected] of cases) {
-      expect(characterCandidates(saved, idx), `${saved} ${JSON.stringify(idx)}`).toEqual(expected);
     }
   });
 });

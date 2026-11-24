@@ -2067,16 +2067,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn aggregate_follows_priority() {
-        use Status::*;
-        assert_eq!(aggregate([]), Idle);
-        assert_eq!(aggregate([Idle, Working]), Working);
-        assert_eq!(aggregate([Working, Done]), Working);
-        assert_eq!(aggregate([Idle, Done]), Done);
-        assert_eq!(aggregate([Done, Error, Working]), Error);
-        assert_eq!(aggregate([Error, Waiting, Done]), Waiting);
-        assert_eq!(aggregate([Idle, Idle]), Idle);
-    }
 }

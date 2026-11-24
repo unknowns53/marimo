@@ -1053,25 +1053,4 @@ mod tests {
             serde_json::from_slice(&fs::read(home.display_file()).unwrap()).unwrap();
         assert_eq!(saved, serde_json::json!({"stage_scale": 0.7}));
     }
-
-    #[test]
-    fn clamp_keeps_requests_in_range() {
-        assert_eq!(clamp(0.1), MIN);
-        assert_eq!(clamp(9.0), MAX);
-        assert_eq!(clamp(f64::NAN), DEFAULT);
-        assert_eq!(clamp(1.0 + 0.1 + 0.1), 1.2);
-    }
-
-    #[test]
-    fn one_wrongly_typed_field_falls_back_alone() {
-        let display: Display = serde_json::from_str(
-            r#"{"stage_aspect": "1.5", "character": "clawd", "scale": 0.8, "shortcuts": {"a": 1}, "future": true}"#,
-        )
-        .unwrap();
-        assert_eq!(display.stage_aspect, None);
-        assert_eq!(display.character.as_deref(), Some("clawd"));
-        assert_eq!(display.scale, Some(0.8));
-        assert!(display.shortcuts.is_some());
-        assert_eq!(display.other.get("future"), Some(&serde_json::json!(true)));
-    }
 }

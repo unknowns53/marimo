@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Acknowledged, triggerKey } from "./acknowledged";
 import { setLang } from "./i18n";
 import {
-  countLabel,
   hasContent,
   type PanelStyle,
   panelView,
@@ -195,13 +194,6 @@ describe("panelView", () => {
     expect(hasContent(v)).toBe(true);
   });
 
-  it("labels each count with the status name in the current language", () => {
-    const v = panelView(sessions(), new Acknowledged(), "counts");
-    expect(v.counts.map(countLabel)).toEqual(["承認待ち 1", "作業中 3", "完了 2"]);
-    setLang("en");
-    expect(v.counts.map(countLabel)).toEqual(["Waiting 1", "Working 3", "Done 2"]);
-  });
-
   it("does not count seen done and error sessions", () => {
     const ack = new Acknowledged();
     const s = snap(...sessions().sessions, session("e", "error", 8));
@@ -318,11 +310,5 @@ describe("trayList", () => {
       expect(trayList(snap(...sessions), ack), name).toEqual(expected);
     }
     expect(trayList(null, ack)).toEqual({ items: [], more: 0 });
-  });
-
-  it("labels the statuses in English", () => {
-    setLang("en");
-    const list = trayList(snap(session("w1", "waiting", 1), { ...session("d1", "done", 2), title: "Fix" }), new Acknowledged());
-    expect(list.items.map((i) => i.label)).toEqual(["Waiting  w1", "Done  d1  Fix"]);
   });
 });

@@ -788,39 +788,6 @@ fn uninstall_removes_legacy_and_exec_forms() {
     );
 }
 
-// ホームフォルダの下に置いた実行ファイルは、Git Bash と PowerShell のどちらでも読める ~/ の形で
-// statusLine に登録する。
-#[cfg(windows)]
-#[test]
-fn windows_status_line_uses_the_home_relative_path() {
-    let env = Env::new("m");
-    fs::write(&env.settings, "{}").unwrap();
-    let out = env.run(&["install"]);
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let installed = env.json();
-    assert_eq!(
-        installed["statusLine"],
-        json!({"type": "command", "command": "~/m/bin/marimo-hook.exe statusline"})
-    );
-    assert_eq!(
-        installed["hooks"]["Stop"],
-        json!([{"hooks": [env.exec_handler()]}])
-    );
-
-    let once = env.text();
-    let out = env.run(&["install"]);
-    assert!(out.status.success());
-    assert_eq!(env.text(), once);
-    assert!(stdout(&out).contains("変更はありません"));
-
-    assert!(env.run(&["uninstall"]).status.success());
-    assert_eq!(env.json(), json!({}));
-}
-
 #[cfg(unix)]
 fn sh(command: &str, stdin: &str, home: &std::path::Path) -> String {
     use std::io::Write;

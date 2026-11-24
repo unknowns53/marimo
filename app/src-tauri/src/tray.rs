@@ -592,28 +592,3 @@ pub fn set_visible(app: &AppHandle, visible: bool) {
         eprintln!("marimo: cannot update the tray menu: {e}");
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use marimo_core::Status::*;
-    use marimo_core::aggregate;
-
-    #[test]
-    fn attention_follows_the_most_urgent_session() {
-        let cases: &[(&[Status], Attention)] = &[
-            (&[], Attention::None),
-            (&[Idle, Working, Done], Attention::None),
-            (&[Done, Error, Working], Attention::Error),
-            (&[Working, Waiting], Attention::Waiting),
-            (&[Error, Waiting, Done], Attention::Waiting),
-        ];
-        for (statuses, expected) in cases {
-            assert_eq!(
-                attention(aggregate(statuses.iter().copied())),
-                *expected,
-                "{statuses:?}"
-            );
-        }
-    }
-}

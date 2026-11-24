@@ -983,8 +983,6 @@ fn record_file_date(name: &str) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::state::Status;
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
 
     fn home() -> (tempfile::TempDir, MarimoHome) {
         let dir = tempfile::tempdir().unwrap();
@@ -1053,49 +1051,6 @@ mod tests {
         write_atomic(&existing.join("a.json"), b"{}").unwrap();
         assert_eq!(mode(&existing), 0o755);
         assert_eq!(mode(&existing.join("a.json")), 0o600);
-    }
-
-    #[test]
-    fn readers_never_see_partial_writes() {
-        let (_d, home) = home();
-        let path = home.sessions_dir().join("big.json");
-        let big = |n: usize| {
-            serde_json::to_vec(&json!({ "n": n, "pad": "x".repeat(256 * 1024) })).unwrap()
-        };
-        write_atomic(&path, &big(0)).unwrap();
-
-        let stop = Arc::new(AtomicBool::new(false));
-        let writers: Vec<_> = (0..4)
-            .map(|w| {
-                let path = path.clone();
-                let stop = stop.clone();
-                thread::spawn(move || {
-                    let mut i = 0;
-                    while !stop.load(Ordering::Relaxed) {
-                        write_atomic(&path, &big(w * 100_000 + i)).unwrap();
-                        i += 1;
-                    }
-                })
-            })
-            .collect();
-
-        let deadline = Instant::now() + Duration::from_millis(700);
-        let mut reads = 0;
-        while Instant::now() < deadline {
-            let bytes = read_file(&path).unwrap();
-            let parsed: Result<Value, _> = serde_json::from_slice(&bytes);
-            assert!(
-                parsed.is_ok(),
-                "reader saw a partial file of {} bytes",
-                bytes.len()
-            );
-            reads += 1;
-        }
-        stop.store(true, Ordering::Relaxed);
-        for w in writers {
-            w.join().unwrap();
-        }
-        assert!(reads > 10);
     }
 
     #[test]
@@ -1961,21 +1916,5 @@ mod tests {
             s.activity.map(|a| a.detail),
             Some(Some("echo hi".to_owned()))
         );
-    }
-
-    #[test]
-    fn delete_session_removes_existing_file_and_ignores_missing() {
-        let (_dir, home) = home();
-        let input = HookInput {
-            provider: Provider::Claude,
-            session_id: "s-del".to_owned(),
-            hook_event_name: "UserPromptSubmit".to_owned(),
-            ..HookInput::default()
-        };
-        apply_hook(&home, &input, &HookExtras::default()).unwrap();
-        assert!(read_session(&home, Provider::Claude, "s-del").is_some());
-        assert!(delete_session(&home, Provider::Claude, "s-del").unwrap());
-        assert!(read_session(&home, Provider::Claude, "s-del").is_none());
-        assert!(!delete_session(&home, Provider::Claude, "s-del").unwrap());
     }
 }

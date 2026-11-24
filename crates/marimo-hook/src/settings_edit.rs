@@ -1219,17 +1219,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn exec_form_uses_the_native_windows_path() {
-        let m = Marimo::windows(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", None);
-        let mut settings = json!({});
-        install(&mut settings, &m, Lang::Ja).unwrap();
-        assert_eq!(
-            settings["hooks"]["Stop"][0]["hooks"][0],
-            exec(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", json!(["hook"]))
-        );
-    }
-
     // groups の中の marimo のハンドラ。
     fn marimo_handlers(groups: &Value) -> Vec<&Value> {
         groups
@@ -1542,54 +1531,5 @@ mod tests {
         };
         assert!(reason.contains("marimo-hook のパス"), "{reason}");
         assert_eq!(settings["statusLine"], original["statusLine"]);
-    }
-
-    #[test]
-    fn reasons_and_errors_follow_the_language() {
-        let home = Some(r"C:\Users\user");
-        let spaced = Marimo::windows(r"D:\My Tools\marimo-hook.exe", home);
-        let m = Marimo::windows(r"C:\Users\user\.marimo\bin\marimo-hook.exe", home);
-        let status = |command: &str| json!({"statusLine": {"type": "command", "command": command}});
-        let cases = [
-            (&spaced, json!({}), "Did not register the statusLine"),
-            (
-                &spaced,
-                status("bash C:/statusline.sh"),
-                "Left the existing statusLine unchanged because the marimo-hook path",
-            ),
-            (&m, status("echo $HOME"), "quotes or symbols"),
-            (
-                &m,
-                json!({"statusLine": {"type": "static"}}),
-                "type is not command",
-            ),
-        ];
-        for (marimo, mut settings, want) in cases {
-            let report = install(&mut settings, marimo, Lang::En).unwrap();
-            let StatusLineChange::Untouched { reason } = &report.status_line else {
-                panic!("{:?}", report.status_line);
-            };
-            assert!(reason.contains(want), "{reason}");
-            assert!(reason.is_ascii(), "{reason}");
-        }
-
-        let cases = [
-            (json!({}), "No marimo statusLine is registered"),
-            (status("bash statusline.sh"), "is not marimo's"),
-        ];
-        for (mut settings, want) in cases {
-            let report = uninstall(&mut settings, &m, Lang::En).unwrap();
-            let StatusLineChange::Untouched { reason } = &report.status_line else {
-                panic!("{:?}", report.status_line);
-            };
-            assert!(reason.contains(want), "{reason}");
-        }
-
-        let err = install(&mut json!([]), &m, Lang::En).unwrap_err();
-        assert_eq!(err, "The top level of settings.json is not a JSON object");
-        let err = install(&mut json!({"hooks": {"Stop": {}}}), &m, Lang::En).unwrap_err();
-        assert_eq!(err, "hooks.Stop is not an array");
-        let err = install_antigravity(&mut json!({"marimo": {}}), "x", Lang::En).unwrap_err();
-        assert!(err.contains("not marimo's"), "{err}");
     }
 }

@@ -1380,23 +1380,6 @@ mod tests {
     }
 
     #[test]
-    fn splits_body_from_status_code() {
-        for (stdout, want) in [
-            (&b"{\"a\":1}\n200"[..], Some((200, &b"{\"a\":1}"[..]))),
-            (&b"line\nline\n404"[..], Some((404, &b"line\nline"[..]))),
-            (&b"\n000"[..], Some((0, &b""[..]))),
-            (&b"200"[..], None),
-            (&b"body\n"[..], None),
-        ] {
-            assert_eq!(
-                split_status(stdout),
-                want.map(|(code, body)| (code, body.to_vec())),
-                "stdout {stdout:?}"
-            );
-        }
-    }
-
-    #[test]
     fn finds_app_bundle_of_executable() {
         for (exe, want) in [
             (

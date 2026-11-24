@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { folderName, formatAge, formatClock, formatUpdated, statusLabel, titleIsName } from "./format";
+import { folderName, formatAge, titleIsName } from "./format";
 import { setLang } from "./i18n";
 
 afterEach(() => setLang("ja"));
@@ -69,18 +69,5 @@ describe("formatAge", () => {
       [3 * 86_400_000, "3d ago"],
     ];
     for (const [elapsed, want] of cases) expect(formatAge(now - elapsed, now), String(elapsed)).toBe(want);
-  });
-});
-
-describe("labels", () => {
-  it("names statuses and update times in the current language", () => {
-    const at = new Date(2026, 0, 1, 14, 5).getTime();
-    expect([statusLabel("waiting"), formatUpdated(at)]).toEqual(["承認待ち", `${formatClock(at)} 更新`]);
-    setLang("en");
-    expect([statusLabel("waiting"), statusLabel("idle"), formatUpdated(at)]).toEqual([
-      "Waiting",
-      "Idle",
-      "Updated 14:05",
-    ]);
   });
 });

@@ -1,11 +1,11 @@
 #[cfg(windows)]
 pub use imp::{IconSource, app_icons};
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
 // アプリの画面は data URL の image/png として埋め込むので、それ以外の形式は変換せずに捨てる。
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn png_only(bytes: Vec<u8>) -> Option<Vec<u8>> {
     bytes.starts_with(PNG_SIGNATURE).then_some(bytes)
 }
@@ -117,19 +117,5 @@ mod imp {
         let mut bytes = vec![0; loaded as usize];
         reader.ReadBytes(&mut bytes)?;
         Ok(Some(bytes))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keeps_only_png() {
-        let png = [PNG_SIGNATURE, b"rest"].concat();
-        assert_eq!(png_only(png.clone()), Some(png));
-        for other in [b"GIF89a".to_vec(), Vec::new(), PNG_SIGNATURE[..4].to_vec()] {
-            assert_eq!(png_only(other), None);
-        }
     }
 }

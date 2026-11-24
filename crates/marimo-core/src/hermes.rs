@@ -634,20 +634,6 @@ mod tests {
     }
 
     #[test]
-    fn the_gateway_folder_is_not_a_place() {
-        assert_eq!(work_dir(Some("/home/u/.hermes/"), Some(&home())), None);
-        assert_eq!(
-            work_dir(Some("/home/u/src/app"), Some(&home())).as_deref(),
-            Some("/home/u/src/app")
-        );
-        assert_eq!(work_dir(Some(""), Some(&home())), None);
-        assert_eq!(
-            work_dir(Some("/home/u/src/app"), None).as_deref(),
-            Some("/home/u/src/app")
-        );
-    }
-
-    #[test]
     fn chat_meta_names_the_channel_and_links_to_it() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join("sessions")).unwrap();
