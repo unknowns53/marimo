@@ -1232,9 +1232,10 @@ mod tests {
         let mut legacy = json!({"hooks": {"Stop": [{"hooks": [shell_form("'C:/Users/a b/.marimo/bin/marimo-hook.exe' hook")]}]}});
         let report = install(&mut legacy, &m, Lang::Ja).unwrap();
         assert_eq!(report.migrated, ["Stop"]);
+        // 書き換えは利用者が付けた項目を残すだけで、timeout は足さない。
         assert_eq!(
             legacy["hooks"]["Stop"],
-            json!([{"hooks": [exec(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", json!(["hook"]))]}])
+            json!([{"hooks": [{"type": "command", "command": r"C:\Users\a b\.marimo\bin\marimo-hook.exe", "args": ["hook"]}]}])
         );
     }
 
