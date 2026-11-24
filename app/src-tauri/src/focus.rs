@@ -321,7 +321,7 @@ pub fn copy_text(text: &str) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        let mut command = Command::new("powershell.exe");
+        let mut command = crate::update::windows_powershell();
         command
             .args([
                 "-NoProfile",
