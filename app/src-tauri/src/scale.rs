@@ -1061,11 +1061,6 @@ mod tests {
         assert_eq!(clamp(f64::NAN), DEFAULT);
         assert_eq!(clamp(1.0 + 0.1 + 0.1), 1.2);
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     #[test]
     fn one_wrongly_typed_field_falls_back_alone() {

@@ -39,7 +39,7 @@ impl Default for PrimaryFactor {
 impl PrimaryFactor {
     const RECHECK: Duration = Duration::from_secs(2);
 
-    fn to_window_space(
+    fn cursor_in_window(
         &mut self,
         app: &AppHandle,
         cursor: PhysicalPosition<f64>,
@@ -233,7 +233,7 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
             #[cfg(not(feature = "cursor-replay"))]
             let cursor = app.cursor_position();
             #[cfg(all(target_os = "macos", not(feature = "cursor-replay")))]
-            let cursor = cursor.map(|c| primary.to_window_space(&app, c, g.scale));
+            let cursor = cursor.map(|c| primary.cursor_in_window(&app, c, g.scale));
             let Ok(cursor) = cursor else {
                 thread::sleep(OUTSIDE_INTERVAL);
                 continue;

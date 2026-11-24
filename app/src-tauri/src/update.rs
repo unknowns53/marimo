@@ -18,9 +18,7 @@ use marimo_core::{Lang, MarimoHome, store};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, Manager};
-
-use crate::AppState;
+use tauri::{AppHandle, Emitter};
 
 // GitHub Actions がビルドのときに入れるので、フォークの CI でビルドしたものはフォークのリリースを探す。
 const REPO: &str = match option_env!("GITHUB_REPOSITORY") {
