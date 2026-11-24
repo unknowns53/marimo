@@ -63,10 +63,12 @@ mod imp {
         GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32,
         PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     };
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         ASFW_ANY, AllowSetForegroundWindow, EnumWindows, GA_ROOTOWNER, GW_OWNER, GWL_EXSTYLE,
         GetAncestor, GetWindow, GetWindowLongW, GetWindowThreadProcessId, IsIconic, IsWindow,
-        IsWindowVisible, SW_RESTORE, SetForegroundWindow, ShowWindow, WS_EX_TOOLWINDOW,
+        IsWindowVisible, SW_RESTORE, SW_SHOWNORMAL, SetForegroundWindow, ShowWindow,
+        WS_EX_TOOLWINDOW,
     };
     use windows_sys::core::BOOL;
 
@@ -348,13 +350,29 @@ mod imp {
         !search.found.is_null() && bring_forward(search.found)
     }
 
-    /// URL を、その scheme に結び付いたアプリで開く。シェルは通さない。起動できたかを返す。
+    /// URL を、その scheme に結び付いたアプリで開く。コマンドの解釈は通さない。起動できたかを返す。
+    /// explorer.exe に渡すと、claude:// の URL はアプリに届かずドキュメントのフォルダが開くので、ShellExecuteW で
+    /// scheme の登録を直接引く。
     pub fn open_url(url: &str) -> bool {
         // 開いたアプリは、既に動いている本体に URL を渡して終わることがある。その本体は marimo の子では
         // ないので、どのプロセスにも前面に出ることを許しておく。
         // SAFETY: 引数は値だけである。
         unsafe { AllowSetForegroundWindow(ASFW_ANY) };
-        Command::new("explorer.exe").arg(url).spawn().is_ok()
+        let operation: Vec<u16> = "open".encode_utf16().chain(iter::once(0)).collect();
+        let file: Vec<u16> = url.encode_utf16().chain(iter::once(0)).collect();
+        // SAFETY: operation と file は NUL で終わり、呼び出しが戻るまで生きている。残りの引数は NULL を許す。
+        let result = unsafe {
+            ShellExecuteW(
+                ptr::null_mut(),
+                operation.as_ptr(),
+                file.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // 32 以下はエラーの値である（https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew）。
+        result as usize > 32
     }
 
     /// エディタの実行ファイルに作業フォルダを一つだけ渡して起動する。シェルは通さない。

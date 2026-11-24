@@ -576,7 +576,7 @@ fn extract_windows(
         archive = ps_quote(path_str(archive, lang)?),
         extract = ps_quote(path_str(extract, lang)?),
     );
-    let mut powershell = Command::new(powershell_program());
+    let mut powershell = windows_powershell();
     powershell
         .args([
             "-NoProfile",
@@ -667,7 +667,7 @@ fn spawn_helper(work: &Path, helper: Helper, log: File, lang: Lang) -> Result<()
             fs::write(&path, format!("\u{feff}{script}")).map_err(write_failed)?;
             // スクリプトが同じ update.log へ追記するので、ここで開いたままにすると共有の違反で書けなくなる。
             drop(log);
-            let mut command = Command::new(powershell_program());
+            let mut command = windows_powershell();
             command
                 .args([
                     "-NoProfile",
@@ -749,9 +749,15 @@ fn curl_program() -> PathBuf {
     }
 }
 
-fn powershell_program() -> PathBuf {
-    system32(&["WindowsPowerShell", "v1.0", "powershell.exe"])
-        .unwrap_or_else(|| "powershell.exe".into())
+/// Windows PowerShell 5.1 を起動するコマンドを返す。PowerShell 7 から起動された marimo は、PowerShell 7 の
+/// モジュールの場所を並べた PSModulePath を受け継いでいる。それを 5.1 に渡すと、5.1 が PowerShell 7 用の
+/// Microsoft.PowerShell.Archive などを読み込み、Expand-Archive が失敗する。外して渡せば、5.1 が既定の場所で組み立て直す。
+pub(crate) fn windows_powershell() -> Command {
+    let program = system32(&["WindowsPowerShell", "v1.0", "powershell.exe"])
+        .unwrap_or_else(|| "powershell.exe".into());
+    let mut command = Command::new(program);
+    command.env_remove("PSModulePath");
+    command
 }
 
 fn system32(parts: &[&str]) -> Option<PathBuf> {
@@ -1496,12 +1502,22 @@ mod tests {
                 "$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile({}, [ref]$null, [ref]$e); if ($e) {{ $e | Out-String | Write-Host; exit 1 }}",
                 ps_quote(&path.to_string_lossy())
             );
-            let status = Command::new(powershell_program())
+            let status = windows_powershell()
                 .args(["-NoProfile", "-NonInteractive", "-Command", check.as_str()])
                 .status()
                 .unwrap();
             assert!(status.success(), "{lang:?}");
         }
+    }
+
+    #[test]
+    fn windows_powershell_drops_ps_module_path() {
+        let command = windows_powershell();
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "PSModulePath" && value.is_none())
+        );
     }
 
     #[test]
