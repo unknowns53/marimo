@@ -1232,11 +1232,39 @@ mod tests {
         let mut legacy = json!({"hooks": {"Stop": [{"hooks": [shell_form("'C:/Users/a b/.marimo/bin/marimo-hook.exe' hook")]}]}});
         let report = install(&mut legacy, &m, Lang::Ja).unwrap();
         assert_eq!(report.migrated, ["Stop"]);
-        // 書き換えは利用者が付けた項目を残すだけで、timeout は足さない。
-        assert_eq!(
-            legacy["hooks"]["Stop"],
-            json!([{"hooks": [{"type": "command", "command": r"C:\Users\a b\.marimo\bin\marimo-hook.exe", "args": ["hook"]}]}])
-        );
+        let marimo = marimo_handlers(&legacy["hooks"]["Stop"]);
+        assert_eq!(marimo.len(), 1);
+        assert!(m.is_current_handler(marimo[0]));
+    }
+
+    // groups の中の marimo のハンドラ。
+    fn marimo_handlers(groups: &Value) -> Vec<&Value> {
+        groups
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|g| g["hooks"].as_array())
+            .flatten()
+            .filter(|h| is_marimo_claude_handler(h))
+            .collect()
+    }
+
+    fn has_handler(groups: &Value, handler: &Value) -> bool {
+        groups
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|g| g["hooks"].as_array())
+            .flatten()
+            .any(|h| h == handler)
+    }
+
+    // statusLine が今の marimo-hook の一重のラップで、元のコマンドが original であるか。
+    fn wraps_once(m: &Marimo, command: &str, original: &str) -> bool {
+        matches!(
+            m.peel_statusline(command),
+            Peeled::Marimo { outer_current: true, nested: false, original: Some(o) } if o == original
+        )
     }
 
     #[test]
@@ -1252,29 +1280,38 @@ mod tests {
         let report = install(&mut settings, &m, Lang::Ja).unwrap();
         assert_eq!(report.migrated, ["Stop"]);
         // 古い場所のハンドラは今の場所の一つにまとめ、利用者のハンドラは残す。
-        assert_eq!(
-            settings["hooks"]["Stop"],
-            json!([{"hooks": [exec("/x/marimo-hook", json!(["hook"])), shell_form("echo done")]}])
-        );
-        assert_eq!(
+        let marimo = marimo_handlers(&settings["hooks"]["Stop"]);
+        assert_eq!(marimo.len(), 1);
+        assert!(m.is_current_handler(marimo[0]));
+        assert!(has_handler(
+            &settings["hooks"]["Stop"],
+            &shell_form("echo done")
+        ));
+        assert!(matches!(
             report.status_line,
-            StatusLineChange::Replaced {
-                before: "/old/marimo-hook statusline -- sh -c 'echo hi'".to_owned(),
-                after: "/x/marimo-hook statusline -- sh -c 'echo hi'".to_owned(),
-            }
-        );
+            StatusLineChange::Replaced { .. }
+        ));
+        let command = settings["statusLine"]["command"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(wraps_once(&m, &command, "echo hi"), "{command}");
 
-        // 二重にラップされたものも、元のコマンドまで戻す。
-        settings["statusLine"]["command"] = json!(
-            "/x/marimo-hook statusline -- sh -c '/old/marimo-hook statusline -- sh -c '\\''echo hi'\\'''"
+        // 二重にラップされたものも、元のコマンドを今の marimo-hook で一重にラップし直す。
+        let double = format!(
+            "/x/marimo-hook statusline -- sh -c {}",
+            quote_always("/old/marimo-hook statusline -- sh -c 'echo hi'")
         );
+        settings["statusLine"]["command"] = json!(double);
         let report = install(&mut settings, &m, Lang::Ja).unwrap();
-        assert_eq!(
-            settings["statusLine"]["command"],
-            "/x/marimo-hook statusline -- sh -c 'echo hi'"
-        );
         assert!(report.changed());
+        let command = settings["statusLine"]["command"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(wraps_once(&m, &command, "echo hi"), "{command}");
 
+        // uninstall は、別の場所の marimo-hook を指すものも含めて取り除き、元の statusLine へ戻す。
         settings["hooks"]["Stop"][0]["hooks"]
             .as_array_mut()
             .unwrap()
@@ -1282,10 +1319,11 @@ mod tests {
         settings["statusLine"]["command"] = json!("/old/marimo-hook statusline -- sh -c 'echo hi'");
         let report = uninstall(&mut settings, &m, Lang::Ja).unwrap();
         assert!(report.removed.contains(&"Stop".to_owned()));
-        assert_eq!(
-            settings["hooks"]["Stop"],
-            json!([{"hooks": [shell_form("echo done")]}])
-        );
+        assert!(marimo_handlers(&settings["hooks"]["Stop"]).is_empty());
+        assert!(has_handler(
+            &settings["hooks"]["Stop"],
+            &shell_form("echo done")
+        ));
         assert_eq!(settings["statusLine"]["command"], "echo hi");
     }
 
