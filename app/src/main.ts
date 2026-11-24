@@ -21,7 +21,7 @@ import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./h
 import { lang, LANGUAGE_EVENT, setLang, t, type LanguageState } from "./i18n";
 import type { Point } from "./expander";
 import { characterCandidates, characterInfo, characterName, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
-import { onScrollbar, READ_KEY, renderPanel } from "./panel";
+import { holdRowsWhilePressed, onScrollbar, READ_KEY, renderPanel } from "./panel";
 import { PanelExpansion } from "./panelExpansion";
 import { RowHover } from "./rowHover";
 import {
@@ -418,8 +418,12 @@ async function loadDefaultDialogue(base: string): Promise<Dialogue> {
 }
 
 async function switchCharacter(id: string): Promise<void> {
-  if (id === requestedCharacter || (await showCharacter(id)) !== "shown") return;
-  void invoke("set_character", { id }).catch((e) => console.error("character", e));
+  if (id === requestedCharacter) return;
+  const shown = await showCharacter(id);
+  // 後から別のキャラクターを選んでいれば、そちらに任せる。
+  if (shown === "superseded") return;
+  if (shown === "failed") throw new Error(t("立ち絵を読み込めませんでした", "the character could not be loaded"));
+  await invoke("set_character", { id });
 }
 
 async function loadPanelDisplay(): Promise<PanelDisplay> {
@@ -507,7 +511,16 @@ function settingsState(): SettingsState {
     usage_refresh_minutes: usageRefreshMinutes,
     usage_tools: usageTools,
     language: lang(),
+    error: settingsError,
   };
+}
+
+// 直前の設定の変更を保存できなかった理由。次の変更か、設定のウィンドウを開き直したときに消す。
+let settingsError: string | null = null;
+
+function failedSetting(what: string, e: unknown): void {
+  console.error(what, e);
+  settingsError = t(`${what}を保存できませんでした（${String(e)}）`, `Could not save ${what} (${String(e)})`);
 }
 
 function publishSettings(): void {
@@ -522,6 +535,7 @@ async function readAutostart(): Promise<void> {
 }
 
 async function handleSettingsRequest(request: SettingsRequest): Promise<void> {
+  if (request.kind !== "opacity-preview") settingsError = null;
   switch (request.kind) {
     case "sync":
       await readAutostart();
@@ -536,34 +550,47 @@ async function handleSettingsRequest(request: SettingsRequest): Promise<void> {
       setBubbleSettings({ ...bubbleSettings, ...request.patch });
       return;
     case "character":
-      await switchCharacter(request.id);
+      await switchCharacter(request.id).catch((e) => failedSetting(t("キャラクター", "the character"), e));
       break;
     case "scale":
       // 反映したあとの倍率は set_scale の戻りで決まるので、ScaleControl の知らせを待って送る。
       scale?.set(request.scale);
       return;
     case "autostart":
-      await (request.enabled ? enable() : disable()).catch((e) => console.error("autostart", e));
+      await (request.enabled ? enable() : disable()).catch((e) =>
+        failedSetting(t("ログイン時の起動", "the login item"), e),
+      );
       await readAutostart();
       break;
-    case "usage-refresh":
+    case "usage-refresh": {
+      const previous = usageRefreshMinutes;
       usageRefreshMinutes = request.minutes;
-      await invoke("set_usage_refresh_minutes", { minutes: request.minutes }).catch((e) =>
-        console.error("usage refresh", e),
-      );
+      await invoke("set_usage_refresh_minutes", { minutes: request.minutes }).catch((e) => {
+        usageRefreshMinutes = previous;
+        failedSetting(t("再取得の間隔", "the refresh interval"), e);
+      });
       break;
-    case "usage-tools":
+    }
+    case "usage-tools": {
+      const previous = usageTools;
       usageTools = { ...usageTools, ...request.patch };
       redrawPanel();
-      await invoke("set_usage_tools", { tools: usageTools }).catch((e) => console.error("usage tools", e));
+      await invoke("set_usage_tools", { tools: usageTools }).catch((e) => {
+        usageTools = previous;
+        redrawPanel();
+        failedSetting(t("利用制限を出すツール", "the usage limit tools"), e);
+      });
       break;
+    }
     case "language": {
       // 反映は全部のウィンドウへ届く LANGUAGE_EVENT でもするが、戻り値でも反映して、届く順によらず揃える。
       const language = await invoke<LanguageState>("set_language", { setting: request.setting }).catch((e) => {
-        console.error("language", e);
+        failedSetting(t("言語", "the language"), e);
         return null;
       });
       if (language) queueLanguage(language);
+      // 失敗したときは、選んだ言語のまま見えないよう、今の言語を送り直す。
+      else publishSettings();
       return;
     }
   }
@@ -580,7 +607,13 @@ interface ContextTarget {
   onLimits?: boolean;
 }
 
+// 右クリックのメニューと項目は、閉じるまで Rust 側に資源として残る。開くたびに作るので、次に開くときに前のものを閉じる。
+// 選んだ項目の操作は popup が戻った後に届くことがあるので、開いた直後には閉じない。
+let menuResources: { close(): Promise<void> }[] = [];
+
 async function openMenu(ctx: ContextTarget = {}): Promise<void> {
+  for (const r of menuResources) void r.close().catch((e) => console.error("close menu", e));
+  menuResources = [];
   const leading = [];
   if (ctx.session) {
     const s = ctx.session;
@@ -621,49 +654,47 @@ async function openMenu(ctx: ContextTarget = {}): Promise<void> {
       await PredefinedMenuItem.new({ item: "Separator" }),
     );
   }
-  const menu = await Menu.new({
-    items: [
-      ...leading,
-      await CheckMenuItem.new({
-        text: t("立ち絵を表示", "Show Character"),
-        checked: panelDisplay.show_character,
-        action: () => setShowCharacter(!panelDisplay.show_character),
+  const sortItems = await Promise.all(
+    ROW_ORDERS.map((order) =>
+      CheckMenuItem.new({
+        text: rowOrderLabel(order),
+        checked: order === panelDisplay.row_order,
+        action: () => setRowOrder(order),
       }),
-      ...(await Promise.all(
-        PANEL_STYLES.map((style) =>
-          CheckMenuItem.new({
-            text: panelStyleLabel(style),
-            checked: style === panelDisplay.panel_style,
-            action: () => setPanelStyle(style),
-          }),
-        ),
-      )),
-      await Submenu.new({
-        text: t("並べ方", "Sort Order"),
-        items: await Promise.all(
-          ROW_ORDERS.map((order) =>
-            CheckMenuItem.new({
-              text: rowOrderLabel(order),
-              checked: order === panelDisplay.row_order,
-              action: () => setRowOrder(order),
-            }),
-          ),
-        ),
-      }),
-      await PredefinedMenuItem.new({ item: "Separator" }),
-      await MenuItem.new({
-        text: t("すべて既読にする", "Mark All as Read"),
-        enabled: unreadMarkable(snapshot, acknowledged).length > 0,
-        action: markAllRead,
-      }),
-      await PredefinedMenuItem.new({ item: "Separator" }),
-      await MenuItem.new({
-        text: t("設定…", "Settings…"),
-        action: () => void invoke("open_settings").catch((e) => console.error("open settings", e)),
-      }),
-      await MenuItem.new({ text: t("終了", "Quit"), action: () => void invoke("quit") }),
-    ],
-  });
+    ),
+  );
+  const items = [
+    ...leading,
+    await CheckMenuItem.new({
+      text: t("立ち絵を表示", "Show Character"),
+      checked: panelDisplay.show_character,
+      action: () => setShowCharacter(!panelDisplay.show_character),
+    }),
+    ...(await Promise.all(
+      PANEL_STYLES.map((style) =>
+        CheckMenuItem.new({
+          text: panelStyleLabel(style),
+          checked: style === panelDisplay.panel_style,
+          action: () => setPanelStyle(style),
+        }),
+      ),
+    )),
+    await Submenu.new({ text: t("並べ方", "Sort Order"), items: sortItems }),
+    await PredefinedMenuItem.new({ item: "Separator" }),
+    await MenuItem.new({
+      text: t("すべて既読にする", "Mark All as Read"),
+      enabled: unreadMarkable(snapshot, acknowledged).length > 0,
+      action: markAllRead,
+    }),
+    await PredefinedMenuItem.new({ item: "Separator" }),
+    await MenuItem.new({
+      text: t("設定…", "Settings…"),
+      action: () => void invoke("open_settings").catch((e) => console.error("open settings", e)),
+    }),
+    await MenuItem.new({ text: t("終了", "Quit"), action: () => void invoke("quit") }),
+  ];
+  const menu = await Menu.new({ items });
+  menuResources = [menu, ...items, ...sortItems];
   await menu.popup();
 }
 
@@ -810,6 +841,7 @@ async function start(): Promise<void> {
   await listen<Snapshot>("snapshot", (e) => queueSnapshot(e.payload));
   queueSnapshot(await invoke<Snapshot>("get_snapshot"));
   window.setInterval(redrawPanel, PANEL_REFRESH_MS);
+  holdRowsWhilePressed(panelElements.rows, redrawPanel);
   // 倍率の変更や行の増減で形が変わったら、クリックを受け取る領域を送り直す。
   const observer = new ResizeObserver(() => {
     placeBubble();

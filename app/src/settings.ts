@@ -70,6 +70,7 @@ const checkButton = $<HTMLButtonElement>("check-update");
 const installButton = $<HTMLButtonElement>("install-update");
 const releaseNotesButton = $<HTMLButtonElement>("open-release-notes");
 const updateStatus = $("update-status");
+const settingsErrorNode = $("settings-error");
 const confirmDialog = $<HTMLDialogElement>("confirm-update");
 const confirmTitle = $("confirm-update-title");
 
@@ -113,6 +114,8 @@ function render(next: SettingsState): void {
   }
   showRangeValues();
   renderUsageStatus();
+  settingsErrorNode.textContent = next.error ?? "";
+  settingsErrorNode.hidden = next.error === null;
 }
 
 // 選択肢を作り直すと開いている一覧が閉じるので、内容が変わったときだけ作り直す。
@@ -157,6 +160,15 @@ function bindForm(): void {
   }
   document.addEventListener("pointerup", () => {
     if (dragging.size === 0) return;
+    // 背景の不透明度は、動かしている間は見た目だけを変えている。離したときに今の値を保存させ、手元の状態も
+    // 先に合わせておく。合わせないと、保存した値が届くまでの描き直しでつまみが前の値へ戻る。
+    if (dragging.has(opacityInput.name) && state) {
+      const r = requestFor({ name: opacityInput.name, value: opacityInput.value, checked: false }, "change");
+      if (r?.kind === "display") {
+        request(r);
+        state = { ...state, display: { ...state.display, ...r.patch } };
+      }
+    }
     dragging.clear();
     if (state) render(state);
   });
@@ -277,6 +289,11 @@ function bindShortcuts(): void {
     });
   }
   document.addEventListener("keydown", (e) => {
+    // Tab は記録せず、記録をやめて次の部品へ移れるようにする。
+    if (recording && e.key === "Tab") {
+      stopRecording();
+      return;
+    }
     if (recording) {
       e.preventDefault();
       e.stopPropagation();
@@ -291,7 +308,16 @@ function bindShortcuts(): void {
         return;
       }
       const next = shortcutFromKeyEvent(e, IS_MAC);
-      if (!next) return;
+      if (!next) {
+        // 修飾キーだけを押している途中は、組み合わせが揃うのを待つ。
+        if (!["Shift", "Control", "Alt", "Meta", "OS"].includes(e.key)) {
+          shortcutStatusNode.textContent = t(
+            "この組み合わせは使えません。Ctrl、Alt、Cmd（Windows キー）のいずれかと、文字・数字・ファンクションキーなどを一緒に押してください。",
+            "This combination cannot be used. Press a letter, digit, function key or similar together with Ctrl, Alt or Cmd (the Windows key).",
+          );
+        }
+        return;
+      }
       const key = recording;
       recording = null;
       void saveShortcuts({ ...shortcuts, [key]: next });
@@ -326,11 +352,13 @@ async function checkUpdate(): Promise<void> {
   checkButton.disabled = true;
   checkButton.textContent = t("確認しています…", "Checking…");
   try {
-    renderUpdate(await invoke<UpdateStatus>("check_update"));
+    const status = await invoke<UpdateStatus>("check_update");
+    // 確認の間に更新を始めていたら、更新のボタンを差し替えない。
+    if (!installing) renderUpdate(status);
   } catch (e) {
-    showStatus(String(e), true);
+    if (!installing) showStatus(String(e), true);
   } finally {
-    checkButton.disabled = false;
+    checkButton.disabled = installing;
     checkButton.textContent = t("更新を確認", "Check for Updates");
   }
 }

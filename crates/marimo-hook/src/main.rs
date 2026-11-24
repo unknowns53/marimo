@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::panic::{self, AssertUnwindSafe};
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::thread;
@@ -80,11 +80,35 @@ fn run(args: &[OsString]) -> ExitCode {
             report(record(label.as_deref().unwrap_or("")));
             ExitCode::SUCCESS
         }
+        "help" | "--help" | "-h" => {
+            print_usage(&mut io::stdout());
+            ExitCode::SUCCESS
+        }
+        // フックとして呼ばれたときは標準入力がパイプなので、失敗を返してエージェントを止めない。
+        // 利用者が端末で打ち間違えたときだけ、使い方を出して失敗を返す。
+        _ if io::stdin().is_terminal() => {
+            let _ = writeln!(io::stderr(), "marimo-hook: unknown subcommand {sub:?}");
+            print_usage(&mut io::stderr());
+            ExitCode::FAILURE
+        }
         _ => {
             report(Err(format!("unknown subcommand {sub:?}")));
             ExitCode::SUCCESS
         }
     }
+}
+
+fn print_usage(out: &mut impl Write) {
+    let lang = MarimoHome::resolve()
+        .as_ref()
+        .map_or_else(Lang::os, Lang::resolve);
+    let _ = out.write_all(
+        lang.pick(
+            "使い方:\n  marimo-hook install [--dry-run] [--settings <settings.json>]    フックを登録する\n  marimo-hook uninstall [--dry-run] [--settings <settings.json>]  フックを取り除く\n",
+            "Usage:\n  marimo-hook install [--dry-run] [--settings <settings.json>]    Register the hooks\n  marimo-hook uninstall [--dry-run] [--settings <settings.json>]  Remove the hooks\n",
+        )
+        .as_bytes(),
+    );
 }
 
 // install と uninstall の出力の言語はここで一度だけ決める。フックが状態に書く要約の言語は store が決める。

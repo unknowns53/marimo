@@ -118,6 +118,22 @@ app_dest="/Applications/marimo.app"
 app_new="/Applications/.marimo.app.new"
 app_old="/Applications/.marimo.app.old"
 running_pattern="$app_dest/Contents/MacOS/"
+work=""
+closed_marimo=0
+launched=0
+
+# 終了させた marimo が、差し替えの失敗や途中のエラーで終了したままにならないよう、まだ起動し直しておらず、
+# 入っている marimo も動いていなければ、残っている方のアプリを起動する。
+cleanup() {
+  if [[ $closed_marimo -eq 1 && $launched -eq 0 && -d "$app_dest" ]] && ! pgrep -f "$running_pattern" >/dev/null; then
+    msg "終了させた marimo を起動し直しています" "Restarting the marimo that was quit" >&2
+    open "$app_dest" || true
+  fi
+  if [[ -n "$work" ]]; then
+    rm -rf "$work"
+  fi
+}
+trap cleanup EXIT
 
 if [[ $no_pull -eq 0 && ($main -eq 1 || $build -eq 1) ]]; then
   branch="$(git branch --show-current)"
@@ -155,7 +171,8 @@ repo_slug() {
 
 fetch() {
   local url="$1" dest="$2" code
-  code="$(curl -sSL --retry 3 --connect-timeout 20 -o "$dest" -w '%{http_code}' "$url")" ||
+  # 接続のあとで通信が止まったときに待ち続けないよう、30 秒のあいだ 1 バイト/秒を下回ったら失敗させる。
+  code="$(curl -sSL --retry 3 --connect-timeout 20 --speed-limit 1 --speed-time 30 -o "$dest" -w '%{http_code}' "$url")" ||
     fail "$(msg "$url を取得できませんでした。ネットワークにつながっているかを確認してください。つながらないときは --build でローカルでビルドできます。" "Could not download $url. Check your network connection. If you are offline, you can build locally with --build.")"
   case "$code" in
     200) return 0 ;;
@@ -168,7 +185,6 @@ prepare_download() {
   # CI がビルドするのは arm64 だけで、Intel の Mac では動かない。
   [[ "$(uname -m)" == "arm64" ]] || fail "$(msg "CI のビルドは arm64 の Mac 用だけです。この Mac では --build を付けてローカルでビルドしてください。" "CI builds are for Apple silicon (arm64) Macs only. On this Mac, add --build to build locally.")"
   work="$(mktemp -d "${TMPDIR:-/tmp}/marimo-update.XXXXXX")"
-  trap 'rm -rf "$work"' EXIT
 }
 
 # $1 のリリースから SHA256SUMS とアーカイブを取得して確認し、展開したものを bundle と hook に入れる。
@@ -293,6 +309,7 @@ fi
 
 if pgrep -f "$running_pattern" >/dev/null; then
   msg "起動中の marimo を終了しています" "Quitting the running marimo"
+  closed_marimo=1
   osascript -e 'tell application id "com.marimo.desktop" to quit' >/dev/null 2>&1 || true
   for _ in $(seq 1 20); do
     pgrep -f "$running_pattern" >/dev/null || break
@@ -321,6 +338,7 @@ install_ok=1
 
 msg "marimo を起動しています" "Starting marimo"
 open "$app_dest"
+launched=1
 
 if [[ $install_ok -eq 0 ]]; then
   fail "$(msg "marimo-hook install が失敗しました。アプリはすでに新しいものに差し替えて起動しています。上のメッセージを確認してから、${retry_install}。" "marimo-hook install failed. The app has already been replaced with the new version and started. Check the messages above, then ${retry_install}.")"

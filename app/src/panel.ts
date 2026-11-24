@@ -5,6 +5,7 @@ import { limitLine, limitTooltip, type LimitLine, type LimitSources } from "./li
 import {
   countLabel,
   hasContent,
+  panelSignature,
   nextRowOrder,
   rowOrderDescription,
   rowOrderLabel,
@@ -77,6 +78,29 @@ function press(e: MouseEvent, session: SessionState, actions: RowActions): void 
   else actions.select(session);
 }
 
+// 行を作り直すと、押している途中の行やボタンが DOM から外れてクリックを取りこぼし、title のツールチップも消える。
+// そこで、描き方を決める入力が前と同じなら行を置き換えず、ボタンを押している間は離すまで置き換えを遅らせる。
+let shownSignature: string | null = null;
+let pressed = false;
+let deferred = false;
+
+/** 行の上でボタンを押している間は行を置き換えず、離したら redraw で描き直す。起動時に一度だけ呼ぶ。 */
+export function holdRowsWhilePressed(rows: HTMLElement, redraw: () => void): void {
+  rows.addEventListener("pointerdown", () => {
+    pressed = true;
+  });
+  const release = (): void => {
+    if (!pressed) return;
+    pressed = false;
+    if (!deferred) return;
+    deferred = false;
+    // 離した後の click の処理が終わってから描き直す。
+    window.setTimeout(redraw, 0);
+  };
+  // ウィンドウの外で離したときは pointerup が届かないことがあるので、blur でも離したものとする。
+  for (const type of ["pointerup", "pointercancel", "blur"]) window.addEventListener(type, release);
+}
+
 export function renderPanel(
   { panel, rows, limits, order, drag }: PanelElements,
   view: PanelView,
@@ -88,6 +112,20 @@ export function renderPanel(
 ): void {
   const line = limitLine(rateLimits, now);
   if (line) renderLimits(limits, line, icons, now);
+  limits.hidden = line === null;
+  panel.hidden = false;
+  renderOrder(order, view.order);
+  drag.title = t("ドラッグしてウィンドウを移動", "Drag to move window");
+  const iconsShown = Object.entries(icons).map(([provider, src]) => [provider, src !== null]);
+  const signature = panelSignature(view, now, todayOpen) + JSON.stringify(iconsShown);
+  if (signature === shownSignature) {
+    fitLayers(rows);
+    return;
+  }
+  if (pressed) {
+    deferred = true;
+    return;
+  }
   let children: HTMLElement[];
   const empty = !hasContent(view);
   if (empty) {
@@ -98,15 +136,12 @@ export function renderPanel(
   else children = detailChildren(view.plan, icons, now, actions, todayOpen);
   const kept = keepScroll(rows);
   rows.replaceChildren(...children);
+  shownSignature = signature;
   // 件数の行のレイヤーは #rows の外へ伸びるので、件数の行が出ている間は #rows をスクロールコンテナにしない。
   // スクロールコンテナは内容をコンテナの外へはみ出させず、レイヤーが切れてしまうからである。
   rows.classList.toggle("row-scroll", view.style === "detail" || empty);
-  limits.hidden = line === null;
-  panel.hidden = false;
   fitLayers(rows);
   restoreScroll(rows, kept);
-  renderOrder(order, view.order);
-  drag.title = t("ドラッグしてウィンドウを移動", "Drag to move window");
 }
 
 function renderOrder(group: HTMLElement, order: RowOrder): void {

@@ -261,6 +261,10 @@ pub struct SessionState {
     /// パネルの行を worktree のフォルダ名ではなくリポジトリで見分けられるようにする。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
+    /// repo を最後に調べたときの cwd。git の外のフォルダでは repo が None のままなので、これと cwd が
+    /// 同じ間は調べ直さない。この項目を持たない古いファイルでは、次のフックで一度だけ調べる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_checked_cwd: Option<String>,
     /// 会話のタイトル。statusLine の session_name か、会話ログの custom-title の行から取る。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -346,6 +350,7 @@ impl SessionState {
             provider: Provider::Claude,
             cwd: None,
             repo: None,
+            repo_checked_cwd: None,
             title: None,
             status: Status::Idle,
             status_since: 0,
@@ -546,24 +551,23 @@ pub fn clean_title(raw: &str) -> Option<String> {
     (!t.is_empty()).then(|| t.chars().take(TITLE_MAX_CHARS).collect())
 }
 
-/// 親の会話のイベントで cwd が変わったときか、まだリポジトリ名を持たないときだけ `lookup` で
-/// 調べ直し、next.repo を置き換える。フックのたびにファイルを調べないためである。
+/// 親の会話のイベントで、cwd が前回リポジトリ名を調べたときの cwd と違うときだけ `lookup` で調べ直し、
+/// next.repo を置き換える。git の外のフォルダでは上の階層を最上位までたどるので、フックのたびに調べないためである。
 /// サブエージェントのイベントは cwd を変えないので、リポジトリ名も変えない。
 pub fn refresh_repo(
     input: &HookInput,
-    current: Option<&SessionState>,
     next: &mut SessionState,
     lookup: impl FnOnce(&str) -> Option<String>,
 ) {
     if input.subagent().is_some() {
         return;
     }
-    let Some(cwd) = next.cwd.as_deref().filter(|c| !c.is_empty()) else {
+    let Some(cwd) = next.cwd.clone().filter(|c| !c.is_empty()) else {
         return;
     };
-    let moved = current.and_then(|c| c.cwd.as_deref()) != Some(cwd);
-    if moved || next.repo.is_none() {
-        next.repo = lookup(cwd);
+    if next.repo_checked_cwd.as_deref() != Some(cwd.as_str()) {
+        next.repo = lookup(&cwd);
+        next.repo_checked_cwd = Some(cwd);
     }
 }
 
@@ -717,7 +721,10 @@ fn main_update(
             };
             (Status::Done, act)
         }
-        // Codex で利用者がターンを中断したときに届く。中断では Stop が発火しないので、ここで待機へ戻す。
+        // 利用者がターンを中断したときに届く（Codex のほか、Hermes、OpenCode、Antigravity の入力を読み替えたもの）。
+        // 中断では Stop が発火しないので、作業中と承認待ちをここで待機へ戻す。完了とエラーは、まだ読んでいない
+        // 結果なのでそのまま残す。
+        "Interrupt" if holds_result => (cur_status.unwrap_or_default(), Act::Keep),
         "Interrupt" => (Status::Idle, Act::Keep),
         // Antigravity の作業中のモデルの呼び出しの前に届く。状態は変えず、最後のフックとその時刻だけを書く。
         "PreInvocation" if cur_status == Some(Status::Working) => (Status::Working, Act::Keep),
@@ -782,6 +789,9 @@ fn main_update(
                 }
             }
         }
+        // 中断したターンのサブエージェントは SubagentStop を送らないまま止まるので、ここで外す。
+        // 外さないと、AGENT_STALE_MS が過ぎるまで行が作業中に見え続ける。
+        "Interrupt" => next.agents.clear(),
         _ => {}
     }
     next.own_status = Some(status);
@@ -1120,6 +1130,8 @@ mod tests {
             ),
             (ev("Interrupt"), Some(Working), Some(Idle)),
             (ev("Interrupt"), Some(Waiting), Some(Idle)),
+            (ev("Interrupt"), Some(Done), Some(Done)),
+            (ev("Interrupt"), Some(Error), Some(Error)),
             (ev("PreInvocation"), Some(Working), Some(Working)),
             (ev("PreInvocation"), Some(Idle), None),
             (ev("SubagentStop"), Some(Working), None),
@@ -1828,6 +1840,36 @@ mod tests {
     }
 
     #[test]
+    fn interrupt_drops_agents_and_keeps_unread_results() {
+        let interrupt = input(ev("Interrupt"));
+        let fail = input(json!({"session_id":"s1","hook_event_name":"StopFailure","error":"x"}));
+        let with_agent = write(transition(
+            &sub("SubagentStart", "a1"),
+            Some(&working_parent()),
+            20,
+        ));
+        // (親の会話の最後のイベント, Interrupt の後に表示する状態)
+        let cases = [
+            (None, Status::Idle),
+            (Some(stop()), Status::Done),
+            (Some(fail), Status::Error),
+        ];
+        for (last, expected) in cases {
+            let s = match &last {
+                Some(e) => write(transition(e, Some(&with_agent), 30)),
+                None => with_agent.clone(),
+            };
+            assert_eq!(s.status, Status::Working, "{expected:?}");
+            let after = write(transition(&interrupt, Some(&s), 40));
+            assert_eq!(
+                (after.status, after.own_status, after.agents.len()),
+                (expected, Some(expected), 0),
+                "{expected:?}"
+            );
+        }
+    }
+
+    #[test]
     fn session_start_clears_agents_except_on_compact() {
         let s = write(transition(
             &sub("SubagentStart", "a1"),
@@ -1888,28 +1930,57 @@ mod tests {
         let ev =
             input(json!({"session_id":"s1","hook_event_name":"UserPromptSubmit","cwd":"/w/a"}));
         let mut next = write(transition(&ev, None, 1));
-        refresh_repo(&ev, None, &mut next, lookup);
+        refresh_repo(&ev, &mut next, lookup);
         assert_eq!(next.repo.as_deref(), Some("repo-of-/w/a"));
 
         let cur = next.clone();
         let mut again = write(transition(&ev, Some(&cur), 2));
-        refresh_repo(&ev, Some(&cur), &mut again, lookup);
+        refresh_repo(&ev, &mut again, lookup);
         assert_eq!(lookup_count.get(), 1);
 
+        // git の外のフォルダでは repo が None のままだが、cwd が同じ間は調べ直さない。
         let moved = input(
             json!({"session_id":"s1","hook_event_name":"PreToolUse","cwd":"/w/b","tool_name":"Bash"}),
         );
-        let mut next = write(transition(&moved, Some(&cur), 3));
-        refresh_repo(&moved, Some(&cur), &mut next, |_| None);
-        assert_eq!(next.repo, None);
+        let plain_count = std::cell::Cell::new(0);
+        let plain = |_: &str| {
+            plain_count.set(plain_count.get() + 1);
+            None
+        };
+        let mut plain_next = write(transition(&moved, Some(&cur), 3));
+        refresh_repo(&moved, &mut plain_next, plain);
+        assert_eq!(plain_next.repo, None);
+        let plain_cur = plain_next.clone();
+        let mut plain_again = write(transition(&moved, Some(&plain_cur), 4));
+        refresh_repo(&moved, &mut plain_again, plain);
+        let no_cwd = input(json!({"session_id":"s1","hook_event_name":"Stop"}));
+        let mut plain_stop = write(transition(&no_cwd, Some(&plain_again), 5));
+        refresh_repo(&no_cwd, &mut plain_stop, plain);
+        assert_eq!(plain_count.get(), 1);
 
         let sub = input(
             json!({"session_id":"s1","hook_event_name":"PreToolUse","agent_id":"a1","cwd":"/w/b"}),
         );
         let mut next = write(transition(&sub, Some(&cur), 4));
-        refresh_repo(&sub, Some(&cur), &mut next, lookup);
+        refresh_repo(&sub, &mut next, lookup);
         assert_eq!(next.repo.as_deref(), Some("repo-of-/w/a"));
         assert_eq!(lookup_count.get(), 1);
+
+        // repo_checked_cwd を持たない古いファイルでは一度だけ調べ、項目を足して書いても読み戻せる。
+        let old: SessionState = serde_json::from_value(
+            json!({"session_id":"s1","cwd":"/w/a","repo":"old-name","status":"idle"}),
+        )
+        .unwrap();
+        assert_eq!(old.repo_checked_cwd, None);
+        let mut next = write(transition(&ev, Some(&old), 6));
+        refresh_repo(&ev, &mut next, lookup);
+        assert_eq!(
+            (next.repo.as_deref(), next.repo_checked_cwd.as_deref()),
+            (Some("repo-of-/w/a"), Some("/w/a"))
+        );
+        let round: SessionState =
+            serde_json::from_slice(&serde_json::to_vec(&next).unwrap()).unwrap();
+        assert_eq!(round, next);
     }
 
     #[test]

@@ -122,7 +122,8 @@ impl Marimo {
         }
     }
 
-    fn hook_handler(&self) -> Value {
+    /// install が Claude Code の各イベントに足すハンドラ。
+    pub fn hook_handler(&self) -> Value {
         json!({
             "type": "command",
             "command": self.exe,
@@ -131,21 +132,13 @@ impl Marimo {
         })
     }
 
-    fn is_exec_handler(&self, handler: &Value) -> bool {
+    // 今の場所の marimo-hook を exec form で呼ぶハンドラ。
+    fn is_current_handler(&self, handler: &Value) -> bool {
         handler.get("command").and_then(Value::as_str) == Some(self.exe.as_str())
             && handler.get("args") == Some(&json!(HOOK_ARGS))
     }
 
-    // args を持つハンドラは command をシェルに渡さないので、以前の形と同じ文字列でも marimo ではない。
-    fn is_legacy_handler(&self, handler: &Value) -> bool {
-        handler.get("args").is_none()
-            && handler
-                .get("command")
-                .and_then(Value::as_str)
-                .is_some_and(|c| self.is_legacy_hook_command(c))
-    }
-
-    // 利用者が足した項目とキーの順序を残したまま、command だけを exec form へ書き換える。
+    // 利用者が足した項目とキーの順序を残したまま、command と args だけを今の場所の exec form へ書き換える。
     fn migrated(&self, legacy: &Map<String, Value>) -> Value {
         let mut out = Map::new();
         for (key, value) in legacy {
@@ -210,8 +203,42 @@ impl Marimo {
         tail.strip_prefix("sh -c ").and_then(unquote_single_word)
     }
 
-    fn is_legacy_hook_command(&self, command: &str) -> bool {
-        self.args_after(command, &[&self.quoted, &self.raw]) == Some(" hook")
+    // statusLine のコマンドから、marimo-hook statusline のラップを外側から順にはがす。別の場所の marimo-hook で
+    // 登録したものや、二重にラップしたものも、元のコマンドまでたどる。
+    fn peel_statusline(&self, command: &str) -> Peeled {
+        let mut current = command.to_owned();
+        let mut outer_current = None;
+        for depth in 0..MAX_STATUSLINE_LAYERS {
+            let layer = match self.statusline_rest(&current) {
+                Some(rest) => Some((true, rest.to_owned())),
+                None => marimo_statusline_rest(&current).map(|rest| (false, rest.to_owned())),
+            };
+            let Some((is_current, rest)) = layer else {
+                return match outer_current {
+                    None => Peeled::NotMarimo,
+                    Some(outer_current) => Peeled::Marimo {
+                        outer_current,
+                        nested: depth > 1,
+                        original: Some(current),
+                    },
+                };
+            };
+            let outer_current = *outer_current.get_or_insert(is_current);
+            if rest.is_empty() {
+                return Peeled::Marimo {
+                    outer_current,
+                    nested: depth > 0,
+                    original: None,
+                };
+            }
+            match self.unwrapped_statusline(&rest) {
+                Some(original) => current = original,
+                None => return Peeled::Unreadable { outer_current },
+            }
+        }
+        Peeled::Unreadable {
+            outer_current: outer_current.unwrap_or(false),
+        }
     }
 
     // 実行ファイルのパスの直後が空白でなければ marimo ではない。前方一致だけで判定すると、
@@ -233,6 +260,79 @@ impl Marimo {
             .args_after(command, &spellings)?
             .strip_prefix(" statusline")?;
         (rest.is_empty() || rest.starts_with(" -- ")).then_some(rest)
+    }
+}
+
+// 二重を超えてラップされていても元のコマンドまでたどれるよう、はがす層の数に余裕を持たせる。
+const MAX_STATUSLINE_LAYERS: usize = 8;
+
+enum Peeled {
+    NotMarimo,
+    // marimo-hook statusline で始まるが、marimo がラップした形として読み取れない。
+    Unreadable {
+        outer_current: bool,
+    },
+    // outer_current は一番外側の marimo-hook が今の場所のものか、nested はラップが二重以上か。
+    // original はすべての層をはがした元のコマンドで、marimo だけだったときは None になる。
+    Marimo {
+        outer_current: bool,
+        nested: bool,
+        original: Option<String>,
+    },
+}
+
+// 置き場所によらず、ファイル名が marimo-hook の実行ファイルで始まる statusline のコマンドなら、その後ろを返す。
+fn marimo_statusline_rest(command: &str) -> Option<&str> {
+    let (program, rest) = split_first_word(command)?;
+    if !is_marimo_program(&program) {
+        return None;
+    }
+    let rest = rest.strip_prefix(" statusline")?;
+    (rest.is_empty() || rest.starts_with(" -- ")).then_some(rest)
+}
+
+// シェルの一語目を、単一引用符の区間と \ で逃がした文字を読み解いて返す。marimo は二重引用符で書かないので、
+// 二重引用符を含む語は読まない。
+fn split_first_word(command: &str) -> Option<(String, &str)> {
+    let mut word = String::new();
+    let mut chars = command.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            ' ' => return Some((word, &command[i..])),
+            '\'' => loop {
+                match chars.next()?.1 {
+                    '\'' => break,
+                    ch => word.push(ch),
+                }
+            },
+            '\\' => word.push(chars.next()?.1),
+            '"' => return None,
+            _ => word.push(c),
+        }
+    }
+    Some((word, ""))
+}
+
+// パスの最後の部分が marimo-hook（Windows では marimo-hook.exe）なら、どこに置いたものでも marimo とみなす。
+fn is_marimo_program(path: &str) -> bool {
+    matches!(
+        path.rsplit(['/', '\\']).next(),
+        Some("marimo-hook" | "marimo-hook.exe")
+    )
+}
+
+/// Claude Code の settings.json にある marimo のハンドラかどうか。marimo-hook に hook だけを渡す exec form と、
+/// シェルに `<marimo-hook のパス> hook` を渡す以前の shell form のどちらも、置き場所によらず marimo のものとみなす。
+/// args を持つハンドラは command をシェルに渡さないので、shell form と同じ文字列でも marimo ではない。
+fn is_marimo_claude_handler(handler: &Value) -> bool {
+    let Some(command) = handler.get("command").and_then(Value::as_str) else {
+        return false;
+    };
+    match handler.get("args") {
+        Some(args) => args == &json!(HOOK_ARGS) && is_marimo_program(command),
+        None => command.strip_suffix(" hook").is_some_and(|program| {
+            is_marimo_program(&unquote_single_word(program).unwrap_or_else(|| program.to_owned()))
+        }),
     }
 }
 
@@ -283,6 +383,8 @@ fn plain_words(s: &str) -> bool {
 pub enum StatusLineChange {
     Added { after: String },
     Wrapped { before: String, after: String },
+    // 別の場所の marimo-hook を通るものや二重のラップを、今の marimo-hook の一重のラップへ書き換える。
+    Replaced { before: String, after: String },
     AlreadyMarimo { current: String },
     Removed { before: String },
     Restored { before: String, after: String },
@@ -303,7 +405,9 @@ impl InstallReport {
             || !self.migrated.is_empty()
             || matches!(
                 self.status_line,
-                StatusLineChange::Added { .. } | StatusLineChange::Wrapped { .. }
+                StatusLineChange::Added { .. }
+                    | StatusLineChange::Wrapped { .. }
+                    | StatusLineChange::Replaced { .. }
             )
     }
 }
@@ -335,36 +439,19 @@ pub fn install(settings: &mut Value, marimo: &Marimo, lang: Lang) -> Result<Inst
     let mut migrated = Vec::new();
     let mut already = Vec::new();
     for event in EVENTS {
-        if let Some(groups) = root
+        match root
             .get_mut("hooks")
             .and_then(|h| h.get_mut(event))
             .and_then(Value::as_array_mut)
+            .map(|groups| replace_stale_handlers(groups, marimo))
         {
-            // 以前の shell form で登録したハンドラは、同じグループの同じ位置で exec form に置き換える。
-            let mut replaced = false;
-            for handler in groups
-                .iter_mut()
-                .filter_map(|g| g.get_mut("hooks").and_then(Value::as_array_mut))
-                .flatten()
-            {
-                if marimo.is_legacy_handler(handler)
-                    && let Some(legacy) = handler.as_object()
-                {
-                    *handler = marimo.migrated(legacy);
-                    replaced = true;
-                }
-            }
-            if replaced {
-                migrated.push(event);
-                continue;
-            }
-            if groups.iter().any(|g| group_has_marimo(g, marimo)) {
-                already.push(event);
-                continue;
+            Some(Existing::Rewritten) => migrated.push(event),
+            Some(Existing::Current) => already.push(event),
+            Some(Existing::None) | None => {
+                push_group(root, event, marimo.hook_handler(), lang)?;
+                added.push(event);
             }
         }
-        push_group(root, event, marimo.hook_handler(), lang)?;
-        added.push(event);
     }
 
     let status_line = install_status_line(root, marimo, lang);
@@ -374,6 +461,54 @@ pub fn install(settings: &mut Value, marimo: &Marimo, lang: Lang) -> Result<Inst
         already,
         status_line,
     })
+}
+
+enum Existing {
+    None,
+    Current,
+    Rewritten,
+}
+
+// 一つのイベントのグループの中の marimo のハンドラを、今の場所の exec form の一つにまとめる。
+// 今の形のハンドラがあれば、ほかの marimo のハンドラ（以前の shell form や、別の場所の marimo-hook を
+// 指すもの）を取り除く。なければ最初の一つを同じグループの同じ位置で今の形に書き換え、残りを取り除く。
+// 取り除いて空になったグループは、グループごと取り除く。
+fn replace_stale_handlers(groups: &mut Vec<Value>, marimo: &Marimo) -> Existing {
+    let has_current = groups.iter().any(|g| {
+        g.get("hooks")
+            .and_then(Value::as_array)
+            .is_some_and(|hs| hs.iter().any(|h| marimo.is_current_handler(h)))
+    });
+    let mut kept = has_current;
+    let mut rewritten = false;
+    groups.retain_mut(|group| {
+        let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) else {
+            return true;
+        };
+        let n = handlers.len();
+        let mut removed = false;
+        handlers.retain_mut(|handler| {
+            if marimo.is_current_handler(handler) || !is_marimo_claude_handler(handler) {
+                return true;
+            }
+            rewritten = true;
+            if kept {
+                removed = true;
+                return false;
+            }
+            kept = true;
+            if let Some(stale) = handler.as_object() {
+                *handler = marimo.migrated(stale);
+            }
+            true
+        });
+        !(removed && n > 0 && handlers.is_empty())
+    });
+    match (rewritten, kept) {
+        (true, _) => Existing::Rewritten,
+        (false, true) => Existing::Current,
+        (false, false) => Existing::None,
+    }
 }
 
 fn push_group(
@@ -487,11 +622,7 @@ fn is_marimo_handler(handler: &Value, sub: &str) -> bool {
     else {
         return false;
     };
-    let path = unquote_single_word(program).unwrap_or_else(|| program.to_owned());
-    matches!(
-        path.rsplit(['/', '\\']).next(),
-        Some("marimo-hook" | "marimo-hook.exe")
-    )
+    is_marimo_program(&unquote_single_word(program).unwrap_or_else(|| program.to_owned()))
 }
 
 /// marimo が agy の hooks.json に足す、名前付きのフックの名前。
@@ -636,15 +767,53 @@ fn install_status_line(
                 .to_owned(),
         };
     };
-    if marimo.statusline_rest(&command).is_some() {
-        return StatusLineChange::AlreadyMarimo { current: command };
-    }
-    let after = match marimo.wrapped_statusline(&command, lang) {
+    let original = match marimo.peel_statusline(&command) {
+        Peeled::NotMarimo => {
+            let after = match marimo.wrapped_statusline(&command, lang) {
+                Ok(after) => after,
+                Err(reason) => return StatusLineChange::Untouched { reason },
+            };
+            existing["command"] = Value::String(after.clone());
+            return StatusLineChange::Wrapped {
+                before: command,
+                after,
+            };
+        }
+        Peeled::Marimo {
+            outer_current: true,
+            nested: false,
+            ..
+        }
+        | Peeled::Unreadable {
+            outer_current: true,
+        } => return StatusLineChange::AlreadyMarimo { current: command },
+        Peeled::Unreadable {
+            outer_current: false,
+        } => {
+            return StatusLineChange::Untouched {
+                reason: lang
+                    .pick(
+                        "statusLine は別の場所の marimo-hook を通っていて、元のコマンドを読み取れないため、書き換えませんでした",
+                        "Left unchanged because the statusLine goes through a marimo-hook at another location and the original command cannot be read",
+                    )
+                    .to_owned(),
+            };
+        }
+        Peeled::Marimo { original, .. } => original,
+    };
+    let after = match original {
+        Some(original) => marimo.wrapped_statusline(&original, lang),
+        // statusline_command が None になるのはパスを書けないときで、そのとき wrapped_statusline も同じ理由で Err を返す。
+        None => marimo
+            .statusline_command()
+            .map_or_else(|| marimo.wrapped_statusline(&command, lang), Ok),
+    };
+    let after = match after {
         Ok(after) => after,
         Err(reason) => return StatusLineChange::Untouched { reason },
     };
     existing["command"] = Value::String(after.clone());
-    StatusLineChange::Wrapped {
+    StatusLineChange::Replaced {
         before: command,
         after,
     }
@@ -660,7 +829,7 @@ pub fn uninstall(
         "The top level of settings.json is not a JSON object",
     ))?;
     check_hooks_shape(root, &EVENTS, lang)?;
-    let removed = remove_handlers(root, |h| handler_is_marimo(h, marimo));
+    let removed = remove_handlers(root, is_marimo_claude_handler);
     let status_line = uninstall_status_line(root, marimo, lang);
     Ok(UninstallReport {
         removed,
@@ -730,29 +899,31 @@ fn uninstall_status_line(
                 .to_owned(),
         };
     };
-    let Some(rest) = marimo.statusline_rest(&command) else {
-        return StatusLineChange::Untouched {
+    // 別の場所の marimo-hook で登録したものや二重のラップも、すべての層をはがして元に戻す。
+    match marimo.peel_statusline(&command) {
+        Peeled::NotMarimo => StatusLineChange::Untouched {
             reason: lang
                 .pick(
                     "statusLine は marimo のものではないので、そのままにしました",
                     "Left unchanged because the statusLine is not marimo's",
                 )
                 .to_owned(),
-        };
-    };
-    if rest.trim().is_empty() {
-        root.shift_remove("statusLine");
-        return StatusLineChange::Removed { before: command };
-    }
-    match marimo.unwrapped_statusline(rest) {
-        Some(original) => {
+        },
+        Peeled::Marimo { original: None, .. } => {
+            root.shift_remove("statusLine");
+            StatusLineChange::Removed { before: command }
+        }
+        Peeled::Marimo {
+            original: Some(original),
+            ..
+        } => {
             root["statusLine"]["command"] = Value::String(original.clone());
             StatusLineChange::Restored {
                 before: command,
                 after: original,
             }
         }
-        None => StatusLineChange::Untouched {
+        Peeled::Unreadable { .. } => StatusLineChange::Untouched {
             reason: lang
                 .pick(
                     "statusLine は marimo がラップした形として読み取れないので、そのままにしました",
@@ -809,17 +980,6 @@ fn command_status_line(status_line: &Value) -> Option<String> {
     obj.get("command")
         .and_then(Value::as_str)
         .map(str::to_owned)
-}
-
-fn group_has_marimo(group: &Value, marimo: &Marimo) -> bool {
-    group
-        .get("hooks")
-        .and_then(Value::as_array)
-        .is_some_and(|hs| hs.iter().any(|h| handler_is_marimo(h, marimo)))
-}
-
-fn handler_is_marimo(handler: &Value, marimo: &Marimo) -> bool {
-    marimo.is_exec_handler(handler) || marimo.is_legacy_handler(handler)
 }
 
 pub fn shell_quote(s: &str) -> String {
@@ -975,28 +1135,46 @@ mod tests {
         assert_eq!(file, json!({ "lint": other }));
     }
 
-    #[test]
-    fn recognizes_marimo_commands_by_exact_path() {
-        let spaced = Marimo::new("/Users/a b/.marimo/bin/marimo-hook");
-        assert!(spaced.is_legacy_hook_command("'/Users/a b/.marimo/bin/marimo-hook' hook"));
-        assert!(spaced.is_legacy_hook_command("/Users/a b/.marimo/bin/marimo-hook hook"));
-        assert!(!spaced.is_legacy_hook_command("'/Users/a b/.marimo/bin/marimo-hook' record Stop"));
-        assert!(!spaced.is_legacy_hook_command("/other/marimo-hook hook"));
+    fn shell_form(command: &str) -> Value {
+        json!({"type": "command", "command": command})
+    }
 
-        let m = Marimo::new("/x/marimo-hook");
-        assert!(m.is_legacy_hook_command("/x/marimo-hook hook"));
+    #[test]
+    fn recognizes_marimo_commands_by_file_name() {
         for c in [
+            "'/Users/a b/.marimo/bin/marimo-hook' hook",
+            "/Users/a b/.marimo/bin/marimo-hook hook",
+            "/other/marimo-hook hook",
+            "'C:/Users/a b/.marimo/bin/marimo-hook.exe' hook",
+        ] {
+            assert!(is_marimo_claude_handler(&shell_form(c)), "{c}");
+        }
+        assert!(is_marimo_claude_handler(&exec(
+            "/other/marimo-hook",
+            json!(["hook"])
+        )));
+        for c in [
+            "'/Users/a b/.marimo/bin/marimo-hook' record Stop",
             "/x/marimo-hook-backup hook",
             "/x/marimo-hooky hook",
             "/x/marimo-hook hook --extra",
             "/x/marimo-hook  hook",
+            "'/x y/marimo-hook'-backup hook",
+            "/x y/marimo-hook-backup hook",
         ] {
-            assert!(!m.is_legacy_hook_command(c), "{c}");
+            assert!(!is_marimo_claude_handler(&shell_form(c)), "{c}");
         }
-        let quoted = Marimo::new("/x y/marimo-hook");
-        assert!(!quoted.is_legacy_hook_command("'/x y/marimo-hook'-backup hook"));
-        assert!(!quoted.is_legacy_hook_command("/x y/marimo-hook-backup hook"));
+        // args を持つハンドラは command をシェルに渡さないので、shell form と同じ文字列でも marimo ではない。
+        assert!(!is_marimo_claude_handler(&exec(
+            "/x/marimo-hook hook",
+            json!([])
+        )));
+        assert!(!is_marimo_claude_handler(&exec(
+            "/x/marimo-hook",
+            json!(["record", "Stop"])
+        )));
 
+        let m = Marimo::new("/x/marimo-hook");
         assert_eq!(m.statusline_rest("/x/marimo-hook statusline"), Some(""));
         assert_eq!(
             m.statusline_rest("/x/marimo-hook statusline -- sh -c 'echo'"),
@@ -1050,9 +1228,64 @@ mod tests {
             settings["hooks"]["Stop"][0]["hooks"][0],
             exec(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", json!(["hook"]))
         );
-        // 以前の shell form は / 区切りで書いていたので、その形も marimo のものとして読む。
-        assert!(m.is_legacy_hook_command("'C:/Users/a b/.marimo/bin/marimo-hook.exe' hook"));
-        assert!(!m.is_legacy_hook_command(r"'C:\Users\a b\.marimo\bin\marimo-hook.exe' hook"));
+        // 以前の shell form は / 区切りで書いていたので、その形を今の exec form へ書き換える。
+        let mut legacy = json!({"hooks": {"Stop": [{"hooks": [shell_form("'C:/Users/a b/.marimo/bin/marimo-hook.exe' hook")]}]}});
+        let report = install(&mut legacy, &m, Lang::Ja).unwrap();
+        assert_eq!(report.migrated, ["Stop"]);
+        assert_eq!(
+            legacy["hooks"]["Stop"],
+            json!([{"hooks": [exec(r"C:\Users\a b\.marimo\bin\marimo-hook.exe", json!(["hook"]))]}])
+        );
+    }
+
+    #[test]
+    fn install_and_uninstall_handle_marimo_hook_at_another_location() {
+        let m = Marimo::new("/x/marimo-hook");
+        let mut settings = json!({
+            "hooks": {"Stop": [
+                {"hooks": [exec("/old/marimo-hook", json!(["hook"])), shell_form("echo done")]},
+                {"hooks": [shell_form("/older/marimo-hook hook")]}
+            ]},
+            "statusLine": {"type": "command", "command": "/old/marimo-hook statusline -- sh -c 'echo hi'"}
+        });
+        let report = install(&mut settings, &m, Lang::Ja).unwrap();
+        assert_eq!(report.migrated, ["Stop"]);
+        // 古い場所のハンドラは今の場所の一つにまとめ、利用者のハンドラは残す。
+        assert_eq!(
+            settings["hooks"]["Stop"],
+            json!([{"hooks": [exec("/x/marimo-hook", json!(["hook"])), shell_form("echo done")]}])
+        );
+        assert_eq!(
+            report.status_line,
+            StatusLineChange::Replaced {
+                before: "/old/marimo-hook statusline -- sh -c 'echo hi'".to_owned(),
+                after: "/x/marimo-hook statusline -- sh -c 'echo hi'".to_owned(),
+            }
+        );
+
+        // 二重にラップされたものも、元のコマンドまで戻す。
+        settings["statusLine"]["command"] = json!(
+            "/x/marimo-hook statusline -- sh -c '/old/marimo-hook statusline -- sh -c '\\''echo hi'\\'''"
+        );
+        let report = install(&mut settings, &m, Lang::Ja).unwrap();
+        assert_eq!(
+            settings["statusLine"]["command"],
+            "/x/marimo-hook statusline -- sh -c 'echo hi'"
+        );
+        assert!(report.changed());
+
+        settings["hooks"]["Stop"][0]["hooks"]
+            .as_array_mut()
+            .unwrap()
+            .push(shell_form("/older/marimo-hook hook"));
+        settings["statusLine"]["command"] = json!("/old/marimo-hook statusline -- sh -c 'echo hi'");
+        let report = uninstall(&mut settings, &m, Lang::Ja).unwrap();
+        assert!(report.removed.contains(&"Stop".to_owned()));
+        assert_eq!(
+            settings["hooks"]["Stop"],
+            json!([{"hooks": [shell_form("echo done")]}])
+        );
+        assert_eq!(settings["statusLine"]["command"], "echo hi");
     }
 
     #[test]

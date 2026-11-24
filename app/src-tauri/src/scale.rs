@@ -193,21 +193,46 @@ const CHARACTER_INDEX: &str = include_str!("../../../assets/character/index.json
 const FALLBACK_CHARACTER: &str = "koharu";
 
 // display.json には倍率とパネルの表示とキャラクターと立ち絵の縦横比を一緒に置く。
-// 一つを保存するときにほかを消さないよう、読んでから書き戻す。
+// 一つを保存するときにほかを消さないよう、読んでから書き戻す。型を決めて読む項目は lenient で読むので、
+// 一つの項目の型が違っても、その項目だけが書かれていないものとして読まれる。
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Display {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     stage_scale: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     scale: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     show_character: Option<bool>,
     // 知らない値が書かれていてもファイル全体を読み損ねないよう、文字列のまま読んでから解釈する。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     panel_style: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     panel_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     row_order: Option<String>,
     // 手で "80%" のように書かれても倍率やキャラクターまで読み損ねないよう、数に限らず受けてから解釈する。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -227,17 +252,40 @@ struct Display {
     usage_tools: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     shortcuts: Option<serde_json::Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     character: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     stage_aspect: Option<f64>,
     // 読むのは marimo_core::LangSetting::load で、フックと CLI も同じ規則で読む。ここに持つのは、
     // ほかの項目を保存するときに消さないためである。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     language: Option<String>,
     // このバージョンが知らない項目。新しいバージョンが書いた項目を、古いバージョンで保存したときに消さない。
     #[serde(flatten)]
     other: serde_json::Map<String, serde_json::Value>,
+}
+
+/// 型の合わない値を、その項目が書かれていないものとして読む。手で "1.5" のように書き損じた一つの項目で
+/// ファイル全体を既定として読み、次の保存でほかの設定まで消してしまわないようにする。
+fn lenient<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok())
 }
 
 // display.json を書くのはこのアプリだけだが、倍率は spawn_saver のスレッドが書き、ほかの項目はメインスレッドが書く。
@@ -1012,5 +1060,23 @@ mod tests {
         assert_eq!(clamp(9.0), MAX);
         assert_eq!(clamp(f64::NAN), DEFAULT);
         assert_eq!(clamp(1.0 + 0.1 + 0.1), 1.2);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_wrongly_typed_field_falls_back_alone() {
+        let display: Display = serde_json::from_str(
+            r#"{"stage_aspect": "1.5", "character": "clawd", "scale": 0.8, "shortcuts": {"a": 1}, "future": true}"#,
+        )
+        .unwrap();
+        assert_eq!(display.stage_aspect, None);
+        assert_eq!(display.character.as_deref(), Some("clawd"));
+        assert_eq!(display.scale, Some(0.8));
+        assert!(display.shortcuts.is_some());
+        assert_eq!(display.other.get("future"), Some(&serde_json::json!(true)));
     }
 }

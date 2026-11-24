@@ -238,6 +238,8 @@ $installDir = Join-Path $env:LOCALAPPDATA 'marimo'
 $installedExe = Join-Path $installDir 'marimo.exe'
 # 呼び出し元のセッションにある同じ名前の変数を、終了時のクリーンアップで消してしまわないよう空にしておく。
 $work = $null
+$closedMarimo = $false
+$launched = $false
 
 Push-Location -LiteralPath $root
 try {
@@ -310,6 +312,7 @@ try {
     $running = @(Get-InstalledMarimo $installDir)
     if ($running.Count -gt 0) {
         Write-Host (Msg '起動中の marimo を終了しています' 'Quitting the running marimo')
+        $closedMarimo = $true
         foreach ($p in $running) {
             if ($p.HasExited) { continue }
             try {
@@ -347,12 +350,23 @@ try {
 
     Write-Host (Msg 'marimo を起動しています' 'Starting marimo')
     Start-Process -FilePath $installedExe
+    $launched = $true
 
     if (-not $installOk) {
         Fail (Msg "marimo-hook install が失敗しました。アプリはすでに新しいものに入れ直して起動しています。上のメッセージを確認してから、$retryInstall。" "marimo-hook install failed. The new version of the app has already been installed and started. Check the messages above, then $retryInstall.")
     }
     Write-Host (Msg '更新が終わりました' 'Update complete')
 } finally {
+    # 終了させた marimo が、インストーラの失敗や途中の例外で終了したままにならないよう、まだ起動し直しておらず、
+    # 入っている marimo も動いていなければ、残っている方のアプリを起動する。
+    if ($closedMarimo -and -not $launched -and (Test-Path -LiteralPath $installedExe) -and (Get-InstalledMarimo $installDir).Count -eq 0) {
+        Write-Host (Msg '終了させた marimo を起動し直しています' 'Restarting the marimo that was quit')
+        try {
+            Start-Process -FilePath $installedExe
+        } catch {
+            Write-Host "$(Msg 'エラー' 'Error'): $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
     Pop-Location
     if ($work) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
 }

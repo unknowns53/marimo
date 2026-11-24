@@ -160,9 +160,8 @@ impl Tray {
         }
     }
 
-    // 途中で失敗しても、メニューに残っている項目だけを leading に残し、次の差し替えで外せるようにする。
-    /// latest が Some のときは「X に更新できます」を出し、None のときは外す。
-    pub fn set_update(&self, latest: Option<&str>) {
+    /// latest が Some のときは「X に更新できます」を出し、None のときは外す。メインスレッドから呼ぶ。
+    fn set_update(&self, latest: Option<&str>) {
         if let Err(e) = self.replace_update(latest) {
             eprintln!("marimo: cannot update the tray menu: {e}");
         }
@@ -205,6 +204,7 @@ impl Tray {
         }
     }
 
+    // 途中で失敗しても、メニューに残っている項目だけを leading に残し、次の差し替えで外せるようにする。
     fn replace_sessions(
         &self,
         leading: &mut Vec<MenuItemKind<Wry>>,
@@ -253,6 +253,22 @@ impl Tray {
             Err(e) => eprintln!("marimo: cannot update the tray icon: {e}"),
         }
     }
+}
+
+/// 新しいバージョンの項目を出し入れする。latest が Some のときは「X に更新できます」を出し、None のときは外す。
+///
+/// メニューの操作はメインスレッドで動き、ほかのスレッドから呼ぶと終わるまで待つ。更新の確認のスレッドが項目の
+/// ロックを持ったまま待つと、同じロックを取る relabel（言語を変える同期コマンドはメインスレッドで動く）と互いに待って
+/// 止まるので、show_status と同じくロックを取るところからメインスレッドで行う。
+pub fn show_update(app: &AppHandle, latest: Option<String>) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(state) = handle.try_state::<AppState>()
+            && let Some(tray) = state.tray.get()
+        {
+            tray.set_update(latest.as_deref());
+        }
+    });
 }
 
 /// ウィンドウが隠れている間は webview が止まりうるので、フロントエンドを通さずスナップショットを作った側から呼ぶ。

@@ -16,6 +16,46 @@ const STILL_INTERVAL: Duration = OUTSIDE_INTERVAL;
 // ウィンドウを隠している間はカーソルを追う理由が無いので、表示に戻ったことに気づけるだけの周期で待つ。
 const HIDDEN_INTERVAL: Duration = Duration::from_millis(500);
 
+// tao の macOS の cursor_position は主モニタの倍率で物理 px にし、ウィンドウの位置と大きさはウィンドウのいるモニタの
+// 倍率で物理 px にする。倍率の違うモニタをつないでいると両者を比べられないので、カーソルを論理 px へ戻してから
+// ウィンドウの倍率で物理 px にする。主モニタの倍率はモニタの構成が変わったときだけ変わるので、ときどき読み直す。
+#[cfg(all(target_os = "macos", not(feature = "cursor-replay")))]
+struct PrimaryFactor {
+    factor: f64,
+    checked: Option<std::time::Instant>,
+}
+
+#[cfg(all(target_os = "macos", not(feature = "cursor-replay")))]
+impl Default for PrimaryFactor {
+    fn default() -> Self {
+        Self {
+            factor: 1.0,
+            checked: None,
+        }
+    }
+}
+
+#[cfg(all(target_os = "macos", not(feature = "cursor-replay")))]
+impl PrimaryFactor {
+    const RECHECK: Duration = Duration::from_secs(2);
+
+    fn to_window_space(
+        &mut self,
+        app: &AppHandle,
+        cursor: PhysicalPosition<f64>,
+        window_factor: f64,
+    ) -> PhysicalPosition<f64> {
+        if self.checked.is_none_or(|t| t.elapsed() >= Self::RECHECK) {
+            if let Some(m) = app.primary_monitor().ok().flatten() {
+                self.factor = m.scale_factor();
+            }
+            self.checked = Some(std::time::Instant::now());
+        }
+        let ratio = window_factor / self.factor;
+        PhysicalPosition::new(cursor.x * ratio, cursor.y * ratio)
+    }
+}
+
 pub const PORTRAIT_HOVER_EVENT: &str = "portrait-hover";
 pub const WINDOW_CURSOR_EVENT: &str = "window-cursor";
 
@@ -165,6 +205,8 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
         let mut last_screen: Option<(f64, f64)> = None;
         #[cfg(feature = "cursor-replay")]
         let replay = replay::Script::from_env();
+        #[cfg(all(target_os = "macos", not(feature = "cursor-replay")))]
+        let mut primary = PrimaryFactor::default();
         loop {
             // 隠したウィンドウは元の場所にカーソルがあっても何も受け取らないので、載っている扱いを解いて待つ。
             if state.hidden.load(Ordering::Relaxed) {
@@ -190,6 +232,8 @@ pub fn spawn(app: AppHandle, window: WebviewWindow, state: Arc<HitState>) {
             };
             #[cfg(not(feature = "cursor-replay"))]
             let cursor = app.cursor_position();
+            #[cfg(all(target_os = "macos", not(feature = "cursor-replay")))]
+            let cursor = cursor.map(|c| primary.to_window_space(&app, c, g.scale));
             let Ok(cursor) = cursor else {
                 thread::sleep(OUTSIDE_INTERVAL);
                 continue;

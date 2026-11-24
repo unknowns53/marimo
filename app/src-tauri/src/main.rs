@@ -365,9 +365,12 @@ fn remove_session(
     store::delete_session(&state.home, provider, &session_id).map_err(|e| e.to_string())
 }
 
+// 同期コマンドはメインスレッドで動き、子プロセスを待つ間は画面が止まるので、待つのは別のスレッドで行う。
 #[tauri::command]
-fn copy_text(text: String) -> Result<(), String> {
-    focus::copy_text(&text)
+async fn copy_text(text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || focus::copy_text(&text))
+        .await
+        .map_err(|e| format!("clipboard copy stopped unexpectedly: {e}"))?
 }
 
 // 同期コマンドはメインスレッドで動くので、macOS では AppKit で描くのに都合がよい。

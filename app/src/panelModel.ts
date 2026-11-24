@@ -1,6 +1,6 @@
 import { isRead, sessionKey, STATUS_PRIORITY, triggerKey, type Acknowledged } from "./acknowledged";
-import { chatTitle, folderName, statusLabel } from "./format";
-import { t } from "./i18n";
+import { chatTitle, folderName, formatAge, statusLabel } from "./format";
+import { lang, t } from "./i18n";
 import type { SessionState, Snapshot, Status } from "./types";
 
 /** 並べ方は詳細と件数のどちらの出し方にも効く。 */
@@ -179,6 +179,29 @@ export function panelView(
  */
 export function hasContent(view: PanelView): boolean {
   return view.style === "detail" ? !isEmpty(view.plan) : view.counts.length > 0;
+}
+
+/**
+ * パネルの行の描き方を決める入力をまとめた文字列。同じなら作り直しても同じ行になるので、呼び出し側は DOM を
+ * 置き換えずに済ませる。作り直すと押している途中の行やボタンが消えてクリックを取りこぼし、ツールチップも消えるからである。
+ * 行の押したときの操作はセッションの値を持つので、表示に出ない値もセッションごと含める。時刻からは経過時間の
+ * 表記だけが表示に効くので、now そのものではなくその表記を含める。
+ */
+export function panelSignature(view: PanelView, now: number, todayOpen: boolean): string {
+  const { plan } = view;
+  const ages = [...plan.rows, ...plan.today].map((s) => formatAge(s.updated_at, now));
+  return JSON.stringify([
+    lang(),
+    view.style,
+    view.order,
+    view.counts,
+    view.target,
+    todayOpen,
+    plan.rows,
+    [...plan.read].sort(),
+    plan.today,
+    ages,
+  ]);
 }
 
 /** トレイのメニューの先頭に並べる、手を貸す必要のあるセッション。key は sessionKey である。 */

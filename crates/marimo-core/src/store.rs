@@ -106,40 +106,64 @@ fn write_new(path: &Path, bytes: &[u8], durable: bool) -> io::Result<()> {
     Ok(())
 }
 
-// Windows ではウイルス対策ソフトなどが対象を一瞬開いていると rename が失敗するので、
-// ごく短く数回だけ再試行する。
+// Windows ではウイルス対策ソフトや検索のインデクサが対象を一瞬開いていると rename が失敗する。Stop のフックの
+// 書き込みが失敗すると行が作業中のまま残るので、間隔を倍にしながら合わせて 500 ミリ秒ほどまで再試行する。
+// フックの制限時間は 5 秒あるので、この待ちは収まる。
+const RENAME_RETRY_BUDGET: Duration = Duration::from_millis(500);
+
 fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
-    let mut attempt = 0;
-    loop {
-        match fs::rename(from, to) {
-            Ok(()) => return Ok(()),
-            Err(_) if attempt < 5 && cfg!(windows) => {
-                attempt += 1;
-                thread::sleep(Duration::from_millis(5));
-            }
-            Err(e) => return Err(e),
-        }
+    if !cfg!(windows) {
+        return fs::rename(from, to);
     }
+    retry_transient(
+        RENAME_RETRY_BUDGET,
+        Duration::from_millis(5),
+        Duration::from_millis(100),
+        || fs::rename(from, to),
+    )
 }
 
 static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
-// Windows では、別のプロセスやスレッドが rename でファイルを差し替えている瞬間に開くと、アクセス拒否で
-// 失敗する。読めなかったファイルは飛ばすので、そのままでは行が一回分消えたり、全体の状態がちらついたり
-// する。書く側の rename_with_retry と同じく、ごく短く数回だけ読み直す。
-pub fn read_file(path: &Path) -> io::Result<Vec<u8>> {
-    let mut attempt = 0;
+// Windows で、別のプロセスがファイルを開いているために一瞬だけ失敗する操作のエラー。ERROR_ACCESS_DENIED は
+// PermissionDenied に読み替えられるが、ERROR_SHARING_VIOLATION（32）と ERROR_LOCK_VIOLATION（33）は
+// Rust のバージョンによって読み替え先が変わるので、番号で見る。
+fn is_transient(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(32 | 33))
+}
+
+// `op` が一時的なエラーで失敗する間、`first_delay` から倍にしながら `max_delay` までの間隔を空けて、
+// 待った時間の合計が `budget` に届くまで繰り返す。
+fn retry_transient<T>(
+    budget: Duration,
+    first_delay: Duration,
+    max_delay: Duration,
+    mut op: impl FnMut() -> io::Result<T>,
+) -> io::Result<T> {
+    let mut slept = Duration::ZERO;
+    let mut delay = first_delay;
     loop {
-        match fs::read(path) {
-            Err(e)
-                if attempt < 20 && cfg!(windows) && e.kind() == io::ErrorKind::PermissionDenied =>
-            {
-                attempt += 1;
-                thread::sleep(Duration::from_millis(2));
+        match op() {
+            Err(e) if is_transient(&e) && slept < budget => {
+                let wait = delay.min(budget - slept);
+                thread::sleep(wait);
+                slept += wait;
+                delay = (delay * 2).min(max_delay);
             }
             result => return result,
         }
     }
+}
+
+// Windows では、別のプロセスやスレッドが rename でファイルを差し替えている瞬間に開くと、アクセス拒否か
+// 共有違反で失敗する。読めなかったファイルは飛ばすので、そのままでは行が一回分消えたり、全体の状態が
+// ちらついたりする。書く側の rename_with_retry と同じく、ただしごく短く読み直す。
+pub fn read_file(path: &Path) -> io::Result<Vec<u8>> {
+    if !cfg!(windows) {
+        return fs::read(path);
+    }
+    let step = Duration::from_millis(2);
+    retry_transient(Duration::from_millis(40), step, step, || fs::read(path))
 }
 
 pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
@@ -289,11 +313,9 @@ fn apply_session(
             {
                 next.transcript_path = Some(p.to_owned());
             }
-            // 調べ直すかどうかは保存済みの cwd で決まるので、ロックの内側で調べる。
-            // 調べるのは cwd が変わったときなどに限られ、数回の stat で済む。
-            refresh_repo(input, current.as_ref(), &mut next, |cwd| {
-                repo_name(Path::new(cwd))
-            });
+            // 調べ直すかどうかは保存済みの repo_checked_cwd で決まるので、ロックの内側で調べる。調べるのは
+            // cwd が変わったときだけで、セッションごとにふつうは一度なので、ロックを持つ時間はほとんど延びない。
+            refresh_repo(input, &mut next, |cwd| repo_name(Path::new(cwd)));
             write_json_atomic(path, &next)
         }
         Transition::Delete => match fs::remove_file(path) {
@@ -373,18 +395,38 @@ pub fn apply_statusline(home: &MarimoHome, input: &Value) -> io::Result<()> {
             read_session(home, Provider::Claude, id),
         )
     {
-        if let Some(context) = context {
+        let mut changed = false;
+        if let Some(context) = context.filter(|c| context_needs_write(session.context.as_ref(), c))
+        {
             session.context = Some(context);
+            changed = true;
         }
-        if let Some(title) = title {
+        if let Some(title) = title.filter(|t| session.title.as_ref() != Some(t)) {
             session.title = Some(title);
+            changed = true;
         }
-        if let Err(e) = write_json_atomic(&path, &session) {
+        if changed && let Err(e) = write_json_atomic(&path, &session) {
             first_err.get_or_insert(e);
         }
     }
 
     first_err.map_or(Ok(()), Err)
+}
+
+// statusLine は応答の途中にも数百ミリ秒ごとに呼ばれる。書くたびに監視がスナップショットを読み直してパネルを
+// 組み立て直すので、値が変わらない間は書かない。ただし statusLine の値が会話ログからの計算に上書きされないよう、
+// 保存した値がこれより古くなったら同じ値でも書き直し、updated_at を STATUSLINE_FRESH_MS の内側に保つ。
+const STATUSLINE_REFRESH_MS: u64 = 60 * 1000;
+
+fn context_needs_write(stored: Option<&ContextUsage>, next: &ContextUsage) -> bool {
+    let Some(stored) = stored else {
+        return true;
+    };
+    stored.used_percentage != next.used_percentage
+        || stored.total_input_tokens != next.total_input_tokens
+        || stored.context_window_size != next.context_window_size
+        || stored.source != next.source
+        || next.updated_at.saturating_sub(stored.updated_at) >= STATUSLINE_REFRESH_MS
 }
 
 fn context_from(input: &Value, now: u64) -> Option<ContextUsage> {
@@ -574,11 +616,52 @@ pub fn is_session_file_name(name: &str) -> bool {
     !name.starts_with('.') && name.ends_with(".json")
 }
 
+/// 書き込みの途中でフックが止められると残る一時ファイルを、最後の更新からこれだけ経ったら消す。
+/// 書き込みは一瞬で終わるので、これより古い一時ファイルを書いているプロセスは無い。
+pub const STALE_TEMP_AGE: Duration = Duration::from_secs(60 * 60);
+
+// write_atomic_with が作る `.<名前>.<プロセス ID>.<通し番号>.tmp` の形の名前だけを一時ファイルとみなす。
+// ~/.marimo の直下には利用者や他のツールが置いたファイルもありうるので、形の違う名前には触らない。
 fn is_temp_file_name(name: &str) -> bool {
-    name.starts_with('.') && name.ends_with(".tmp")
+    let Some(rest) = name.strip_prefix('.').and_then(|n| n.strip_suffix(".tmp")) else {
+        return false;
+    };
+    let mut parts = rest.rsplitn(3, '.');
+    let digits =
+        |p: Option<&str>| p.is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    digits(parts.next()) && digits(parts.next()) && parts.next().is_some_and(|n| !n.is_empty())
 }
 
-/// `max_age` のあいだ更新のないセッションのファイルと、残った一時ファイルを消し、消した数を返す。
+// `dir` の直下にある、`STALE_TEMP_AGE` より古い一時ファイルを消し、消した数を返す。
+fn prune_temp_files(dir: &Path, now: SystemTime) -> io::Result<usize> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    };
+    let mut removed = 0;
+    let mut first_err = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !is_temp_file_name(&entry.file_name().to_string_lossy())
+            || !entry.file_type().is_ok_and(|t| t.is_file())
+            || !modified_before(&path, now, STALE_TEMP_AGE)
+        {
+            continue;
+        }
+        match fs::remove_file(&path) {
+            Ok(()) => removed += 1,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => {
+                first_err.get_or_insert(e);
+            }
+        }
+    }
+    first_err.map_or(Ok(removed), Err)
+}
+
+/// `max_age` のあいだ更新のないセッションのファイルを消し、`STALE_TEMP_AGE` より古い一時ファイルを ~/.marimo の
+/// 直下と sessions の中から消して、消した数を返す。
 /// 残したセッションのうち、SubagentStop が届かないまま `AGENT_STALE_MS` を過ぎたサブエージェントを
 /// 持つものは、そのサブエージェントを外して書き直す。親の会話もサブエージェントもフックを送らなく
 /// なったセッションは、次のフックを待っていると作業中のまま残るからである。同じ理由で、ターンを
@@ -597,16 +680,24 @@ pub fn prune_stale_sessions(
     now_ms: u64,
     max_age: Duration,
 ) -> io::Result<usize> {
+    let now = UNIX_EPOCH + Duration::from_millis(now_ms);
+    let mut removed = 0;
+    let mut first_err = None;
+    for dir in [home.root().to_path_buf(), home.sessions_dir()] {
+        match prune_temp_files(&dir, now) {
+            Ok(n) => removed += n,
+            Err(e) => {
+                first_err.get_or_insert(e);
+            }
+        }
+    }
     let entries = match fs::read_dir(home.sessions_dir()) {
         Ok(entries) => entries,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return first_err.map_or(Ok(removed), Err),
         Err(e) => return Err(e),
     };
     let lang = Lang::resolve(home);
-    let now = UNIX_EPOCH + Duration::from_millis(now_ms);
     let max_age_ms = u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX);
-    let mut removed = 0;
-    let mut first_err = None;
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -614,8 +705,10 @@ pub fn prune_stale_sessions(
         // 会話ログとプロセスを調べる間はロックを持たない。フックはロックを 300 ミリ秒しか待たずに書くので、
         // 持ったまま時間をかけると、その間にフックが書いた新しい状態を古い判定で消しうる。判定のあとでロックを取り、
         // ファイルが読んだときのままであることを確認してから書き直すか消す。
-        let session_file = is_session_file_name(&name);
-        let (read, stale, next) = if session_file {
+        if !is_session_file_name(&name) {
+            continue;
+        }
+        let (read, stale, next) = {
             let read = read_file(&path).ok();
             let session = read
                 .as_deref()
@@ -634,16 +727,13 @@ pub fn prune_stale_sessions(
                     .or_else(|| expire_agents(&s, lang, now_ms))
             });
             (read, stale, next)
-        } else {
-            let stale = is_temp_file_name(&name) && modified_before(&path, now, max_age);
-            (None, stale, None)
         };
         if !stale && next.is_none() {
             continue;
         }
         // 急ぐ処理ではないので、ロックが取れなければ次の機会に回す。
         let lock = lock_home(home);
-        if !lock.is_held() || (session_file && read_file(&path).ok() != read) {
+        if !lock.is_held() || read_file(&path).ok() != read {
             continue;
         }
         if let Some(next) = next {
@@ -796,17 +886,29 @@ fn interrupt(
         lang,
         ..HookInput::default()
     };
-    let mut ended = session.clone();
-    ended.agents.retain(|_, a| keep(a));
+    let Transition::Write(next) = transition(&input, Some(session), now_ms) else {
+        return None;
+    };
+    // Interrupt はサブエージェントをすべて外すので、止めた後も動いているものを戻し、元の表示から
+    // 表示用の値を組み立て直す。status と status_since を元に戻しておくのは、表示が変わらないときに
+    // その状態になった時刻を動かさないためである。
+    let restored = SessionState {
+        agents: session
+            .agents
+            .iter()
+            .filter(|(_, a)| keep(a))
+            .map(|(k, a)| (k.clone(), a.clone()))
+            .collect(),
+        status: session.status,
+        status_since: session.status_since,
+        ..*next
+    };
     // updated_at は変えない。expire_agents と同じく、セッションを消すまでの 24 時間を最後のフックから
     // 数え続けるためである。
-    match transition(&input, Some(&ended), now_ms) {
-        Transition::Write(next) => Some(SessionState {
-            updated_at: session.updated_at,
-            ..*next
-        }),
-        _ => None,
-    }
+    Some(SessionState {
+        updated_at: session.updated_at,
+        ..without_agents(&restored, |_| true, lang, now_ms)
+    })
 }
 
 // mtime が未来にあるファイルは、時計が戻ったものとみなして古くないと判定する。
@@ -1029,6 +1131,13 @@ mod tests {
             read_session(&home, Provider::Claude, "s1").unwrap().status,
             Status::Working
         );
+
+        // 値が同じ間は書き直さない。書き直すと context.updated_at が変わる。
+        let path = home.session_file(Provider::Claude, "s1").unwrap();
+        let written = fs::read(&path).unwrap();
+        thread::sleep(Duration::from_millis(5));
+        apply_statusline(&home, &status).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), written);
 
         // rate_limits を持たない入力は、前に保存した利用制限を消さない。
         apply_statusline(
@@ -1461,8 +1570,16 @@ mod tests {
         );
         put_session(&home, Provider::Claude, "zero-new", 0, NOW_MS - HOUR_MS);
         put_file(&dir.join(".a.json.1.2.tmp"), b"{", NOW_MS - 25 * HOUR_MS);
-        put_file(&dir.join(".b.json.1.3.tmp"), b"{", NOW_MS - HOUR_MS);
+        put_file(&dir.join(".b.json.1.3.tmp"), b"{", NOW_MS - HOUR_MS / 6);
         put_file(&dir.join("notes.txt"), b"x", NOW_MS - 48 * HOUR_MS);
+        // ~/.marimo の直下の一時ファイルも消すが、形の違う名前には触らない。
+        let root = home.root();
+        put_file(
+            &root.join(".rate_limits.json.7.0.tmp"),
+            b"{",
+            NOW_MS - 2 * HOUR_MS,
+        );
+        put_file(&root.join(".keep.tmp"), b"x", NOW_MS - 48 * HOUR_MS);
         // Codex のセッションは同じ session_id の Claude Code のセッションと別に判定する。
         put_session(&home, Provider::Codex, "stale", NOW_MS - HOUR_MS, NOW_MS);
         put_session(
@@ -1474,7 +1591,9 @@ mod tests {
         );
 
         let removed = prune_stale_sessions(&home, NOW_MS, STALE_SESSION_AGE).unwrap();
-        assert_eq!(removed, 5);
+        assert_eq!(removed, 6);
+        assert!(!root.join(".rate_limits.json.7.0.tmp").exists());
+        assert!(root.join(".keep.tmp").exists());
         assert!(read_session(&home, Provider::Codex, "stale").is_some());
         assert!(read_session(&home, Provider::Codex, "fresh").is_none());
         assert!(read_session(&home, Provider::Claude, "stale").is_none());

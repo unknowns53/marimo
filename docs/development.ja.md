@@ -49,9 +49,9 @@ Node.js のバージョンは、ビルドツールの Vite と、テストツー
 
 ### install が行うこと
 
-`install` は以下を実行します。2. と 3. は Claude Code の設定ファイルへの登録です。
+`install` は以下を実行します。2. と 3. は Claude Code の設定ファイルへの登録で、`--settings` を付けずに実行して Claude Code の設定のフォルダ（`~/.claude`、または環境変数 `CLAUDE_CONFIG_DIR` が指すフォルダ）が無ければ、Claude Code は導入されていないとみなしてそのことを表示し、2. と 3. を飛ばします。
 
-1. 自分自身を `~/.marimo/bin/marimo-hook` へコピーします。settings.json にはこのパスが記載されるため、リポジトリの `target/` を削除したり再ビルドしたりしても、フックは動作し続けます。
+1. 自分自身を `~/.marimo/bin/marimo-hook` へコピーします。settings.json にはこのパスが記載されるため、リポジトリの `target/` を削除したり再ビルドしたりしても、フックは動作し続けます。Windows では、statusLine を通す `marimo-hook.exe` が動いていると置き換えられないため、今のものを `.marimo-hook.old.<プロセス ID>.exe` という名前へ移してから新しいものを置きます。移したものは、動いていなければ次の `install` で削除します。
 2. 設定ファイルの `hooks` に、以下の 16 のイベントそれぞれについて、`~/.marimo/bin/marimo-hook` に引数 `hook` を渡して呼ぶフックを追加します。タイムアウトは 5 秒です。
    SessionStart、UserPromptSubmit、PreToolUse、PermissionRequest、PermissionDenied、PostToolUse、PostToolUseFailure、Notification、Elicitation、ElicitationResult、Stop、StopFailure、SessionEnd、MessageDisplay、SubagentStart、SubagentStop
 
@@ -68,7 +68,7 @@ Node.js のバージョンは、ビルドツールの Vite と、テストツー
 
    `args` を持つフックは exec form と呼ばれ、Claude Code はシェルを経由せずに `command` の実行ファイルを直接起動し、`args` をそのまま引数として渡します。シェルを経由しないため、パスに空白があっても引用符で囲む必要がなく、シェルの設定ファイルが出力した文字列がフックの出力に混ざることもありません。exec form に対応した Claude Code のバージョンは、README の[動作環境](../README.ja.md#動作環境)に記載しています。
 
-   `~/.marimo/bin/marimo-hook hook` という文字列をシェルに渡す形のフックが登録されている場合は、同じグループの同じ位置のまま exec form へ書き換えます。
+   marimo のフックは、場所によらず実行ファイルの名前が `marimo-hook`（Windows では `marimo-hook.exe`）であるもので見分けます。`<marimo-hook のパス> hook` という文字列をシェルに渡す形のフックや、`MARIMO_HOME` を変えて試したときのように別の場所の `marimo-hook` を指すフックが登録されている場合は、今の場所の exec form の一つにまとめます。今の形のフックが無ければ、最初の一つを同じグループの同じ位置のまま書き換え、残りを取り除きます。
 
 3. statusLine を登録します（[statusLine のラップのしかた](#statusline-のラップのしかた)を参照）。
 4. Codex のフックを登録します（[Codex のフック](#codex-のフック)を参照）。
@@ -85,7 +85,7 @@ Node.js のバージョンは、ビルドツールの Vite と、テストツー
 
 ### statusLine のラップのしかた
 
-statusLine が未設定なら、`marimo-hook statusline` のみを登録します。既存の statusLine を使用している場合は、元のコマンドを `marimo-hook statusline -- sh -c '<元のコマンド>'` の形でラップします。marimo は受け取った入力をそのまま元のコマンドへ渡し、元のコマンドの出力と終了コードもそのまま返すため、statusLine の表示は変わりません。statusLine が command 形式でない場合は書き換えません。statusLine には exec form が無いため、シェルを経由するコマンドの文字列で登録します。
+statusLine が未設定なら、`marimo-hook statusline` のみを登録します。既存の statusLine を使用している場合は、元のコマンドを `marimo-hook statusline -- sh -c '<元のコマンド>'` の形でラップします。marimo は受け取った入力をそのまま元のコマンドへ渡し、元のコマンドの出力と終了コードもそのまま返すため、statusLine の表示は変わりません。statusLine が command 形式でない場合は書き換えません。statusLine には exec form が無いため、シェルを経由するコマンドの文字列で登録します。別の場所の `marimo-hook` でラップしたものや、二重にラップしたものは、すべてのラップを外して元のコマンドを取り出し、今の `marimo-hook` で一重にラップし直します。`uninstall` も、すべてのラップを外して元のコマンドへ戻します。
 
 Windows の Claude Code は、Git Bash があれば Git Bash で、無ければ PowerShell で statusLine を実行します。どちらで動作するかは環境によって変わり、両者で引用の規則も異なるため、引用符を使わずに、どちらのシェルでも同じように解釈される形のみで記載します。marimo-hook のパスは、実行ファイルがホームフォルダの下にあれば `~/.marimo/bin/marimo-hook.exe statusline` のように `~/` で始め、そうでなければ `/` 区切りの絶対パスで記載します。パスに空白などが含まれていてどちらの形でも記載できない場合は、statusLine を登録せず、既存の statusLine もラップしません。
 
@@ -100,11 +100,12 @@ Windows の Claude Code は、Git Bash があれば Git Bash で、無ければ 
 - 書き換える前に、同じフォルダへ `settings.json.marimo-backup-<日時>` や `hooks.json.marimo-backup-<日時>` のように、ファイル名に `.marimo-backup-<日時>` を付けた名前でバックアップを作成します。日時は UTC（協定世界時）の `YYYYMMDD-HHMMSS` の形で、同じ名前があれば末尾に `-1` などの番号が付きます。ファイルが無かった場合は、バックアップを作成せずに新規作成します。
 - 既存のフックや marimo に関係しない項目は、キーの順序も含めてそのまま残します。settings.json では、ファイルの権限も引き継ぎ、シンボリックリンクならリンク先のファイルを書き換えます。
 - 何度実行しても結果は同じです。登録済みであれば「変更はありません（すでにインストール済みです）」と表示し、ファイルにもバックアップにも手を付けません。再ビルド後に実行すると、`~/.marimo/bin/marimo-hook` のみが新しいものに入れ替わります。シェルに渡す形のフックが残っていた場合のみ、exec form へ書き換えます。[更新用のスクリプト](usage.ja.md#更新する)も、アプリを入れ替えたあとに、新しい `marimo-hook` でこの `install` を実行します。
-- settings.json が JSON（データを文字で書き表す形式）として読めないときなどは、何も変更せずに理由を表示し、0 以外の終了コードで終了します。
+- 各ツールの設定ファイルは別々に扱います。settings.json が JSON（データを文字で書き表す形式）として読めないときなどは、そのファイルを変更せずに理由を表示し、ほかのツールの処理を続けます。最後に処理できなかったツールをまとめて表示し、0 以外の終了コードで終了します。
+- `--dry-run` では、ファイルを変更せずに、追加や削除するフックと statusLine の変更前後のみを表示します。設定ファイルの全体は、`env` に書いたトークンなどを含みうるため表示しません。
 
 ### サブコマンドと設定ファイルの場所
 
-`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`antigravity-hook`、`statusline`、`record`、`install`、`uninstall` の九つです。利用者が直接使用するのは `install` と `uninstall` のみで、残りは各ツールから呼ばれるか、調査用です。`--help` のようなヘルプの表示は無く、未知のサブコマンドを渡すとエラーを一行出力して終了します。
+`marimo-hook` のサブコマンドは `hook`、`codex-hook`、`hermes-hook`、`opencode-hook`、`antigravity-hook`、`statusline`、`record`、`install`、`uninstall` の九つです。利用者が直接使用するのは `install` と `uninstall` のみで、残りは各ツールから呼ばれるか、調査用です。`help`、`--help`、`-h` を渡すと使い方を表示します。端末から未知のサブコマンドを渡すと、エラーと使い方を表示して 0 以外の終了コードで終了します。各ツールからフックとして呼ばれたとき（標準入力が端末でないとき）は、ツールの作業を止めないよう、未知のサブコマンドでもエラーを一行出力して終了コード 0 で終了します。
 
 対象の設定ファイルは `--settings <パス>` で指定できます。省略すると、環境変数 `CLAUDE_CONFIG_DIR` が設定されていればその下の `settings.json` を、無ければ `~/.claude/settings.json` を使用します。
 
@@ -218,7 +219,7 @@ agy が起動時にフックを読み込むことをログで確認している�
 
 ### uninstall が行うこと
 
-`uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを作成します。各ツールから取り除くのは marimo が追加したもののみで、シェルを経由する形で登録されたフックも取り除きます。Codex、OpenCode、Antigravity は、設定のフォルダがあるときのみ対象です。
+`uninstall` も `--dry-run` と `--settings <パス>` を受け付け、書き換える前にバックアップを作成します。各ツールから取り除くのは marimo が追加したもののみで、シェルを経由する形で登録されたフックや、別の場所の `marimo-hook` を指すフックも取り除きます。Codex、OpenCode、Antigravity は、設定のフォルダがあるときのみ対象です。
 
 | ツール | 取り除くもの |
 | --- | --- |
@@ -291,7 +292,7 @@ marimo のデータはすべて `~/.marimo` に保存されます。環境変数
 
 `CODEX_HOME` を設定している場合は、`~/.codex` の代わりにその場所を使用します。
 
-状態ファイルは、一時ファイルに書き込んでから名前を変える方法で書き換えます。この方法では、読む側が書き込み途中のファイルを読むことがありません（atomic write、原子的な書き込みと呼ばれます）。書き込みの途中には、`.` で始まり `.tmp` で終わる一時ファイルが一瞬だけ作成されます。
+状態ファイルは、一時ファイルに書き込んでから名前を変える方法で書き換えます。この方法では、読む側が書き込み途中のファイルを読むことがありません（atomic write、原子的な書き込みと呼ばれます）。書き込みの途中には、`.<ファイル名>.<プロセス ID>.<通し番号>.tmp` という名前の一時ファイルが一瞬だけ作成されます。フックが書き込みの途中で止められて残った一時ファイルは、アプリが起動時と 10 分ごとに、1 時間より古いものを `~/.marimo` の直下と `sessions` の中から削除します。Windows では、ウイルス対策ソフトなどがファイルを一瞬開いていると名前の変更が失敗するため、間隔を倍にしながら合わせて 0.5 秒ほどまで再試行します。
 
 `MARIMO_HOME` は、各ツールから呼ばれる `marimo-hook` と、アプリの両方に同じ値が見えている必要があります。OpenCode では、プラグインを動かしているサービスのプロセスに見えている値が `marimo-hook` に渡ります。ログイン時の自動起動ではアプリに `MARIMO_HOME` が渡らないため、アプリは `~/.marimo` を読みます。主に、開発中に本来のデータへ触れずに試すための設定です。
 
@@ -477,7 +478,7 @@ git push origin v0.1.0
    | Hermes のフック | `marimo-hook hermes-hook` | `sessions/hermes-<session_id>.json` |
    | OpenCode のサービスの中で動作するプラグイン | `marimo-hook opencode-hook` | `sessions/opencode-<session_id>.json` |
    | agy のフック | `marimo-hook antigravity-hook` | `sessions/antigravity-<conversationId>.json`。transcript から読んだトークン数をコンテキスト使用率として記録 |
-   | Claude Code の statusLine | `marimo-hook statusline` | コンテキスト使用率とセッションの名前をセッションのファイルへ。新しい応答が届いていれば、利用制限を `rate_limits.json` へ |
+   | Claude Code の statusLine | `marimo-hook statusline` | コンテキスト使用率とセッションの名前をセッションのファイルへ。値が変わらない間は書き直さず、同じ値でも 60 秒ごとに書き直す。新しい応答が届いていれば、利用制限を `rate_limits.json` へ |
 
    OpenCode のプラグインは、イベントを購読し、選択したイベントごとに `marimo-hook` を起動します。前に起動した `marimo-hook` が終了してから次を起動するため、書き込みの順がイベントの順と入れ替わりません。フックはツールの処理を止めてしまうため、ロックを待つのは最大 300 ミリ秒までにしています。
 2. アプリは、Claude Code が `~/.claude.json` に残した利用制限を 30 秒ごとに確認して `rate_limits.json` へ書き込みます。再取得の間隔を選択していれば、`codex app-server` に問い合わせた利用制限を `codex_rate_limits.json` へ、`agy -p /usage` で読んだ利用制限を `antigravity_rate_limits.json` へ書き込みます（[marimo が起動するもの](#marimo-が起動するもの)を参照）。

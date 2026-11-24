@@ -181,8 +181,6 @@ pub fn start(
 // macOS はウィンドウの大きさと位置の変更をあとで適用するので、直後に outer() で読み返すと変更前の値が返る。
 // そのため読み返さず、置いた矩形を返す。
 fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> (Corner, Rect) {
-    let (w, h) = to_physical(size, screen.factor());
-    screen.set_size(w, h);
     let displays = screen.displays();
     let saved = fs::read(home.window_file())
         .ok()
@@ -197,19 +195,23 @@ fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> (Corner
                     .any(|d| d.bounds.contains(p.x + 16, p.y + 16))
         });
     let Some(p) = saved else {
+        let (w, h) = to_physical(size, primary_factor(screen));
         let (x, y) = match default_position(screen, w, h) {
             Some((x, y)) => {
-                screen.set_position(x, y);
+                place(screen, x, y, w, h);
                 (x, y)
             }
-            None => screen.outer().map_or((0, 0), |r| (r.x, r.y)),
+            None => {
+                screen.set_size(w, h);
+                screen.outer().map_or((0, 0), |r| (r.x, r.y))
+            }
         };
         return (Corner::default(), Rect { x, y, w, h });
     };
-    let area = displays
+    let target = displays
         .iter()
-        .find(|d| d.bounds.contains(p.x + 16, p.y + 16))
-        .map(|d| d.work);
+        .find(|d| d.bounds.contains(p.x + 16, p.y + 16));
+    let (w, h) = to_physical(size, target.map_or_else(|| screen.factor(), |d| d.factor));
     let (x, y) = fit(
         Rect {
             x: p.x,
@@ -217,9 +219,9 @@ fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> (Corner
             w,
             h,
         },
-        area,
+        target.map(|d| d.work),
     );
-    screen.set_position(x, y);
+    place(screen, x, y, w, h);
     (
         Corner {
             left: p.left,
@@ -231,13 +233,33 @@ fn restore(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> (Corner
 
 /// 保存した位置を削除し、ウィンドウを主モニタの右下（既定の位置）へ戻す。`size` は論理 px。
 pub fn reset(screen: &impl Screen, home: &MarimoHome, size: (f64, f64)) -> Corner {
-    let (w, h) = to_physical(size, screen.factor());
-    screen.set_size(w, h);
-    if let Some((x, y)) = default_position(screen, w, h) {
-        screen.set_position(x, y);
+    let (w, h) = to_physical(size, primary_factor(screen));
+    match default_position(screen, w, h) {
+        Some((x, y)) => place(screen, x, y, w, h),
+        None => screen.set_size(w, h),
     }
     let _ = fs::remove_file(home.window_file());
     Corner::default()
+}
+
+// 既定の位置を置く主モニタの倍率。大きさは、置く先のモニタの倍率で物理 px にする。
+fn primary_factor(screen: &impl Screen) -> f64 {
+    screen
+        .primary()
+        .map_or_else(|| screen.factor(), |d| d.factor)
+}
+
+// Windows は倍率の違うモニタへウィンドウが移ると、左上を動かさずに大きさを新しいモニタの倍率で描き直す。
+// 先に置いてから大きさを決めれば、描き直しの後に置く先の倍率で求めた大きさになる。macOS は大きさを先に
+// 決めてから置く。
+fn place(screen: &impl Screen, x: i32, y: i32, w: i32, h: i32) {
+    if cfg!(windows) {
+        screen.set_position(x, y);
+        screen.set_size(w, h);
+    } else {
+        screen.set_size(w, h);
+        screen.set_position(x, y);
+    }
 }
 
 // 立ち絵のある隅の角を動かさずに大きさを変え、立ち絵が画面上で動かないようにする。

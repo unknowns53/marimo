@@ -103,11 +103,7 @@ fn check_now(app: &AppHandle) -> UpdateStatus {
     };
     let status = status_of(Some(&checked));
     *STATUS.lock().unwrap_or_else(|e| e.into_inner()) = Some(checked);
-    if let Some(state) = app.try_state::<AppState>()
-        && let Some(tray) = state.tray.get()
-    {
-        tray.set_update(status.latest.as_deref().filter(|_| status.newer));
-    }
+    crate::tray::show_update(app, status.latest.clone().filter(|_| status.newer));
     if let Err(e) = app.emit(STATUS_EVENT, &status) {
         eprintln!("marimo: cannot emit update status: {e}");
     }
@@ -773,10 +769,12 @@ fn network_error(lang: Lang) -> &'static str {
     )
 }
 
+// 接続のあとで通信が止まったときに更新中のまま待ち続けないよう、30 秒のあいだ 1 バイト/秒を下回ったら失敗させる。
 fn curl(url: &str) -> Command {
     let mut command = Command::new(curl_program());
     command
         .args(["-sSL", "--retry", "3", "--connect-timeout", "20"])
+        .args(["--speed-limit", "1", "--speed-time", "30"])
         .arg("--url")
         .arg(url);
     command
@@ -1199,6 +1197,13 @@ function Get-InstalledMarimo([string]$Dir) {
     })
 }
 
+$launched = $false
+
+function Start-Marimo {
+    Start-Process -FilePath $installedExe
+    $script:launched = $true
+}
+
 try {
     Write-Log "{{win_updating}}"
 
@@ -1229,7 +1234,7 @@ try {
     $setup = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
     if ($setup.ExitCode -ne 0) {
         # アプリが終了したままにならないよう、残っている方のアプリを起動し直す。
-        if (Test-Path -LiteralPath $installedExe) { Start-Process -FilePath $installedExe }
+        if (Test-Path -LiteralPath $installedExe) { Start-Marimo }
         Fail "{{win_installer_failed}}"
     }
     if (-not (Test-Path -LiteralPath $installedExe)) {
@@ -1248,7 +1253,7 @@ try {
     if ($output.Trim()) { Write-Log $output.TrimEnd() }
 
     Write-Log '{{launching}}'
-    Start-Process -FilePath $installedExe
+    Start-Marimo
 
     if (-not $installOk) {
         # 一時フォルダは終わると消えるので、install をやり直すときは更新ごとやり直してもらう。
@@ -1259,6 +1264,16 @@ try {
     Write-Log "{{error}}: $($_.Exception.Message)"
     exit 1
 } finally {
+    # Fail や想定外の例外で止まっても、アプリが終了したままにならないよう、まだ起動し直しておらず、
+    # 入っている marimo も動いていなければ、残っている方のアプリを起動する。
+    if (-not $launched -and (Test-Path -LiteralPath $installedExe) -and (Get-InstalledMarimo $installDir).Count -eq 0) {
+        try {
+            Write-Log '{{launching}}'
+            Start-Marimo
+        } catch {
+            Write-Log "{{error}}: $($_.Exception.Message)"
+        }
+    }
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
 "#;

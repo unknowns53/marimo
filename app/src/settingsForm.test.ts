@@ -32,6 +32,7 @@ const STATE: SettingsState = {
   usage_refresh_minutes: 10,
   usage_tools: { claude: true, codex: false, antigravity: true },
   language: "en",
+  error: null,
 };
 
 afterEach(() => setLang("ja"));
@@ -160,6 +161,7 @@ describe("shortcuts", () => {
       ["mac cmd+shift+m", key("KeyM", { metaKey: true, shiftKey: true }), true, "Shift+Command+M"],
       ["win ctrl+alt+space", key("Space", { ctrlKey: true, altKey: true }), false, "Control+Alt+Space"],
       ["no modifier rejected", key("KeyM"), true, null],
+      ["shift alone rejected", key("KeyA", { shiftKey: true }), false, null],
       ["modifier alone rejected", key("MetaLeft", { metaKey: true }), true, null],
       ["function key", key("F12", { ctrlKey: true }), false, "Control+F12"],
       ["unknown code", key("Unidentified", { ctrlKey: true }), false, null],

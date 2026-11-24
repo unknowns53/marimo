@@ -294,66 +294,84 @@ pub fn open_external_url(url: &str) {
     std::thread::spawn(move || open_link(&url));
 }
 
+/// クリップボードへ書き込む子プロセスを待つ上限。止まった子を待ち続けて、コピーの操作が戻らなくならないようにする。
+#[cfg(any(target_os = "macos", windows))]
+const COPY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// 文字列を OS のクリップボードへ書き込む。非アクティブな常駐ウィンドウでも動作するよう、WebView ではなく OS の手段を使う。
+/// 子プロセスの終了を最大 COPY_TIMEOUT 待つので、メインスレッドから呼ばない。
 pub fn copy_text(text: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let mut child = Command::new("/usr/bin/pbcopy")
-            .env("LANG", "en_US.UTF-8")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("cannot start pbcopy: {e}"))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(text.as_bytes())
-                .map_err(|e| format!("cannot write to pbcopy: {e}"))?;
-        }
-        let status = child
-            .wait()
-            .map_err(|e| format!("cannot wait for pbcopy: {e}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("pbcopy exited with {status}"))
-        }
+        let mut command = Command::new("/usr/bin/pbcopy");
+        command.env("LANG", "en_US.UTF-8");
+        pipe_to(command, text, "pbcopy", COPY_TIMEOUT)
     }
     #[cfg(windows)]
     {
         let mut command = crate::update::windows_powershell();
-        command
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())",
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        command.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+        ]);
         crate::update::hide_console(&mut command);
-        let mut child = command
-            .spawn()
-            .map_err(|e| format!("cannot start powershell: {e}"))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(text.as_bytes())
-                .map_err(|e| format!("cannot write to clipboard: {e}"))?;
-        }
-        let status = child
-            .wait()
-            .map_err(|e| format!("cannot wait for clipboard: {e}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("Set-Clipboard exited with {status}"))
-        }
+        pipe_to(command, text, "Set-Clipboard", COPY_TIMEOUT)
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = text;
         Err("clipboard copy is not supported on this platform".into())
+    }
+}
+
+/// command を起動して標準入力へ text を渡し、終了を待つ。timeout を過ぎても終わらなければ止めて Err を返す。
+#[cfg(any(target_os = "macos", windows))]
+fn pipe_to(
+    mut command: Command,
+    text: &str,
+    name: &str,
+    timeout: std::time::Duration,
+) -> Result<(), String> {
+    use std::time::{Duration, Instant};
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("cannot start {name}: {e}"))?;
+    // 子が読まずに止まったときに書き込みで待ち続けないよう、書き込みは別のスレッドで行う。書き終えると
+    // 標準入力を閉じるので、子は入力の終わりを受け取る。子を止めると書き込みは失敗して戻る。
+    let writer = child.stdin.take().map(|mut stdin| {
+        let bytes = text.as_bytes().to_vec();
+        std::thread::spawn(move || stdin.write_all(&bytes))
+    });
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "{name} did not finish within {} ms",
+                    timeout.as_millis()
+                ));
+            }
+            Err(e) => return Err(format!("cannot wait for {name}: {e}")),
+        }
+    };
+    match writer.map(std::thread::JoinHandle::join) {
+        Some(Ok(Err(e))) => return Err(format!("cannot write to {name}: {e}")),
+        Some(Err(_)) => return Err(format!("cannot write to {name}")),
+        Some(Ok(Ok(()))) | None => {}
+    }
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{name} exited with {status}"))
     }
 }
 
@@ -903,5 +921,62 @@ mod tests {
                 "{title:?}"
             );
         }
+    }
+
+    // クリップボードには触れず、標準入力を読むだけのコマンドと、読まずに止まるコマンドで待ち方を確かめる。
+    #[cfg(windows)]
+    #[test]
+    fn pipe_to_waits_for_reader_and_stops_stalled_child() {
+        use std::time::{Duration, Instant};
+        let powershell = |script: &str| {
+            let mut command = crate::update::windows_powershell();
+            command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+            command
+        };
+        let read = powershell("[void][Console]::In.ReadToEnd(); exit 0");
+        assert_eq!(
+            pipe_to(read, "日本語", "reader", Duration::from_secs(30)),
+            Ok(())
+        );
+
+        let failing = powershell("[void][Console]::In.ReadToEnd(); exit 3");
+        assert!(pipe_to(failing, "x", "failing", Duration::from_secs(30)).is_err());
+
+        let started = Instant::now();
+        let stalled = powershell("Start-Sleep -Seconds 60");
+        let result = pipe_to(stalled, "x", "stalled", Duration::from_millis(300));
+        assert!(result.is_err_and(|e| e.contains("did not finish")));
+        assert!(started.elapsed() < Duration::from_secs(20));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pipe_to_waits_for_reader_and_stops_stalled_child() {
+        use std::time::{Duration, Instant};
+        assert_eq!(
+            pipe_to(
+                Command::new("/bin/cat"),
+                "日本語",
+                "reader",
+                Duration::from_secs(30)
+            ),
+            Ok(())
+        );
+        assert!(
+            pipe_to(
+                Command::new("/usr/bin/false"),
+                "",
+                "failing",
+                Duration::from_secs(30)
+            )
+            .is_err()
+        );
+
+        let started = Instant::now();
+        let mut stalled = Command::new("/bin/sleep");
+        stalled.arg("60");
+        let result = pipe_to(stalled, "x", "stalled", Duration::from_millis(300));
+        assert!(result.is_err_and(|e| e.contains("did not finish")));
+        assert!(started.elapsed() < Duration::from_secs(20));
     }
 }

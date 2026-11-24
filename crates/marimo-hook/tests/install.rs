@@ -429,10 +429,8 @@ fn invalid_settings_are_left_untouched() {
             assert!(!out.stderr.is_empty());
             assert_eq!(fs::read(&env.settings).unwrap(), content);
             assert!(env.backups().is_empty());
-            assert!(
-                !env.installed_exe().exists(),
-                "nothing is copied on failure"
-            );
+            // settings.json を読めなくてもほかのツールの登録は続けるので、install は実行ファイルを置く。
+            assert_eq!(env.installed_exe().exists(), sub == "install", "{sub}");
         }
     }
 
@@ -463,7 +461,9 @@ fn dry_run_changes_nothing() {
     assert!(!env.installed_exe().exists());
     let text = stdout(&out);
     assert!(text.contains("dry-run"));
-    assert!(text.contains("\"MessageDisplay\""));
+    assert!(text.contains("MessageDisplay"));
+    // 設定ファイルの全体は表示しない。
+    assert!(!text.contains("\"permissions\""), "{text}");
 
     assert!(env.run(&["install"]).status.success());
     let installed = env.text();
@@ -493,6 +493,32 @@ fn claude_config_dir_sets_the_default_settings_path() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(stdout(&out).contains(&env.settings.display().to_string()));
+}
+
+// Claude Code の設定フォルダが無ければ Claude Code を飛ばし、実行ファイルはそれでも置く。
+#[test]
+fn missing_claude_folder_skips_claude_and_still_copies() {
+    let env = Env::new("m");
+    let missing = env.dir.path().join("no-claude");
+    let out = Command::new(env!("CARGO_BIN_EXE_marimo-hook"))
+        .arg("install")
+        .env("MARIMO_HOME", &env.home)
+        .env("CLAUDE_CONFIG_DIR", &missing)
+        .env("HOME", env.dir.path())
+        .env("USERPROFILE", env.dir.path())
+        .env("CODEX_HOME", &env.codex)
+        .env("XDG_CONFIG_HOME", &env.xdg)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(env.installed_exe().is_file());
+    assert!(!missing.exists());
+    assert!(stdout(&out).contains(&missing.display().to_string()));
 }
 
 // 言語は --settings で指した settings.json ではなく、MARIMO_HOME の display.json で決まる。
@@ -921,7 +947,8 @@ fn codex_hooks_round_trip_and_reinstall_changes_nothing() {
     let out = env.run(&["install"]);
     assert!(out.status.success());
     assert_eq!(fs::read(env.codex_hooks()).unwrap(), before);
-    assert!(!stdout(&out).contains("/hooks で"));
+    // 信頼の案内は、入れ直して確かめるときにも出す。
+    assert!(stdout(&out).contains("/hooks で"));
 
     let out = env.run(&["uninstall"]);
     assert!(out.status.success());

@@ -99,7 +99,8 @@ function keyFromCode(code: string): string | null {
 
 /**
  * キー入力から Tauri の global-shortcut が解釈する文字列を組み立てる。
- * 通常のタイピングを奪わないよう、修飾キーが 1 つ以上押されているときだけ返す。
+ * 通常のタイピングを奪わないよう、Shift 以外の修飾キー（Ctrl、Alt、Cmd、Windows キー）が押されているときだけ返す。
+ * Shift だけの組み合わせは、OS 全体に登録するとどのアプリでもその文字を打てなくなる。
  */
 export function shortcutFromKeyEvent(input: ShortcutKeyInput, isMac: boolean): string | null {
   if (MODIFIER_CODES.has(input.code)) return null;
@@ -117,7 +118,7 @@ export function shortcutFromKeyEvent(input: ShortcutKeyInput, isMac: boolean): s
     if (input.shiftKey) mods.push("Shift");
     if (input.metaKey) mods.push("Super");
   }
-  if (mods.length === 0) return null;
+  if (!input.ctrlKey && !input.altKey && !input.metaKey) return null;
   return [...mods, key].join("+");
 }
 

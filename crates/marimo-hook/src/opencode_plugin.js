@@ -119,19 +119,25 @@ function next() {
 
 // プラグインを外すとき（opencode run --standalone のように OpenCode が終わるときを含む）は、まだ渡して
 // いないイベントをその場で渡し切る。終わった後の OpenCode は列の続きを起動しないので、完了の知らせを失う。
+// OpenCode の終了を待たせすぎないよう、全体で FLUSH_BUDGET_MS までにとどめ、残りは捨てる。
+const FLUSH_BUDGET_MS = 2000
 function flush() {
+  const deadline = Date.now() + FLUSH_BUDGET_MS
   // 起動済みの marimo-hook が書き終える前に後のイベントを書くと順が入れ替わるので、少し待つ。
   if (running) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300)
   for (let body = queue.shift(); body !== undefined; body = queue.shift()) {
+    const left = deadline - Date.now()
+    if (left <= 0) break
     try {
       spawnSync(HOOK, ["opencode-hook"], {
         input: body,
         stdio: ["pipe", "ignore", "ignore"],
-        timeout: 2000,
+        timeout: left,
         windowsHide: true,
       })
     } catch {}
   }
+  queue.length = 0
 }
 
 async function lookup(ctx, sessionID) {

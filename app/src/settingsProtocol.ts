@@ -33,6 +33,8 @@ export interface SettingsState {
   usage_tools: UsageTools;
   /** 表示に使っている言語。display.json に language が無いときは、OS の言語から決まったもの。 */
   language: Lang;
+  /** 直前の設定の変更を保存できなかったときの理由。設定のウィンドウに出す。 */
+  error: string | null;
 }
 
 export type SettingsRequest =

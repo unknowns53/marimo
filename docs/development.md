@@ -51,7 +51,7 @@ The registration steps are in [2. Register with each tool](../README.md#2-regist
 
 `install` does the following. Steps 2 and 3 register marimo in the Claude Code settings file.
 
-1. Copies itself to `~/.marimo/bin/marimo-hook`. settings.json refers to this path, so the hooks keep working even if you delete or rebuild `target/` in the repository.
+1. Copies itself to `~/.marimo/bin/marimo-hook`. settings.json refers to this path, so the hooks keep working even if you delete or rebuild `target/` in the repository. On Windows, a running `marimo-hook.exe` (the statusLine wrapper runs often) cannot be replaced, so the current one is first moved to `.marimo-hook.old.<process ID>.exe` and the new one is put in its place. Moved files are deleted by the next `install` once they are no longer running.
 2. Adds to `hooks` in the settings file a hook for each of the following 16 events, which calls `~/.marimo/bin/marimo-hook` with the argument `hook`. The timeout is 5 seconds.
    SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PermissionDenied, PostToolUse, PostToolUseFailure, Notification, Elicitation, ElicitationResult, Stop, StopFailure, SessionEnd, MessageDisplay, SubagentStart, SubagentStop
 
@@ -68,14 +68,14 @@ The registration steps are in [2. Register with each tool](../README.md#2-regist
 
    A hook with `args` is called the exec form: Claude Code starts the executable in `command` directly, without a shell, and passes `args` as its arguments as is. Because no shell is involved, a path with spaces does not need quoting, and text printed by shell startup files never mixes into the hook's output. The Claude Code version that supports the exec form is given in [Requirements](../README.md#requirements) in the README.
 
-   If a hook that passes the string `~/.marimo/bin/marimo-hook hook` to a shell is registered, it is rewritten to the exec form, keeping its group and position.
+   marimo's hooks are recognized by the executable's file name, `marimo-hook` (`marimo-hook.exe` on Windows), wherever it is. Hooks that pass the string `<path to marimo-hook> hook` to a shell, and hooks that point to a `marimo-hook` at another location (for example, after a trial with a different `MARIMO_HOME`), are merged into one exec-form hook at the current location. If no hook in the current form exists, the first one is rewritten in place, keeping its group and position, and the rest are removed.
 
 3. Registers statusLine (see [How statusLine is wrapped](#how-statusline-is-wrapped)).
 4. Registers the Codex hooks (see [Codex hooks](#codex-hooks)).
 5. Places the OpenCode plugin (see [The OpenCode plugin](#the-opencode-plugin)).
 6. Registers the Antigravity hooks (see [Antigravity hooks](#antigravity-hooks)).
 
-Steps 4 to 6 run only when the tool's settings folder exists. If the folder does not exist, marimo treats the tool as not installed and says nothing about it. Hermes Agent is not handled by `install` and is registered by hand (see [Hermes hooks](#hermes-hooks)).
+Steps 2 and 3 are skipped, with a note, when `--settings` is not given and the Claude Code settings folder (`~/.claude`, or the folder that the environment variable `CLAUDE_CONFIG_DIR` points to) does not exist. Steps 4 to 6 run only when the tool's settings folder exists. If the folder does not exist, marimo treats the tool as not installed and says nothing about it. Hermes Agent is not handled by `install` and is registered by hand (see [Hermes hooks](#hermes-hooks)).
 
 | Tool | Settings folder | Registered in |
 | --- | --- | --- |
@@ -85,7 +85,7 @@ Steps 4 to 6 run only when the tool's settings folder exists. If the folder does
 
 ### How statusLine is wrapped
 
-If no statusLine is set, only `marimo-hook statusline` is registered. If you already use a statusLine, the original command is wrapped in the form `marimo-hook statusline -- sh -c '<original command>'`. marimo passes the input it receives to the original command unchanged and returns the original command's output and exit code unchanged, so your statusLine looks the same. If the statusLine is not of the command type, it is not changed. statusLine has no exec form, so it is registered as a command string that goes through a shell.
+If no statusLine is set, only `marimo-hook statusline` is registered. If you already use a statusLine, the original command is wrapped in the form `marimo-hook statusline -- sh -c '<original command>'`. marimo passes the input it receives to the original command unchanged and returns the original command's output and exit code unchanged, so your statusLine looks the same. If the statusLine is not of the command type, it is not changed. statusLine has no exec form, so it is registered as a command string that goes through a shell. A statusLine wrapped by a `marimo-hook` at another location, or wrapped twice, is unwrapped down to the original command and wrapped once by the current `marimo-hook`. `uninstall` also removes every layer of wrapping and restores the original command.
 
 On Windows, Claude Code runs statusLine in Git Bash if it is available, and in PowerShell otherwise. Which one runs depends on the environment, and the two have different quoting rules, so marimo writes the command without quotes, in a form both shells interpret the same way. The path of marimo-hook starts with `~/` if the executable is under your home folder, such as `~/.marimo/bin/marimo-hook.exe statusline`, and is otherwise written as an absolute path separated by `/`. If the path contains spaces or similar characters and cannot be written in either form, statusLine is not registered and an existing statusLine is not wrapped.
 
@@ -100,11 +100,12 @@ When the first word of the wrapped command is a bare name such as `bash`, marimo
 - Before changing a file, they create a backup in the same folder, named by adding `.marimo-backup-<date and time>` to the file name, as in `settings.json.marimo-backup-<date and time>` and `hooks.json.marimo-backup-<date and time>`. The date and time are in UTC (Coordinated Universal Time) in the form `YYYYMMDD-HHMMSS`, and if the name already exists, a number such as `-1` is added at the end. If the file did not exist, it is created without a backup.
 - Existing hooks and items unrelated to marimo are kept as they are, including the order of keys. For settings.json, the file permissions are also kept, and if it is a symbolic link, the file it points to is changed.
 - Running them again gives the same result. If everything is already registered, they say that nothing changed because marimo is already installed, and leave both the file and its backups untouched. Running `install` after a rebuild replaces only `~/.marimo/bin/marimo-hook` with the new one. Only hooks still in the shell form are rewritten to the exec form. The [update scripts](usage.md#updating) also run this `install` with the new `marimo-hook` after replacing the app.
-- If settings.json cannot be read as JSON (a text format for data), for example, they change nothing, show the reason, and exit with a non-zero exit code.
+- Each tool's settings file is handled separately. If settings.json cannot be read as JSON (a text format for data), for example, that file is left unchanged, the reason is shown, and the other tools are still processed. At the end, the tools that could not be processed are listed and the command exits with a non-zero exit code.
+- With `--dry-run`, no file is changed, and only the hooks to add or remove and the statusLine before and after are shown. The whole settings file is not shown, because it may contain tokens in `env` and similar values.
 
 ### Subcommands and the settings file location
 
-`marimo-hook` has nine subcommands: `hook`, `codex-hook`, `hermes-hook`, `opencode-hook`, `antigravity-hook`, `statusline`, `record`, `install`, and `uninstall`. You use only `install` and `uninstall` directly; the others are called by the tools or used for investigation. There is no help output such as `--help`; an unknown subcommand prints a one-line error and exits.
+`marimo-hook` has nine subcommands: `hook`, `codex-hook`, `hermes-hook`, `opencode-hook`, `antigravity-hook`, `statusline`, `record`, `install`, and `uninstall`. You use only `install` and `uninstall` directly; the others are called by the tools or used for investigation. `help`, `--help`, and `-h` print the usage. An unknown subcommand typed in a terminal prints an error and the usage and exits with a non-zero exit code. When a tool calls `marimo-hook` as a hook (standard input is not a terminal), an unknown subcommand prints a one-line error and exits with exit code 0, so that the tool's work is never stopped.
 
 You can specify the target settings file with `--settings <path>`. If omitted, `settings.json` under the environment variable `CLAUDE_CONFIG_DIR` is used if it is set, and `~/.claude/settings.json` otherwise.
 
@@ -218,7 +219,7 @@ Restart any running agy CLI and the Gemini desktop app so they load the hooks.
 
 ### What uninstall does
 
-`uninstall` also accepts `--dry-run` and `--settings <path>`, and creates backups before changing files. It removes only what marimo added to each tool, including hooks registered in the shell form. Codex, OpenCode, and Antigravity are handled only when their settings folders exist.
+`uninstall` also accepts `--dry-run` and `--settings <path>`, and creates backups before changing files. It removes only what marimo added to each tool, including hooks registered in the shell form and hooks that point to a `marimo-hook` at another location. Codex, OpenCode, and Antigravity are handled only when their settings folders exist.
 
 | Tool | What is removed |
 | --- | --- |
@@ -291,7 +292,7 @@ Session state files have `provider`, which tells which tool the session belongs 
 
 If `CODEX_HOME` is set, that location is used instead of `~/.codex`.
 
-State files are changed by writing to a temporary file and then renaming it. This way, a reader never sees a file in the middle of being written (this is called an atomic write). While writing, a temporary file whose name starts with `.` and ends with `.tmp` exists for a moment.
+State files are changed by writing to a temporary file and then renaming it. This way, a reader never sees a file in the middle of being written (this is called an atomic write). While writing, a temporary file named `.<file name>.<process ID>.<sequence number>.tmp` exists for a moment. If a hook is stopped in the middle of a write and leaves a temporary file behind, the app deletes those older than an hour from directly under `~/.marimo` and from `sessions` at startup and every 10 minutes. On Windows, renaming fails while antivirus software or similar briefly has the file open, so the rename is retried with doubling intervals for up to about 0.5 seconds in total.
 
 `MARIMO_HOME` must have the same value for both the `marimo-hook` called by each tool and the app. For OpenCode, the value seen by the service process that runs the plugin is passed to `marimo-hook`. When the app is launched at login, `MARIMO_HOME` is not passed to it, so the app reads `~/.marimo`. This setting is mainly for trying things out during development without touching your real data.
 
@@ -477,7 +478,7 @@ Data flows in the following order.
    | Hermes hooks | `marimo-hook hermes-hook` | `sessions/hermes-<session_id>.json` |
    | The plugin running inside the OpenCode service | `marimo-hook opencode-hook` | `sessions/opencode-<session_id>.json` |
    | agy hooks | `marimo-hook antigravity-hook` | `sessions/antigravity-<conversationId>.json`, recording the token count read from the transcript as context usage |
-   | Claude Code statusLine | `marimo-hook statusline` | Context usage and the session name to the session's file, and, if a new response has arrived, usage limits to `rate_limits.json` |
+   | Claude Code statusLine | `marimo-hook statusline` | Context usage and the session name to the session's file, rewritten only when the values change, or every 60 seconds even if they do not, and, if a new response has arrived, usage limits to `rate_limits.json` |
 
    The OpenCode plugin subscribes to events and starts `marimo-hook` for each selected event. It starts the next one only after the previous `marimo-hook` has exited, so writes never happen out of the order of the events. A hook holds up the tool, so waiting for the lock is limited to 300 milliseconds.
 2. The app checks every 30 seconds the usage limits that Claude Code left in `~/.claude.json` and writes them to `rate_limits.json`. If a refresh interval is chosen, it writes the usage limits queried from `codex app-server` to `codex_rate_limits.json`, and those read with `agy -p /usage` to `antigravity_rate_limits.json` (see [What marimo runs](#what-marimo-runs)).

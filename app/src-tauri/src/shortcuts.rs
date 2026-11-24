@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use marimo_core::{Lang, MarimoHome, Provider, SessionState, Status, store};
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use crate::scale::{self, Shortcuts};
 use crate::{AppState, acknowledged, focus, tray};
@@ -72,6 +72,7 @@ pub fn init(app: &AppHandle, home: &MarimoHome) {
         return;
     };
     let mut bindings = HashMap::new();
+    let mut registered = Shortcuts::default();
     for (raw, action) in [
         (saved.focus_urgent.as_deref(), Action::FocusUrgent),
         (saved.toggle_visible.as_deref(), Action::ToggleVisible),
@@ -83,14 +84,20 @@ pub fn init(app: &AppHandle, home: &MarimoHome) {
                     eprintln!("marimo: cannot register shortcut {text}: {e}");
                 } else {
                     bindings.insert(sc, action);
+                    let slot = match action {
+                        Action::FocusUrgent => &mut registered.focus_urgent,
+                        Action::ToggleVisible => &mut registered.toggle_visible,
+                    };
+                    *slot = Some(text.to_owned());
                 }
             }
             Ok(_) => {}
             Err(e) => eprintln!("marimo: invalid shortcut {text}: {e}"),
         }
     }
-    // 保存済みの設定自体は保持し、登録できたものだけを bindings に載せる。
-    state.shortcuts.replace(saved, bindings);
+    // 設定のウィンドウには、実際に登録できたものだけを有効として見せる。他のアプリと競合して登録できなかった
+    // ものも display.json には残すので、競合が解けた次の起動で登録し直す。
+    state.shortcuts.replace(registered, bindings);
 }
 
 /// 新しいショートカット設定を検証・登録して保存する。失敗したら直前の登録へ戻して理由を返す。
@@ -107,18 +114,22 @@ pub fn apply(
     let prev_parsed = parse_pair(&previous, lang).unwrap_or_default();
 
     let manager = app.global_shortcut();
+    // 登録か保存に失敗したときは、直前に登録していたものへ戻す。登録したキーと bindings を食い違わせない。
+    let restore = || {
+        let _ = manager.unregister_all();
+        let mut restored = HashMap::new();
+        for (old_sc, old_action, _) in &prev_parsed {
+            if manager.register(*old_sc).is_ok() {
+                restored.insert(*old_sc, *old_action);
+            }
+        }
+        state.shortcuts.replace(previous.clone(), restored);
+    };
     let _ = manager.unregister_all();
     let mut bindings = HashMap::new();
     for (sc, action, raw) in &parsed {
         if let Err(e) = manager.register(*sc) {
-            let _ = manager.unregister_all();
-            let mut restored = HashMap::new();
-            for (old_sc, old_action, _) in &prev_parsed {
-                if manager.register(*old_sc).is_ok() {
-                    restored.insert(*old_sc, *old_action);
-                }
-            }
-            state.shortcuts.replace(previous, restored);
+            restore();
             return Err(lang.pick(
                 format!("ショートカット「{raw}」を登録できませんでした（他のアプリと競合している可能性があります: {e}）"),
                 format!("Could not register shortcut \"{raw}\" (it may conflict with another app: {e})"),
@@ -127,12 +138,13 @@ pub fn apply(
         bindings.insert(*sc, *action);
     }
 
-    scale::save_shortcuts(home, &normalized).map_err(|e| {
-        lang.pick(
+    if let Err(e) = scale::save_shortcuts(home, &normalized) {
+        restore();
+        return Err(lang.pick(
             format!("ショートカットを保存できませんでした（{e}）"),
             format!("Could not save shortcuts ({e})"),
-        )
-    })?;
+        ));
+    }
     state.shortcuts.replace(normalized.clone(), bindings);
     Ok(normalized)
 }
@@ -158,6 +170,16 @@ fn parse_pair(s: &Shortcuts, lang: Lang) -> Result<Vec<(Shortcut, Action, String
                 format!("Could not parse shortcut \"{text}\"."),
             )
         })?;
+        // Shift だけか修飾キーの無い組み合わせを OS 全体に登録すると、どのアプリでもその文字が打てなくなる。
+        if !sc
+            .mods
+            .intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER)
+        {
+            return Err(lang.pick(
+                format!("ショートカット「{text}」には Ctrl、Alt、Cmd（Windows キー）のいずれかを含めてください。Shift だけの組み合わせは、ほかのアプリで文字を打てなくなります。"),
+                format!("Shortcut \"{text}\" must include Ctrl, Alt or Cmd (the Windows key). A combination with only Shift would stop that character from being typed in other apps."),
+            ));
+        }
         if out.iter().any(|(existing, _, _)| existing == &sc) {
             return Err(lang
                 .pick(
@@ -253,6 +275,17 @@ mod tests {
             Lang::En,
         );
         assert!(invalid.is_err());
+
+        for text in ["Shift+A", "A", "Shift+1"] {
+            let typing = parse_pair(
+                &Shortcuts {
+                    focus_urgent: Some(text.into()),
+                    toggle_visible: None,
+                },
+                Lang::En,
+            );
+            assert!(typing.is_err(), "{text}");
+        }
     }
 
     #[test]

@@ -20,6 +20,9 @@ pub enum Mode {
 
 struct Options {
     settings: PathBuf,
+    /// --settings で settings.json を指定したか。指定していなければ、Claude Code の設定フォルダが無いときは
+    /// Claude Code が入っていないものとして飛ばす。
+    explicit_settings: bool,
     dry_run: bool,
 }
 
@@ -38,18 +41,39 @@ pub fn run(
     ))?;
     let exe = home.hook_executable();
     let marimo = marimo_for(&exe);
+    // ツールごとの設定ファイルは別々に読み書きするので、一つが失敗してもほかのツールは続けて処理し、
+    // 最後に失敗したツールをまとめて伝える。
+    let mut failed = Vec::new();
     match mode {
         Mode::Install => {
-            install(&opts, &exe, &marimo, lang)?;
-            codex(&mode, &opts, &exe, lang)?;
-            opencode(&mode, &opts, &exe, lang)?;
-            antigravity(&mode, &opts, &exe, lang)
+            if opts.dry_run {
+                print(dry_run_note(lang));
+            }
+            match copy_executable(&opts, &exe, lang) {
+                Ok(line) => print(&line),
+                // 前の版の実行ファイルが残っていれば、各ツールの登録はそれを指したまま使える。
+                Err(e) if exe.is_file() => record_failure(&mut failed, "marimo-hook", Err(e)),
+                Err(e) => return Err(e),
+            }
+            record_failure(&mut failed, "Claude Code", install(&opts, &marimo, lang));
+            record_failure(&mut failed, "Codex", codex(&mode, &opts, &exe, lang));
+            record_failure(&mut failed, "OpenCode", opencode(&mode, &opts, &exe, lang));
+            record_failure(
+                &mut failed,
+                "Antigravity",
+                antigravity(&mode, &opts, &exe, lang),
+            );
+            failures(&failed, lang)
         }
         Mode::Uninstall => {
-            uninstall(&opts, &marimo, lang)?;
-            codex(&mode, &opts, &exe, lang)?;
-            opencode(&mode, &opts, &exe, lang)?;
-            antigravity(&mode, &opts, &exe, lang)?;
+            record_failure(&mut failed, "Claude Code", uninstall(&opts, &marimo, lang));
+            record_failure(&mut failed, "Codex", codex(&mode, &opts, &exe, lang));
+            record_failure(&mut failed, "OpenCode", opencode(&mode, &opts, &exe, lang));
+            record_failure(
+                &mut failed,
+                "Antigravity",
+                antigravity(&mode, &opts, &exe, lang),
+            );
             let (exe, root) = (exe.display(), home.root().display());
             print(&match lang {
                 Lang::Ja => format!(
@@ -59,9 +83,31 @@ pub fn run(
                     "The executable and data were kept. Delete the following if you no longer need them.\n  {exe}\n  {root}\n"
                 ),
             });
-            Ok(())
+            failures(&failed, lang)
         }
     }
+}
+
+fn record_failure(failed: &mut Vec<&'static str>, tool: &'static str, result: Result<(), String>) {
+    if let Err(e) = result {
+        let _ = writeln!(io::stderr(), "marimo-hook: {tool}: {e}");
+        failed.push(tool);
+    }
+}
+
+fn failures(failed: &[&str], lang: Lang) -> Result<(), String> {
+    if failed.is_empty() {
+        return Ok(());
+    }
+    let list = failed.join(", ");
+    Err(match lang {
+        Lang::Ja => format!(
+            "{list} は処理できませんでした。上のメッセージを確認してください。ほかのツールは上の表示のとおり処理しました"
+        ),
+        Lang::En => format!(
+            "Could not process {list}; check the messages above. The other tools were processed as shown above"
+        ),
+    })
 }
 
 fn codex_trust_note(lang: Lang) -> &'static str {
@@ -177,8 +223,9 @@ fn codex(mode: &Mode, opts: &Options, exe: &Path, lang: Lang) -> Result<(), Stri
                     &file,
                     lang,
                 )?;
-                out += codex_trust_note(lang);
             }
+            // 信頼していないフックを Codex は実行しないので、入れ直して確かめる利用者にも毎回伝える。
+            out += codex_trust_note(lang);
         }
         Mode::Uninstall => match read_settings(&path, false, lang)? {
             None => out += &nothing_to_remove("hooks.json", lang),
@@ -366,7 +413,7 @@ fn antigravity(mode: &Mode, opts: &Options, exe: &Path, lang: Lang) -> Result<()
 }
 
 fn parse_args(args: &[OsString], lang: Lang) -> Result<Options, String> {
-    let mut settings = None;
+    let mut settings: Option<PathBuf> = None;
     let mut dry_run = false;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
@@ -388,11 +435,16 @@ fn parse_args(args: &[OsString], lang: Lang) -> Result<Options, String> {
             }
         }
     }
+    let explicit_settings = settings.is_some();
     let settings = match settings {
         Some(p) => p,
         None => default_settings_path(lang)?,
     };
-    Ok(Options { settings, dry_run })
+    Ok(Options {
+        settings,
+        explicit_settings,
+        dry_run,
+    })
 }
 
 // CLAUDE_CONFIG_DIR は設定を置くフォルダを ~/.claude から差し替える。
@@ -422,20 +474,13 @@ fn marimo_for(exe: &Path) -> Marimo {
     }
 }
 
-fn install(opts: &Options, exe: &Path, marimo: &Marimo, lang: Lang) -> Result<(), String> {
-    let original = read_settings(&opts.settings, true, lang)?;
-    let mut settings = original
-        .as_ref()
-        .map_or_else(|| Value::Object(Default::default()), |s| s.value.clone());
-    let report = settings_edit::install(&mut settings, marimo, lang)?;
-    let mut out = String::new();
-
+// 実行ファイルを置き、表示する一行を返す。
+fn copy_executable(opts: &Options, exe: &Path, lang: Lang) -> Result<String, String> {
     let not_copied = lang.pick(
         "すでにこの場所から実行しているのでコピーしません",
         "not copied because it is already running from here",
     );
     let note = if opts.dry_run {
-        out += dry_run_note(lang);
         if running_from(exe) {
             not_copied
         } else {
@@ -446,11 +491,42 @@ fn install(opts: &Options, exe: &Path, marimo: &Marimo, lang: Lang) -> Result<()
     } else {
         not_copied
     };
-    out += &match lang {
+    Ok(match lang {
         Lang::Ja => format!("実行ファイル: {}（{note}）\n", exe.display()),
         Lang::En => format!("Executable: {} ({note})\n", exe.display()),
-    };
-    out += &settings_file_line(&opts.settings, lang);
+    })
+}
+
+fn install(opts: &Options, marimo: &Marimo, lang: Lang) -> Result<(), String> {
+    // --settings で指定していないのに設定のフォルダが無ければ、Claude Code は入っていないものとして飛ばす。
+    if !opts.explicit_settings
+        && let Some(dir) = opts.settings.parent().filter(|d| !d.is_dir())
+    {
+        print(&match lang {
+            Lang::Ja => format!(
+                "Claude Code の設定フォルダ {} が無いので、Claude Code のフックは登録しませんでした。\n",
+                dir.display()
+            ),
+            Lang::En => format!(
+                "Skipped the Claude Code hooks because the Claude Code settings folder {} does not exist.\n",
+                dir.display()
+            ),
+        });
+        return Ok(());
+    }
+    let original = read_settings(&opts.settings, true, lang)?;
+    let mut settings = original
+        .as_ref()
+        .map_or_else(|| Value::Object(Default::default()), |s| s.value.clone());
+    let report = settings_edit::install(&mut settings, marimo, lang)?;
+    let mut out = settings_file_line(&opts.settings, lang);
+    if opts.dry_run && !report.added.is_empty() {
+        // 設定ファイルの全体は env のトークンなどを含みうるので、marimo が足すハンドラだけを見せる。
+        out += &match lang {
+            Lang::Ja => format!("追加するハンドラ: {}\n", marimo.hook_handler()),
+            Lang::En => format!("Handler to add: {}\n", marimo.hook_handler()),
+        };
+    }
     out += &hooks_line(Label::Add, &report.added, lang);
     if !report.migrated.is_empty() {
         out += &hooks_line(Label::Migrate, &report.migrated, lang);
@@ -519,14 +595,16 @@ fn commit(
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
     );
-    let mut text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    text.push('\n');
+    // dry-run では内容を表示しない。設定ファイルは env のトークンなどを含みうるので、変わる箇所は
+    // 呼び出し側がツールごとに表示する。
     if dry_run {
         return Ok(match lang {
-            Lang::Ja => format!("変更後の {name}:\n{text}"),
-            Lang::En => format!("{name} after the change:\n{text}"),
+            Lang::Ja => format!("{name} を書き換えます。\n"),
+            Lang::En => format!("{name} will be updated.\n"),
         });
     }
+    let mut text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    text.push('\n');
     let target = resolve_symlink(path);
     ensure_unchanged(&target, original, lang)?;
     let mut out = String::new();
@@ -580,22 +658,22 @@ fn read_settings(path: &Path, allow_missing: bool, lang: Lang) -> Result<Option<
     };
     let value: Value = serde_json::from_slice(&bytes).map_err(|e| match lang {
         Lang::Ja => format!(
-            "{} が JSON として読めないので、何も変更していません: {e}",
+            "{} が JSON として読めないので、このファイルは変更していません: {e}",
             path.display()
         ),
         Lang::En => format!(
-            "{} is not valid JSON, so nothing was changed: {e}",
+            "{} is not valid JSON, so this file was left unchanged: {e}",
             path.display()
         ),
     })?;
     if !value.is_object() {
         return Err(match lang {
             Lang::Ja => format!(
-                "{} の最上位が JSON のオブジェクトではないので、何も変更していません",
+                "{} の最上位が JSON のオブジェクトではないので、このファイルは変更していません",
                 path.display()
             ),
             Lang::En => format!(
-                "The top level of {} is not a JSON object, so nothing was changed",
+                "The top level of {} is not a JSON object, so this file was left unchanged",
                 path.display()
             ),
         });
@@ -758,17 +836,68 @@ fn copy_self(dest: &Path, lang: Lang) -> Result<bool, String> {
     store::create_private_dir_all(dir).map_err(|e| cannot_create(dir, &e, lang))?;
     // 実行中の古いバイナリを上書きせず、別名で書いてから rename して差し替える。
     // macOS は同じ inode への上書きで署名の検証に失敗し、実行中のプロセスを落とすことがある。
+    remove_set_aside(dir);
     let tmp = dir.join(format!(".marimo-hook.{}.tmp", std::process::id()));
     fs::copy(&current, &tmp)
-        .and_then(|_| fs::rename(&tmp, dest))
+        .and_then(|_| replace_executable(&tmp, dest))
         .map_err(|e| {
             let _ = fs::remove_file(&tmp);
             match lang {
-                Lang::Ja => format!("{} へコピーできません: {e}", dest.display()),
-                Lang::En => format!("Cannot copy to {}: {e}", dest.display()),
+                Lang::Ja => format!(
+                    "{} へコピーできません: {e}。少し待ってから、もう一度実行してください",
+                    dest.display()
+                ),
+                Lang::En => format!(
+                    "Cannot copy to {}: {e}. Wait a moment and run the command again",
+                    dest.display()
+                ),
             }
         })?;
     Ok(true)
+}
+
+const SET_ASIDE_PREFIX: &str = ".marimo-hook.old.";
+
+// Windows では、動いている実行ファイルを置き換え先にした rename は失敗するが、動いている実行ファイルを別名へ
+// 移すことはできる。statusLine を通す marimo-hook は Claude Code のセッションが開いている間ほぼ常に動いて
+// いるので、先に今のものを退避してから新しいものを置く。新しいものを置けなければ退避したものを戻す。
+#[cfg(windows)]
+fn replace_executable(new: &Path, dest: &Path) -> io::Result<()> {
+    if !dest.exists() {
+        return fs::rename(new, dest);
+    }
+    let dir = dest.parent().unwrap_or(Path::new("."));
+    let aside = dir.join(format!("{SET_ASIDE_PREFIX}{}.exe", std::process::id()));
+    let _ = fs::remove_file(&aside);
+    fs::rename(dest, &aside)?;
+    if let Err(e) = fs::rename(new, dest) {
+        let _ = fs::rename(&aside, dest);
+        return Err(e);
+    }
+    // まだ動いていれば消せないので、次の install で消す。
+    let _ = fs::remove_file(&aside);
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn replace_executable(new: &Path, dest: &Path) -> io::Result<()> {
+    fs::rename(new, dest)
+}
+
+// 前の install が退避した実行ファイルのうち、もう動いていないものを消す。動いているものは消せないので残す。
+fn remove_set_aside(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|n| n.starts_with(SET_ASIDE_PREFIX))
+        {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 fn describe_status_line(change: &StatusLineChange, lang: Lang) -> String {
@@ -786,6 +915,16 @@ fn describe_status_line(change: &StatusLineChange, lang: Lang) -> String {
             let head = lang.pick(
                 "元のコマンドをラップします",
                 "The original command will be wrapped",
+            );
+            format!("statusLine: {head}\n  {before}: {b}\n  {after}: {a}\n")
+        }
+        StatusLineChange::Replaced {
+            before: b,
+            after: a,
+        } => {
+            let head = lang.pick(
+                "別の場所の marimo-hook や二重のラップを、今の marimo-hook の一重のラップに書き換えます",
+                "The wrapping by a marimo-hook at another location, or a double wrapping, will be replaced with a single wrapping by this marimo-hook",
             );
             format!("statusLine: {head}\n  {before}: {b}\n  {after}: {a}\n")
         }

@@ -22,6 +22,7 @@
 
     <main class="detail-pane">
       <form id="settings" class="detail">
+        <p id="settings-error" class="sub error" role="status" aria-live="polite" hidden></p>
         <section id="section-display">
           <h1 class="title" data-en="Display">表示</h1>
           <label class="check"><input type="checkbox" name="show_character" /><span data-en="Show character">立ち絵を表示</span></label>
@@ -109,7 +110,7 @@
 
         <section id="section-shortcuts" hidden>
           <h1 class="title" data-en="Shortcuts">ショートカット</h1>
-          <p class="hint" data-en="Optional global shortcuts that work from any app. Click a box and press a key combination with at least one modifier key.">他のアプリを操作しているときにも使えるキーボード操作です。枠を押して修飾キーを含む組み合わせを入力してください。</p>
+          <p class="hint" data-en="Optional global shortcuts that work from any app. Click a box and press a key combination that includes Ctrl, Alt or Cmd (the Windows key). Press Esc to cancel and Backspace or Delete to clear.">他のアプリを操作しているときにも使えるキーボード操作です。枠を押して、Ctrl、Alt、Cmd（Windows キー）のいずれかを含む組み合わせを入力してください。Esc で取りやめ、Backspace か Delete で消去します。</p>
           <div class="field">
             <span class="label" data-en="Jump to next session needing attention">要対応のセッションへ移動</span>
             <div class="shortcut-row">
