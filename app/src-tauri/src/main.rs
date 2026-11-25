@@ -33,8 +33,8 @@ struct AppState {
     // 立ち絵の倍率。display.json へは scale_saver が遅れて書くので、ウィンドウの配置にはこちらを使う。
     scale: Mutex<f64>,
     scale_saver: mpsc::Sender<f64>,
-    // 立ち絵を表示しているか。非表示のときはパネル幅へウィンドウを詰める。
-    show_character: Mutex<bool>,
+    // 立ち絵を表示しているかとパネルの倍率。非表示のときはパネル幅へウィンドウを詰める。
+    frame: Mutex<scale::Frame>,
     tray: OnceLock<tray::Tray>,
     // フロントエンドが既読にしたトリガー。メニューバーのアイコンを決めるのに使う。
     acknowledged: Mutex<HashSet<String>>,
@@ -72,11 +72,8 @@ impl AppState {
         *self.scale.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn show_character(&self) -> bool {
-        *self
-            .show_character
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+    fn frame(&self) -> scale::Frame {
+        *self.frame.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn corner(&self) -> window_pos::Corner {
@@ -99,29 +96,27 @@ const LANGUAGE_EVENT: &str = "language";
 const LAYOUT_EVENT: &str = "layout";
 
 // 大きさを変えるのはいつも立ち絵のウィンドウなので、呼び出し元のウィンドウではなくラベルで取る。
-fn resize(app: &AppHandle, scale: f64, aspect: f64, show_character: bool) {
+fn resize(app: &AppHandle, scale: f64, aspect: f64) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    let (w, h) = scale::window_size_for(scale, aspect, show_character);
-    let corner = app.state::<AppState>().corner();
-    window_pos::resize_keeping_corner(&window, (w, h), corner);
+    let state = app.state::<AppState>();
+    let (w, h) = scale::window_size_for(scale, aspect, state.frame());
+    window_pos::resize_keeping_corner(&window, (w, h), state.corner());
 }
 
-pub(crate) fn sync_window_character(app: &AppHandle, show_character: bool) {
+/// 立ち絵の有無やパネルの倍率が変わったときだけ、ウィンドウの大きさを合わせ直す。
+pub(crate) fn sync_window_frame(app: &AppHandle, frame: scale::Frame) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let mut current = state
-        .show_character
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if *current == show_character {
+    let mut current = state.frame.lock().unwrap_or_else(|e| e.into_inner());
+    if *current == frame {
         return;
     }
-    *current = show_character;
+    *current = frame;
     drop(current);
-    resize(app, state.scale(), state.aspect(), show_character);
+    resize(app, state.scale(), state.aspect());
 }
 
 pub(crate) fn reset_position(app: &AppHandle) {
@@ -129,7 +124,7 @@ pub(crate) fn reset_position(app: &AppHandle) {
     else {
         return;
     };
-    let size = scale::window_size_for(state.scale(), state.aspect(), state.show_character());
+    let size = scale::window_size_for(state.scale(), state.aspect(), state.frame());
     let corner = window_pos::reset(&window, &state.home, size);
     *state.corner.lock().unwrap_or_else(|e| e.into_inner()) = corner;
     if let Err(e) = app.emit(LAYOUT_EVENT, corner) {
@@ -145,7 +140,7 @@ fn relayout(app: &AppHandle, pos: (i32, i32)) -> ((i32, i32), window_pos::Corner
     let Some(window) = app.get_webview_window("main") else {
         return (pos, current);
     };
-    let (scale, aspect, show_character) = (state.scale(), state.aspect(), state.show_character());
+    let (scale, aspect, frame) = (state.scale(), state.aspect(), state.frame());
     let Some(size) = window_pos::Screen::outer(&window) else {
         return (pos, current);
     };
@@ -155,7 +150,7 @@ fn relayout(app: &AppHandle, pos: (i32, i32)) -> ((i32, i32), window_pos::Corner
         ..size
     };
     let Some((next, moved)) = window_pos::settle(&window, rect, current, |c| {
-        scale::stage_rect_for(scale, aspect, c, show_character)
+        scale::stage_rect_for(scale, aspect, c, frame)
     }) else {
         return (pos, current);
     };
@@ -192,7 +187,7 @@ fn get_scale(state: State<'_, AppState>) -> f64 {
 fn set_scale(app: AppHandle, state: State<'_, AppState>, scale: f64) -> f64 {
     let scale = scale::clamp(scale);
     *state.scale.lock().unwrap_or_else(|e| e.into_inner()) = scale;
-    resize(&app, scale, state.aspect(), state.show_character());
+    resize(&app, scale, state.aspect());
     let _ = state.scale_saver.send(scale);
     scale
 }
@@ -209,7 +204,7 @@ fn set_panel_display(
     display: scale::PanelDisplay,
 ) -> Result<(), String> {
     scale::save_panel_display(&state.home, display).map_err(|e| e.to_string())?;
-    sync_window_character(&app, display.show_character);
+    sync_window_frame(&app, display.frame());
     // 右クリックメニューやパネルの切り替えや設定のウィンドウで変えた表示を、トレイのメニューのチェックにも揃える。
     // トレイで選んだ表示はトレイ自身が保存してチェックを付けるので、ここは通らない。
     if let Some(tray) = state.tray.get() {
@@ -327,7 +322,7 @@ fn set_character(state: State<'_, AppState>, id: String) -> Result<(), String> {
 fn set_stage_aspect(app: AppHandle, state: State<'_, AppState>, aspect: f64) {
     let aspect = scale::clamp_aspect(aspect);
     *state.aspect.lock().unwrap_or_else(|e| e.into_inner()) = aspect;
-    resize(&app, state.scale(), aspect, state.show_character());
+    resize(&app, state.scale(), aspect);
     if let Err(e) = scale::save_aspect(&state.home, aspect) {
         eprintln!("marimo: cannot save stage aspect: {e}");
     }
@@ -460,7 +455,7 @@ fn main() {
             aspect: Mutex::new(aspect),
             scale: Mutex::new(initial_scale),
             scale_saver: scale::spawn_saver(home.clone()),
-            show_character: Mutex::new(initial_display.show_character),
+            frame: Mutex::new(initial_display.frame()),
             tray: OnceLock::new(),
             acknowledged: Mutex::new(acknowledged::load(&home).into_iter().collect()),
             corner: Mutex::new(window_pos::Corner::default()),
@@ -518,10 +513,9 @@ fn main() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window is declared in tauri.conf.json");
-            let (w, h) =
-                scale::window_size_for(initial_scale, aspect, initial_display.show_character);
+            let (w, h) = scale::window_size_for(initial_scale, aspect, initial_display.frame());
             let corner = window_pos::start(&window, &home, (w, h), |c| {
-                scale::stage_rect_for(initial_scale, aspect, c, initial_display.show_character)
+                scale::stage_rect_for(initial_scale, aspect, c, initial_display.frame())
             });
             *app.state::<AppState>()
                 .corner

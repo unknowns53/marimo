@@ -17,7 +17,7 @@ import {
 import type { SettingsRequest, SettingsState } from "./settingsProtocol";
 
 const STATE: SettingsState = {
-  display: { ...DEFAULT_PANEL_DISPLAY, panel_style: "counts", row_order: "status", panel_opacity: 0.35000000000000003 },
+  display: { ...DEFAULT_PANEL_DISPLAY, panel_style: "collapsed", row_order: "status", panel_opacity: 0.35000000000000003, panel_scale: 1.15 },
   bubble: { ...DEFAULT_BUBBLE_SETTINGS, bubble_done: false, bubble_seconds: 30 },
   characters: [
     { id: "koharu", name: "小春" },
@@ -70,9 +70,10 @@ describe("formValues", () => {
     expect(formValues(STATE)).toEqual({
       language: "en",
       show_character: true,
-      panel_style: "counts",
+      panel_collapsed: true,
       row_order: "status",
       panel_opacity: "35",
+      panel_scale: "1.15",
       bubble_waiting: true,
       bubble_done: false,
       bubble_error: true,
@@ -94,11 +95,13 @@ describe("requestFor", () => {
     const cases: [string, FormControl, "input" | "change", SettingsRequest | null][] = [
       ["checkbox", control("show_character", "on", true), "change", { kind: "display", patch: { show_character: true } }],
       ["checkbox input", control("show_character", "on", true), "input", null],
-      ["style", control("panel_style", "counts", true), "change", { kind: "display", patch: { panel_style: "counts" } }],
-      ["unknown style", control("panel_style", "list", true), "change", null],
+      ["hide list", control("panel_collapsed", "on", true), "change", { kind: "display", patch: { panel_style: "collapsed" } }],
+      ["show list", control("panel_collapsed", "on", false), "change", { kind: "display", patch: { panel_style: "detail" } }],
       ["order", control("row_order", "updated", true), "change", { kind: "display", patch: { row_order: "updated" } }],
       ["opacity drag", control("panel_opacity", "35"), "input", { kind: "opacity-preview", opacity: 0.35 }],
       ["opacity release", control("panel_opacity", "35"), "change", { kind: "display", patch: { panel_opacity: 0.35 } }],
+      ["panel size drag", control("panel_scale", "1.05"), "input", { kind: "display", patch: { panel_scale: 1.05 } }],
+      ["panel size release", control("panel_scale", "1.05"), "change", null],
       ["bubble kind", control("bubble_error"), "change", { kind: "bubble", patch: { bubble_error: false } }],
       ["bubble seconds", control("bubble_seconds", "300"), "change", { kind: "bubble", patch: { bubble_seconds: 300 } }],
       ["bad seconds", control("bubble_seconds", "1.5"), "change", null],

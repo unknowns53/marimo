@@ -3,7 +3,6 @@ import { chatTitle, folderName, formatAge, statusLabel } from "./format";
 import { lang, t } from "./i18n";
 import type { SessionState, Snapshot, Status } from "./types";
 
-/** 並べ方は詳細と件数のどちらの出し方にも効く。 */
 export type RowOrder = "started" | "status" | "updated";
 
 export const ROW_ORDERS: readonly RowOrder[] = ["started", "status", "updated"];
@@ -18,22 +17,6 @@ export function rowOrderLabel(order: RowOrder): string {
     case "updated":
       return t("更新順", "Last Update");
   }
-}
-
-export function rowOrderDescription(order: RowOrder): string {
-  switch (order) {
-    case "started":
-      return t("始まった時刻の新しい順", "Most recently started first");
-    case "status":
-      return t("承認待ち、エラー、作業中、完了の順", "Waiting, error, working, then done");
-    case "updated":
-      return t("最後に更新された時刻の新しい順", "Most recently updated first");
-  }
-}
-
-/** パネルの並べ方のボタンは、押すたびに ROW_ORDERS の順に次の並べ方へ移る。 */
-export function nextRowOrder(order: RowOrder): RowOrder {
-  return ROW_ORDERS[(ROW_ORDERS.indexOf(order) + 1) % ROW_ORDERS.length];
 }
 
 export interface PanelPlan {
@@ -100,23 +83,29 @@ export function isEmpty(plan: PanelPlan): boolean {
   return plan.rows.length === 0;
 }
 
-/** 行の出し方は、立ち絵を出すかどうかとは独立に選べる。 */
-export type PanelStyle = "detail" | "counts";
-
-export const PANEL_STYLES: readonly PanelStyle[] = ["detail", "counts"];
+/**
+ * リストを出すかどうかは、立ち絵を出すかどうかとは独立に選べる。collapsed ではセッションの行と今日の既読を隠し、
+ * 利用制限の欄だけを残す。
+ */
+export type PanelStyle = "detail" | "collapsed";
 
 // 範囲と既定は Rust 側の scale.rs と揃える（sharedConstants.test.ts が照合する）。保存するときは Rust が範囲に収め直す。
 export const PANEL_OPACITY_MIN = 0.2;
 export const PANEL_OPACITY_MAX = 1;
 export const DEFAULT_PANEL_OPACITY = 0.8;
+export const PANEL_SCALE_MIN = 0.8;
+export const PANEL_SCALE_MAX = 1.3;
+export const DEFAULT_PANEL_SCALE = 1;
 
 /** Rust の scale::PanelDisplay と同じ形で、display.json に保存する。 */
 export interface PanelDisplay {
   show_character: boolean;
   panel_style: PanelStyle;
   row_order: RowOrder;
-  /** パネルの背景だけの不透明度。文字やアイコンや状態の点は薄くしない。 */
+  /** パネルの背景だけの不透明度。文字やアイコンは薄くしない。 */
   panel_opacity: number;
+  /** パネルの文字と幅をまとめて変える倍率。立ち絵の倍率とは独立に選べる。 */
+  panel_scale: number;
 }
 
 export const DEFAULT_PANEL_DISPLAY: PanelDisplay = {
@@ -124,35 +113,15 @@ export const DEFAULT_PANEL_DISPLAY: PanelDisplay = {
   panel_style: "detail",
   row_order: "started",
   panel_opacity: DEFAULT_PANEL_OPACITY,
+  panel_scale: DEFAULT_PANEL_SCALE,
 };
 
-export interface StatusCount {
-  status: Status;
-  count: number;
-}
-
-/** 件数の行の 1 項目。「承認待ち 1」のように状態と件数を並べる。 */
-export function countLabel({ status, count }: StatusCount): string {
-  return `${statusLabel(status)} ${count}`;
-}
-
 export interface PanelView {
-  style: PanelStyle;
+  collapsed: boolean;
   order: RowOrder;
   plan: PanelPlan;
-  counts: StatusCount[];
-  /** 件数の行を押したときに移動する、最も優先度の高い要対応のセッション。 */
-  target: SessionState | null;
 }
 
-const ATTENTION: ReadonlySet<Status> = new Set(["waiting", "error", "done"]);
-// 件数の行は待機を数えない。
-const COUNT_ORDER = STATUS_PRIORITY.filter((s) => s !== "idle");
-
-/**
- * 件数だけの表示でも数え方は詳細と同じにし、見たと示された完了とエラーは数えない。吹き出しや表情を決める
- * 仕組みは表示によらず同じで、立ち絵を隠している間はそれを見せないだけにする。
- */
 export function panelView(
   snapshot: Snapshot | null,
   ack: Acknowledged,
@@ -161,24 +130,7 @@ export function panelView(
   now: number = Date.now(),
   keep: ReadonlySet<string> = new Set(),
 ): PanelView {
-  const plan = planPanel(snapshot, ack, order, now, keep);
-  const sessions = snapshot?.sessions ?? [];
-  const counted = sessions.filter((s) => !isRead(s, ack));
-  const counts = COUNT_ORDER.map((status) => ({
-    status,
-    count: counted.filter((s) => s.status === status).length,
-  })).filter((c) => c.count > 0);
-  const target = counted.find((s) => ATTENTION.has(s.status)) ?? null;
-  return { style, order, plan, counts, target };
-}
-
-/**
- * 出す行が無いときも、パネルは無いことを示す 1 行を出して残す。
- * パネルごと消えると、並べ方を切り替える場所も、立ち絵を隠しているときに右クリックやドラッグを
- * 受ける場所も無くなるからである。
- */
-export function hasContent(view: PanelView): boolean {
-  return view.style === "detail" ? !isEmpty(view.plan) : view.counts.length > 0;
+  return { collapsed: style === "collapsed", order, plan: planPanel(snapshot, ack, order, now, keep) };
 }
 
 /**
@@ -192,10 +144,8 @@ export function panelSignature(view: PanelView, now: number, todayOpen: boolean)
   const ages = [...plan.rows, ...plan.today].map((s) => formatAge(s.updated_at, now));
   return JSON.stringify([
     lang(),
-    view.style,
+    view.collapsed,
     view.order,
-    view.counts,
-    view.target,
     todayOpen,
     plan.rows,
     [...plan.read].sort(),

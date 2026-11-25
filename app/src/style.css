@@ -1,12 +1,9 @@
 :root {
-  /* パネルとそのタブと広げたレイヤーの背景の不透明度。display.json の panel_opacity を main.ts が入れる。
-     文字やアイコンや状態の点は地と別に描くので薄くならない。 */
+  /* パネルとその掴みしろの背景の不透明度。display.json の panel_opacity を main.ts が入れる。
+     文字やアイコンや状態の色は地と別に描くので薄くならない。 */
   --panel-alpha: 0.8;
   --panel-bg: rgba(28, 28, 34, var(--panel-alpha));
   --panel-fg: #f4f4f5;
-  /* 広げたレイヤーは元の行やタブの上に重なり、薄くすると下の文字と混ざって読めなくなるので、パネルより濃く保つ。
-     パネルが 0.8 以上のときは不透明で、0.2 まで下げても 0.85 に留まる。1 を超えた分は rgba が 1 に収める。 */
-  --layer-bg: rgba(38, 38, 46, calc(0.8 + var(--panel-alpha) * 0.25));
   --bubble-bg: #ffffff;
   --bubble-fg: #3f3a45;
   --idle: #a1a1aa;
@@ -21,12 +18,14 @@
   --margin: 8px;
   /* 立ち絵の表示倍率。Rust の set_scale が返した値を main.ts が入れる。 */
   --scale: 1;
+  /* パネルの文字と幅の倍率。display.json の panel_scale を main.ts が入れる。 */
+  --panel-scale: 1;
   /* 立ち絵の領域の縦横比（高さ ÷ 幅）。選んだキャラクターの素材の比を main.ts が入れる。 */
   --stage-aspect: 1.5;
-  /* パネルの上辺の外に付ける切り替えのタブの高さ。パネルの高さの上限からこの分を引く。 */
-  --panel-tab-h: 20px;
-  /* パネルと広げたレイヤーがウィンドウの上端との間に空ける高さ。立ち絵を出している間は、パネルの右上に重なって
-     出る吹き出し（3 行で 88px）とその隙間の分を空け、吹き出しがタブと行を隠さないようにする。 */
+  /* パネルの上辺の外に付ける掴みしろの高さ。掴みしろは立ち絵を隠しているときだけ出すので、そのときだけ場所を取る。 */
+  --panel-tab-h: 0px;
+  /* パネルがウィンドウの上端との間に空ける高さ。立ち絵を出している間は、パネルの右上に重なって
+     出る吹き出し（3 行で 88px）とその隙間の分を空け、吹き出しが行を隠さないようにする。 */
   --panel-top-room: 104px;
   /* 立ち絵を上の隅に置くときの、ウィンドウの上端から立ち絵とパネルの上端までの高さ。吹き出しをこの中に出す。
      scale.rs の BUBBLE_ROOM と揃える。 */
@@ -45,6 +44,7 @@
 
 #app.character-hidden {
   --panel-top-room: 8px;
+  --panel-tab-h: 20px;
 }
 
 html,
@@ -204,23 +204,25 @@ body {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
-/* 画面の隅で場所を取りすぎないよう、立ち絵の倍率とは別に幅を決める。 */
-/* パネルは立ち絵の左に、下端を揃えて置く。行が増えるとパネルだけが上へ伸びる。上辺の外のタブと
-   合わせてウィンドウの上端から --panel-top-room だけ下までで止め、それより多い行は #rows の中でスクロールさせる。 */
+/* 画面の隅で場所を取りすぎないよう、立ち絵の倍率とは別に幅を決める。文字と幅は --panel-scale でまとめて変え、
+   パネルの中の寸法は --u（倍率を掛けた 1px）の倍数で書く。 */
+/* パネルは立ち絵の左に、下端を揃えて置く。行が増えるとパネルだけが上へ伸びる。ウィンドウの上端から
+   --panel-top-room だけ下までで止め、それより多い行は #rows の中でスクロールさせる。 */
 #panel {
+  --u: calc(var(--panel-scale) * 1px);
   position: absolute;
   right: calc(var(--margin) + var(--stage-w) * var(--scale) + var(--margin));
   bottom: var(--margin);
   display: flex;
   flex-direction: column;
-  width: var(--panel-w);
+  width: calc(var(--panel-w) * var(--panel-scale));
   max-height: calc(100% - var(--panel-top-room) - var(--panel-tab-h) - var(--margin));
-  padding: 5px 8px;
+  padding: calc(5 * var(--u)) calc(8 * var(--u));
   box-sizing: border-box;
-  border-radius: 10px;
+  border-radius: calc(10 * var(--u));
   background: var(--panel-bg);
   color: var(--panel-fg);
-  font-size: 11px;
+  font-size: calc(11 * var(--u));
   line-height: 1.35;
 }
 
@@ -236,6 +238,7 @@ body {
 }
 
 #panel[hidden],
+#rows[hidden],
 #limits[hidden] {
   display: none;
 }
@@ -248,50 +251,13 @@ body {
   flex: none;
 }
 
-/* 並べ方は押すたびに次へ移る 1 個のボタンにし、パネルの上辺の外にタブのように付ける。 */
-#row-order {
-  position: absolute;
-  bottom: 100%;
-  left: 8px;
-  display: flex;
-  height: var(--panel-tab-h);
-  box-sizing: border-box;
-  padding: 2px 2px 0;
-  border-radius: 6px 6px 0 0;
-  background: var(--panel-bg);
-}
-
-#row-order button {
-  padding: 1px 7px;
-  border: none;
-  border-radius: 4px 4px 0 0;
-  background: transparent;
-  color: var(--panel-fg);
-  font: inherit;
-  font-size: 10px;
-  line-height: 1.6;
-  opacity: 0.7;
-  cursor: pointer;
-}
-
-#row-order button::after {
-  content: "⇅";
-  margin-left: 3px;
-  opacity: 0.7;
-}
-
-#row-order button:hover,
-#row-order button.hover {
-  background: rgba(255, 255, 255, 0.16);
-  opacity: 1;
-}
-
-/* 立ち絵を隠しているときや行で埋まっているときも掴みやすいよう、パネル上辺の右側に小さなドラッグ用の掴みしろを置く。 */
+/* 立ち絵を隠しているときは立ち絵を掴んで動かせないので、パネル上辺の右側に小さなドラッグ用の掴みしろを置く。
+   立ち絵を出している間は立ち絵を掴めばよく、場所を取らないよう出さない。 */
 #panel-drag {
   position: absolute;
   bottom: 100%;
-  right: 8px;
-  display: flex;
+  right: calc(8 * var(--u));
+  display: none;
   align-items: center;
   justify-content: center;
   height: var(--panel-tab-h);
@@ -300,6 +266,10 @@ body {
   border-radius: 6px 6px 0 0;
   background: var(--panel-bg);
   cursor: grab;
+}
+
+#app.character-hidden #panel-drag {
+  display: flex;
 }
 
 #panel-drag::before {
@@ -319,26 +289,52 @@ body {
   cursor: grabbing;
 }
 
-/* 1 段目は状態の点、名前、コンテキスト使用率、2 段目はどのツールかを示すマーク、要約、最後の更新からの時間。
-   マークは 12px 幅の左の列に点と縦に並べ、2 段目の文字の高さに収めて行を高くしない。 */
+/* 状態は、行の左から右へ薄れていく状態の色で示す。作業中は控えめにし、手を貸す必要のある行ほど濃くする。
+   色は background-image に置き、マウスを載せたときの明るさは background-color で重ねる。 */
 .row {
+  --tint: var(--idle);
+  --tint-strength: 30%;
+  --tint-reach: 60%;
   position: relative;
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
-  column-gap: 6px;
+  grid-template-columns: calc(12 * var(--u)) minmax(0, 1fr) auto;
+  column-gap: calc(6 * var(--u));
   align-items: center;
-  padding: 3px 6px;
-  margin: 0 -6px;
-  border-radius: 6px;
+  padding: calc(3 * var(--u)) calc(6 * var(--u));
+  margin: 0 calc(-6 * var(--u));
+  border-radius: calc(6 * var(--u));
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--tint) var(--tint-strength), transparent),
+    transparent var(--tint-reach)
+  );
   cursor: pointer;
 }
 
+.row.s-working {
+  --tint: var(--working);
+  --tint-strength: 16%;
+  --tint-reach: 45%;
+}
+
+.row.s-waiting {
+  --tint: var(--waiting);
+}
+
+.row.s-done {
+  --tint: var(--done);
+}
+
+.row.s-error {
+  --tint: var(--error);
+}
+
 .row + .row {
-  margin-top: 1px;
+  margin-top: calc(1 * var(--u));
 }
 
 .row.hover {
-  background: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .row.read {
@@ -349,30 +345,29 @@ body {
   opacity: 0.65;
 }
 
-.row > .dot,
+/* 2 段の行の 1 段目は、名前とチャットのタイトルを左端から並べ、右にコンテキスト使用率を置く。
+   2 段目は、左の列にツールのマーク、要約、右に最後の更新からの時間を置く。 */
+.row > .names {
+  grid-column: 1 / 3;
+}
+
 .row > .provider {
   grid-column: 1;
   justify-self: center;
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--idle);
+/* 作業中の行は 1 段に、名前、要約、時間、コンテキスト使用率を並べる。 */
+.row.compact {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  column-gap: calc(7 * var(--u));
 }
 
-.dot.working {
-  background: var(--working);
+.row.compact > * {
+  grid-column: auto;
 }
-.dot.waiting {
-  background: var(--waiting);
-}
-.dot.done {
-  background: var(--done);
-}
-.dot.error {
-  background: var(--error);
+
+.row.compact > .row-summary {
+  opacity: 0.75;
 }
 
 /* 幅が足りないときはタイトルから縮め、タイトルが消えてから名前を省略する。 */
@@ -399,17 +394,18 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: calc(10 * var(--u));
   opacity: 0.6;
 }
 
 .chat-title::before {
   content: "·";
-  margin: 0 5px;
+  margin: 0 calc(5 * var(--u));
 }
 
 .row-summary {
   grid-column: 2;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -417,17 +413,17 @@ body {
 }
 
 .row-agents {
-  margin-right: 4px;
-  padding: 0 4px;
-  border-radius: 4px;
+  margin-right: calc(4 * var(--u));
+  padding: 0 calc(4 * var(--u));
+  border-radius: calc(4 * var(--u));
   background: rgba(255, 255, 255, 0.14);
-  font-size: 10px;
+  font-size: calc(10 * var(--u));
 }
 
 .row-age {
   grid-column: 3;
   justify-self: end;
-  font-size: 10px;
+  font-size: calc(10 * var(--u));
   white-space: nowrap;
   opacity: 0.5;
 }
@@ -439,19 +435,19 @@ body {
 .row-read {
   display: none;
   position: absolute;
-  top: 2px;
-  right: 6px;
-  bottom: 2px;
-  width: 28px;
+  top: calc(2 * var(--u));
+  right: calc(6 * var(--u));
+  bottom: calc(2 * var(--u));
+  width: calc(28 * var(--u));
   align-items: center;
   justify-content: center;
   padding: 0;
   border: none;
-  border-radius: 5px;
+  border-radius: calc(5 * var(--u));
   background: rgba(255, 255, 255, 0.12);
   color: var(--panel-fg);
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14 * var(--u));
   line-height: 1;
   cursor: pointer;
 }
@@ -471,8 +467,8 @@ body {
 .provider {
   display: block;
   flex: none;
-  width: 12px;
-  height: 12px;
+  width: calc(12 * var(--u));
+  height: calc(12 * var(--u));
 }
 
 .provider-icon {
@@ -483,11 +479,11 @@ body {
 /* アイコンを読めないときの文字のマーク。12px の四角に 2 文字を詰める。 */
 .provider-badge {
   box-sizing: border-box;
-  border-radius: 3px;
+  border-radius: calc(3 * var(--u));
   background: rgba(255, 255, 255, 0.2);
-  font-size: 7px;
+  font-size: calc(7 * var(--u));
   font-weight: 700;
-  line-height: 12px;
+  line-height: calc(12 * var(--u));
   text-align: center;
   letter-spacing: -0.3px;
   opacity: 0.85;
@@ -498,8 +494,8 @@ body {
    行の内容の位置は変わらない。スクロールバーは行が溢れていないときも場所を取らせ、溢れた瞬間に行の幅が
    変わらないようにする。 */
 .row-scroll {
-  margin: 0 -6px;
-  padding-left: 6px;
+  margin: 0 calc(-6 * var(--u));
+  padding-left: calc(6 * var(--u));
   overflow-x: hidden;
   overflow-y: scroll;
 }
@@ -522,106 +518,17 @@ body {
   background-color: rgba(255, 255, 255, 0.4);
 }
 
-/* 件数の行にマウスを載せたときだけ出すレイヤー。元の行の下端に揃えて上へ伸ばし、パネルの高さを変えない。
-   ウィンドウの上端から --panel-top-room だけ下までで止め、それより多い行はレイヤーの中でスクロールさせる。--layer-below は、レイヤーの
-   下端からウィンドウの下端までの距離で、panel.ts が入れる。上の隅では、元の行の上端に揃えて下へ伸ばし、ウィンドウの下端の
-   --margin の手前で止める。--layer-above は、元の行の上端からウィンドウの上端までの距離である。 */
-.hover-layer {
-  display: none;
-  flex-direction: column;
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 5;
-  box-sizing: border-box;
-  max-height: calc(100vh - var(--panel-top-room) - var(--layer-below, 0px));
-  padding: 3px 6px;
-  border-radius: 6px;
-  background: var(--layer-bg);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-}
-
-/* 開閉は Rust から届くカーソル位置で panelExpansion.ts が決め、DOM のホバーは使わない。
-   measuring は、見せる前に大きさを測ってクリックを受け取る領域へ登録する間の状態。 */
-#app.top .hover-layer {
-  bottom: auto;
-  top: 0;
-  max-height: calc(100vh - var(--layer-above, 0px) - var(--margin));
-}
-
-.open > .hover-layer,
-.measuring > .hover-layer {
-  display: flex;
-}
-
-.measuring > .hover-layer {
-  visibility: hidden;
-}
-
-.counts-group {
-  position: relative;
-  margin: 0 -6px;
-  padding: 3px 6px;
-  border-radius: 6px;
-}
-
-.counts-group.clickable {
-  cursor: pointer;
-}
-
-.counts-group.clickable.hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.counts-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-}
-
-.counts-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.counts-sep {
-  opacity: 0.5;
-}
-
-.counts-detail {
-  padding: 3px 6px;
-}
-
-.layer-rows {
-  min-height: 0;
-}
-
-.counts-detail .counts-line {
-  flex: none;
-  margin-top: 2px;
-}
-
-/* 上の隅ではレイヤーが元の行の上端から下へ伸びるので、件数の行を先頭に置いて元の行と同じ位置に保つ。
-   詳細の行が件数の行の位置に来ると、件数の行を押したつもりで別のセッションへ移動してしまう。 */
-#app.top .counts-detail .counts-line {
-  order: -1;
-  margin-top: 0;
-  margin-bottom: 2px;
-}
-
 .ctx {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-self: end;
+  gap: calc(4 * var(--u));
 }
 
 .ctx-bar {
-  width: 36px;
-  height: 4px;
-  border-radius: 2px;
+  width: calc(36 * var(--u));
+  height: calc(4 * var(--u));
+  border-radius: calc(2 * var(--u));
   background: rgba(255, 255, 255, 0.18);
   overflow: hidden;
 }
@@ -641,7 +548,7 @@ body {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
-  font-size: 10px;
+  font-size: calc(10 * var(--u));
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
 }
@@ -655,26 +562,27 @@ body {
 
 /* 上限が分からずトークン数だけのときは、バーと見分けがつくよう枠線で囲んだ数値にする。 */
 .ctx-tokens {
-  padding: 0 4px;
+  justify-self: end;
+  padding: 0 calc(4 * var(--u));
   border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 3px;
-  font-size: 10px;
+  border-radius: calc(3 * var(--u));
+  font-size: calc(10 * var(--u));
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
 }
 
 .empty {
-  padding: 3px 0;
+  padding: calc(3 * var(--u)) 0;
   opacity: 0.6;
 }
 
 .today-line {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 6px;
-  margin: 0 -6px;
-  border-radius: 6px;
+  gap: calc(4 * var(--u));
+  padding: calc(3 * var(--u)) calc(6 * var(--u));
+  margin: 0 calc(-6 * var(--u));
+  border-radius: calc(6 * var(--u));
   opacity: 0.6;
   cursor: pointer;
 }
@@ -685,8 +593,8 @@ body {
 }
 
 .today-marker {
-  width: 8px;
-  font-size: 9px;
+  width: calc(8 * var(--u));
+  font-size: calc(9 * var(--u));
   text-align: center;
 }
 
@@ -699,31 +607,51 @@ body {
 #app.left.character-hidden #panel {
   right: var(--margin);
   left: var(--margin);
+  width: auto;
 }
 
 #limits {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  font-size: 10px;
+  gap: calc(8 * var(--u));
+  font-size: calc(10 * var(--u));
   white-space: nowrap;
   opacity: 0.85;
 }
 
-/* ツールごとの値を、それぞれのアイコンを先頭に付けて並べる。三つ並ぶとパネルの幅に収まらないことがあるので、
-   グループの切れ目で折り返し、時刻は右端に残す。 */
-.limit-values.marked {
+/* ツールごとの値を、それぞれのアイコンを先頭に付けて並べ、パネルの幅に均等に散らす。Codex のウィンドウが
+   増えて収まらないときは、グループの切れ目で折り返す。 */
+.limit-values {
   display: flex;
+  flex: 1;
   flex-wrap: wrap;
-  gap: 2px 8px;
+  gap: calc(2 * var(--u)) calc(8 * var(--u));
   min-width: 0;
+}
+
+.limit-values.marked {
+  justify-content: space-between;
+}
+
+.limit-stack {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--u));
+}
+
+.limit-stack .ctx-bar {
+  width: calc(40 * var(--u));
+  height: calc(3 * var(--u));
+}
+
+.limit-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 .limit-group {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: calc(4 * var(--u));
 }
 
 /* 行の不透明度 0.85 に重なるので、行全体が古いときの 0.4 と同じ濃さになるようにする。 */
@@ -732,9 +660,16 @@ body {
 }
 
 #rows + #limits {
-  margin-top: 4px;
-  padding-top: 4px;
+  margin-top: calc(4 * var(--u));
+  padding-top: calc(4 * var(--u));
   border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* リストを隠しているときは利用制限の欄だけになるので、リストとの区切りを引かない。 */
+#rows[hidden] + #limits {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
 #limits.stale {

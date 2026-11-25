@@ -1,7 +1,11 @@
-import type { Point } from "./expander";
+/** ウィンドウの左上からの CSS px で表したカーソルの位置。Rust の hit.rs の CursorPoint と同じ形。 */
+export interface Point {
+  x: number;
+  y: number;
+}
 
 const HOVER = "hover";
-const SELECTORS = [".row", ".row-read", ".today-line", ".counts-group.clickable", "#row-order button", "#panel-drag"];
+const SELECTORS = [".row", ".row-read", ".today-line", "#panel-drag"];
 
 /**
  * ウィンドウは focus: false で開き、前面に無いウィンドウの WebView にはマウスの移動が届かないので、CSS の :hover は

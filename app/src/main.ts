@@ -19,21 +19,16 @@ import { bubbleEnabled, DEFAULT_BUBBLE_SETTINGS, type BubbleSettings } from "./b
 import { categoryFor, mergeDialogue } from "./dialogue";
 import { HitReporter, hitRegions, rectOf, type HitRegions, type Rect } from "./hitArea";
 import { lang, LANGUAGE_EVENT, setLang, t, type LanguageState } from "./i18n";
-import type { Point } from "./expander";
 import { characterCandidates, characterInfo, characterName, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
 import { holdRowsWhilePressed, onScrollbar, READ_KEY, renderPanel } from "./panel";
-import { PanelExpansion } from "./panelExpansion";
-import { RowHover } from "./rowHover";
+import { RowHover, type Point } from "./rowHover";
 import {
   DEFAULT_PANEL_DISPLAY,
-  PANEL_STYLES,
   panelView,
-  nextRowOrder,
   rowOrderLabel,
   ROW_ORDERS,
   trayList,
   type PanelDisplay,
-  type PanelStyle,
   type RowOrder,
 } from "./panelModel";
 import { createRenderer, loadManifest, type CharacterRenderer, type Manifest, type RendererInput } from "./renderer";
@@ -48,9 +43,6 @@ import {
 import { DEFAULT_USAGE_TOOLS, type AppIcons, type Dialogue, type SessionState, type Snapshot, type UsageTools } from "./types";
 
 const CHARACTER_ROOT = new URL("/character/", window.location.href).href;
-// 以前は行を隠す設定だけをこの名前で localStorage に持っていた。表示の保存先を MARIMO_HOME へ
-// 移したので、display.json に何も無いときだけ読み替えて引き継ぐ。
-const LEGACY_SHOW_ROWS_KEY = "marimo.showRows";
 // 利用制限の「古い」「リセット済み」と、今日の既読に数える日は時間だけで変わるので、変更通知とは別に描き直す。
 const PANEL_REFRESH_MS = 30_000;
 // style.css の #bubble の bottom に足している、立ち絵と吹き出しの間の隙間と揃える必要がある。
@@ -65,7 +57,6 @@ const panelElements = {
   panel: $("panel"),
   rows: $("rows"),
   limits: $("limits"),
-  order: $("row-order"),
   drag: $("panel-drag"),
 };
 const bubbleNode = $("bubble");
@@ -88,11 +79,6 @@ const bubble = new Bubble(bubbleNode, (e) => {
   refreshAcknowledged();
 });
 const hits = new HitReporter(collectHitRegions);
-const expansion = new PanelExpansion(
-  panelElements.panel,
-  () => hits.flush(),
-  () => hits.schedule(),
-);
 const rowHover = new RowHover(panelElements.panel);
 
 let renderer: CharacterRenderer | undefined;
@@ -209,14 +195,14 @@ function scheduleExpiry(view: BubbleView | null): void {
 }
 
 // 頭の上に出した吹き出しは、立ち絵の外側の端に揃えてパネルの側へ伸びるので、背の低い立ち絵や上の隅では
-// パネルやタブに重なることがある。重なるときだけその上端より上へ持ち上げ、ウィンドウの上端からははみ出させない。
+// パネルに重なることがある。重なるときだけその上端より上へ持ち上げ、ウィンドウの上端からははみ出させない。
 // 吹き出しには動きの transform が掛かるので、大きさは transform の影響を受けない offset の値で測る。
 function placeBubble(): void {
   const box = stage.getBoundingClientRect();
   const bottom = box.top - BUBBLE_GAP_PX;
   const width = bubbleNode.offsetWidth;
   const [left, right] = app.classList.contains("left") ? [box.left, box.left + width] : [box.right - width, box.right];
-  const tops = [rectOf(panelElements.panel), rectOf(panelElements.order), rectOf(panelElements.drag)]
+  const tops = [rectOf(panelElements.panel), rectOf(panelElements.drag)]
     .filter((r): r is Rect => r !== null && r.x + r.w > left && r.x < right)
     .map((r) => r.y - BUBBLE_GAP_PX);
   // 複数件バッジ（+N）が吹き出しの上辺から 8px ほど飛び出すので、ウィンドウの上端に少し余白を残す。
@@ -226,10 +212,8 @@ function placeBubble(): void {
 }
 
 function collectHitRegions(): HitRegions {
-  // 並べ方のボタンとドラッグ用の掴みしろはパネルの上辺の外に付けるので、パネルとは別に加える。
-  const rects = [rectOf(panelElements.panel), rectOf(panelElements.order), rectOf(panelElements.drag)];
-  // 広げたレイヤーはパネルの外へ伸びるので、表示中のもの（見せる前に測っているものを含む）を加える。
-  for (const layer of panelElements.panel.querySelectorAll(".hover-layer")) rects.push(rectOf(layer));
+  // ドラッグ用の掴みしろはパネルの上辺の外に付けるので、パネルとは別に加える。
+  const rects = [rectOf(panelElements.panel), rectOf(panelElements.drag)];
   if (bubbleNode.classList.contains("show")) rects.push(rectOf(bubbleNode));
   if (!panelDisplay.show_character) return hitRegions(rects, null);
   const area = renderer?.hitArea();
@@ -247,7 +231,6 @@ function redrawPanel(): void {
   const actions = { select: selectSession, markRead, toggleToday };
   renderPanel(panelElements, view, limits, appIcons, now, actions, todayOpen);
   placeBubble();
-  expansion.evaluate();
   rowHover.apply();
   hits.schedule();
 }
@@ -265,7 +248,6 @@ function toggleToday(): void {
 }
 
 // ウィンドウは透明な部分でマウスのイベントを受け取らないので、DOM の mouseleave ではなく Rust から届く位置で見る。
-// 件数の行に重ねた詳細はパネルの外へ伸びるが、DOM ではパネルの中にあるので、その上もパネルの上として扱う。
 function pointerOverPanel(): boolean {
   const hit = cursor ? document.elementFromPoint(cursor.x, cursor.y) : null;
   return !!hit && panelElements.panel.contains(hit);
@@ -428,24 +410,14 @@ async function switchCharacter(id: string): Promise<void> {
 
 async function loadPanelDisplay(): Promise<PanelDisplay> {
   const saved = await invoke<PanelDisplay | null>("get_panel_display").catch(() => null);
-  if (saved) return saved;
-  let legacyHidden = false;
-  try {
-    legacyHidden = localStorage.getItem(LEGACY_SHOW_ROWS_KEY) === "false";
-  } catch {
-    // 読めなければ引き継ぐものは無いとみなす。
-  }
-  if (!legacyHidden) return DEFAULT_PANEL_DISPLAY;
-  // 行を隠す設定は、行を出さない表示が無くなったので、立ち絵を残して最も場所を取らない件数だけへ読み替える。
-  const display: PanelDisplay = { ...DEFAULT_PANEL_DISPLAY, panel_style: "counts" };
-  void invoke("set_panel_display", { display }).catch(() => {});
-  return display;
+  return saved ?? DEFAULT_PANEL_DISPLAY;
 }
 
 function applyPanelDisplay(display: PanelDisplay): void {
   panelDisplay = display;
   applyCharacterVisibility();
   applyPanelOpacity(display.panel_opacity);
+  applyPanelScale(display.panel_scale);
   showSpeech();
   redrawPanel();
   publishSettings();
@@ -468,8 +440,8 @@ function setShowCharacter(show: boolean): void {
   setPanelDisplay({ ...panelDisplay, show_character: show });
 }
 
-function setPanelStyle(style: PanelStyle): void {
-  setPanelDisplay({ ...panelDisplay, panel_style: style });
+function toggleList(): void {
+  setPanelDisplay({ ...panelDisplay, panel_style: panelDisplay.panel_style === "collapsed" ? "detail" : "collapsed" });
 }
 
 function setRowOrder(order: RowOrder): void {
@@ -496,6 +468,10 @@ function applyCharacterVisibility(): void {
 
 function applyPanelOpacity(opacity: number): void {
   document.documentElement.style.setProperty("--panel-alpha", String(opacity));
+}
+
+function applyPanelScale(scale: number): void {
+  document.documentElement.style.setProperty("--panel-scale", String(scale));
 }
 
 // 設定のウィンドウから頼まれた変更は、メニューやパネルのボタンと同じ経路で反映して保存し、反映したあとの状態を
@@ -597,11 +573,6 @@ async function handleSettingsRequest(request: SettingsRequest): Promise<void> {
   publishSettings();
 }
 
-// 英語はトレイのメニュー（tray.rs）と揃える。
-function panelStyleLabel(style: PanelStyle): string {
-  return style === "detail" ? t("詳細を表示", "Show Details") : t("件数だけ表示", "Show Counts Only");
-}
-
 interface ContextTarget {
   session?: SessionState;
   onLimits?: boolean;
@@ -670,15 +641,12 @@ async function openMenu(ctx: ContextTarget = {}): Promise<void> {
       checked: panelDisplay.show_character,
       action: () => setShowCharacter(!panelDisplay.show_character),
     }),
-    ...(await Promise.all(
-      PANEL_STYLES.map((style) =>
-        CheckMenuItem.new({
-          text: panelStyleLabel(style),
-          checked: style === panelDisplay.panel_style,
-          action: () => setPanelStyle(style),
-        }),
-      ),
-    )),
+    // 英語はトレイのメニュー（tray.rs）と揃える。
+    await CheckMenuItem.new({
+      text: t("リストを隠す", "Hide List"),
+      checked: panelDisplay.panel_style === "collapsed",
+      action: toggleList,
+    }),
     await Submenu.new({ text: t("並べ方", "Sort Order"), items: sortItems }),
     await PredefinedMenuItem.new({ item: "Separator" }),
     await MenuItem.new({
@@ -698,21 +666,14 @@ async function openMenu(ctx: ContextTarget = {}): Promise<void> {
   await menu.popup();
 }
 
-function bindRowOrder(): void {
-  panelElements.order.addEventListener("click", (e) => {
-    e.stopPropagation();
-    setRowOrder(nextRowOrder(panelDisplay.row_order));
-  });
-}
-
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
   // ドラッグはすぐには始めず、押したまま少し動いてから始める。動かずに離したら、立ち絵を押した
-  // ことになり、パネルの詳細と件数を切り替える。行と吹き出しとボタンとスクロールバーは押して操作するので、そこからはドラッグを始めない。
+  // ことになり、リストを隠すかどうかを切り替える。行と吹き出しとスクロールバーは押して操作するので、そこからはドラッグを始めない。
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .today-line, .counts-group, #row-order, #bubble")) {
+    if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .today-line, #bubble")) {
       press = null;
       return;
     }
@@ -726,8 +687,7 @@ function bindWindowControls(): void {
     void getCurrentWindow().startDragging();
   });
   document.addEventListener("mouseup", () => {
-    if (press && !press.dragging && press.onStage)
-      setPanelStyle(panelDisplay.panel_style === "detail" ? "counts" : "detail");
+    if (press && !press.dragging && press.onStage) toggleList();
     press = null;
   });
   document.addEventListener("contextmenu", (e) => {
@@ -775,7 +735,6 @@ async function start(): Promise<void> {
   });
   if (language) setLang(language.lang);
   bindWindowControls();
-  bindRowOrder();
   // トレイのメニューで選んだ表示は Rust が保存してから届くので、反映だけをする。起動中に選ばれたものを
   // 取りこぼさないよう保存済みの表示を読む前に聞き始め、読んでいる間に届いていたらそちらを残す。
   let trayChose = false;
@@ -809,6 +768,7 @@ async function start(): Promise<void> {
   });
   applyCharacterVisibility();
   applyPanelOpacity(panelDisplay.panel_opacity);
+  applyPanelScale(panelDisplay.panel_scale);
   try {
     scale = new ScaleControl(await invoke<number>("get_scale"), () => publishSettings());
     scale.bindWheel(stage);
@@ -827,7 +787,6 @@ async function start(): Promise<void> {
   await listen<boolean>("portrait-hover", (e) => renderer?.setHover(e.payload));
   await listen<Point | null>("window-cursor", (e) => {
     cursor = e.payload;
-    expansion.setCursor(e.payload);
     rowHover.setCursor(e.payload);
     releaseKeptRead();
   });

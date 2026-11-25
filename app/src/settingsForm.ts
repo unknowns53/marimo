@@ -1,5 +1,5 @@
 import { BUBBLE_SECONDS_CHOICES } from "./bubbleSettings";
-import { DEFAULT_PANEL_OPACITY, PANEL_OPACITY_MAX, PANEL_OPACITY_MIN, PANEL_STYLES, ROW_ORDERS } from "./panelModel";
+import { DEFAULT_PANEL_OPACITY, PANEL_OPACITY_MAX, PANEL_OPACITY_MIN, ROW_ORDERS } from "./panelModel";
 import { LANGUAGES, t } from "./i18n";
 import type { SettingsRequest, SettingsState } from "./settingsProtocol";
 
@@ -44,6 +44,11 @@ export function usageRefreshOptions(current: number): number[] {
 
 export function scaleLabel(scale: number): string {
   return t(`${scale.toFixed(1)} 倍`, `${scale.toFixed(1)}×`);
+}
+
+/** パネルの倍率は 0.05 刻みなので、小数第 2 位まで出す。 */
+export function panelScaleLabel(scale: number): string {
+  return t(`${scale.toFixed(2)} 倍`, `${scale.toFixed(2)}×`);
 }
 
 export interface ShortcutKeyInput {
@@ -163,9 +168,10 @@ export function formValues(state: SettingsState): FormValues {
   return {
     language: state.language,
     show_character: display.show_character,
-    panel_style: display.panel_style,
+    panel_collapsed: display.panel_style === "collapsed",
     row_order: display.row_order,
     panel_opacity: String(opacityPercent(display.panel_opacity)),
+    panel_scale: String(display.panel_scale),
     bubble_waiting: bubble.bubble_waiting,
     bubble_done: bubble.bubble_done,
     bubble_error: bubble.bubble_error,
@@ -190,7 +196,8 @@ export interface FormControl {
  * フォームの部品の変化から、メインのウィンドウへ送る要求を作る。スライダーは動かしている間（input）から送り、
  * それ以外は確定したとき（change）だけ送る。チェックボックスや選択でも input は届くので、二重に送らない。
  * 背景の不透明度は、動かしている間は見た目だけを変えさせ、離したときに一度だけ保存させる。input の
- * たびに保存すると、ドラッグ一回で display.json を何十回も書き直すからである。
+ * たびに保存すると、ドラッグ一回で display.json を何十回も書き直すからである。パネルの倍率は刻みが 10 段ほどで、
+ * ウィンドウの大きさも合わせ直す必要があるので、動かしている間から保存させる。
  */
 export function requestFor(control: FormControl, phase: "input" | "change"): SettingsRequest | null {
   const { name, value, checked } = control;
@@ -199,6 +206,10 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
     return phase === "input" ? { kind: "opacity-preview", opacity } : { kind: "display", patch: { panel_opacity: opacity } };
   }
   if (name === "scale") return phase === "input" ? { kind: "scale", scale: Number(value) } : null;
+  if (name === "panel_scale") {
+    const scale = Number(value);
+    return phase === "input" && Number.isFinite(scale) ? { kind: "display", patch: { panel_scale: scale } } : null;
+  }
   if (phase !== "change") return null;
   switch (name) {
     case "language": {
@@ -207,10 +218,8 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
     }
     case "show_character":
       return { kind: "display", patch: { [name]: checked } };
-    case "panel_style": {
-      const style = PANEL_STYLES.find((s) => s === value);
-      return style ? { kind: "display", patch: { panel_style: style } } : null;
-    }
+    case "panel_collapsed":
+      return { kind: "display", patch: { panel_style: checked ? "collapsed" : "detail" } };
     case "row_order": {
       const order = ROW_ORDERS.find((o) => o === value);
       return order ? { kind: "display", patch: { row_order: order } } : null;
