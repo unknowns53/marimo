@@ -259,9 +259,10 @@ The fields of `display.json` are as follows. When a value is missing or invalid,
 | `language` | The language of the interface, the default speech bubble dialogue, the activity summaries, and the output of `marimo-hook` and the update scripts: `"ja"` or `"en"`. Besides the app, the hooks, `marimo-hook`, and the update scripts also read it | None: Japanese if the OS language is Japanese, English otherwise. `"auto"` means the same |
 | `stage_scale` | The character's scale (a number from 0.6 to 4.0) | The former `scale` (a scale relative to a character area 180 pixels wide) is converted to the same size and used, and `scale` is removed the next time the scale is saved |
 | `show_character` | Whether to show the character | |
-| `panel_style` | How the panel is shown: `"detail"` or `"counts"` | |
+| `panel_style` | Whether the panel shows the list: `"detail"` (shown) or `"collapsed"` (hidden, leaving only the usage limits row) | The former `"counts"` (counts only) is read as `"collapsed"`, and is rewritten the next time the display is saved |
 | `row_order` | How the panel orders sessions: `"started"` (Start Time), `"status"` (Status), or `"updated"` (Last Update) | `"started"` |
 | `panel_opacity` | The opacity of the panel background (a number from 0.2 to 1.0). Text and icons are not made transparent | 0.8. Numbers outside the range are moved to the nearest end |
+| `panel_scale` | The scale of the panel's text and width (a number from 0.8 to 1.3) | 1.0. Numbers outside the range are moved to the nearest end |
 | `bubble_waiting`, `bubble_done`, `bubble_error` | Which states show speech bubbles (booleans) | `true` |
 | `bubble_seconds` | Seconds until a speech bubble closes on its own (an integer from 0 to 3600). 0 keeps it until clicked | 0. Numbers above the limit are moved to the limit |
 | `usage_refresh_minutes` | The interval for refreshing usage limits (in minutes, an integer from 0 to 1440). 0 means never | 0. Numbers above the limit are moved to the limit |
@@ -270,7 +271,7 @@ The fields of `display.json` are as follows. When a value is missing or invalid,
 | `character` | The name of the selected character | |
 | `stage_aspect` | The aspect ratio (height divided by width) of the selected character's area. Saved whenever the user interface reports it, and at the next start the window opens at this ratio from the beginning, so the window does not move right after startup | 1.5. Kept within 0.25 to 4.0 |
 
-If the old-format key `panel_mode` remains, it is read in their place until you switch the display and the new keys are saved (`"list"` means details without the character, and `"picture"` means counts only with the character). Whether you hid the window from the icon is not saved.
+If the old-format key `panel_mode` remains, it is read in their place until you switch the display and the new keys are saved (`"list"` means details without the character, `"picture"` and `"counts"` mean the character with the list hidden). Whether you hid the window from the icon is not saved.
 
 The fields of `codex_rate_limits.json` are as follows.
 
@@ -377,7 +378,7 @@ npm test
 npm run build
 ```
 
-The placement of the character, panel, and speech bubble is checked with `npm run test:visual`. Playwright (a test tool that drives browsers) opens `index.html` in headless Chromium (a browser that shows no window on screen), replaces Tauri's `invoke` and `listen` with mocks from `@tauri-apps/api/mocks`, and checks the layouts for all four corners and switching between details and counts by clicking the character. Nothing appears on screen, so it does not get in the way of your work. Screenshots of each corner are saved in `app/test-results/`. The first time, get the browser with `npx playwright install chromium`. The CI does not run this test.
+The placement of the character, panel, and speech bubble is checked with `npm run test:visual`. Playwright (a test tool that drives browsers) opens `index.html` in headless Chromium (a browser that shows no window on screen), replaces Tauri's `invoke` and `listen` with mocks from `@tauri-apps/api/mocks`, and checks the layouts for all four corners and hiding the list by clicking the character. Nothing appears on screen, so it does not get in the way of your work. Screenshots of each corner are saved in `app/test-results/`. The first time, get the browser with `npx playwright install chromium`. The CI does not run this test.
 
 Placing the window and choosing its corner again (`app/src-tauri/src/window_pos.rs`) puts window operations behind a trait called `Screen` (Rust's equivalent of an interface), so `cargo test` checks the whole flow from startup to saving with a fake window that has no screen. macOS applies window size and position changes later, and reading them back right away returns the old values, so the fake behaves the same way.
 

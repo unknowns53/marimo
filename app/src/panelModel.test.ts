@@ -3,8 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Acknowledged, triggerKey } from "./acknowledged";
 import { setLang } from "./i18n";
 import {
-  hasContent,
-  type PanelStyle,
+  isEmpty,
   panelView,
   planPanel,
   type RowOrder,
@@ -173,75 +172,24 @@ describe("acknowledged sessions", () => {
 });
 
 describe("panelView", () => {
-  const sessions = () =>
-    snap(
-      session("ask", "waiting", 5),
-      session("d1", "done", 1),
-      session("d2", "done", 2),
-      session("w1", "working", 3),
-      session("w2", "working", 4),
-      session("w3", "working", 6),
-      session("i", "idle", 7),
-    );
-  it("counts sessions per status in priority order, skips zero counts", () => {
-    const v = panelView(sessions(), new Acknowledged(), "counts");
-    expect(v.counts).toEqual([
-      { status: "waiting", count: 1 },
-      { status: "working", count: 3 },
-      { status: "done", count: 2 },
-    ]);
-    expect(v.target?.session_id).toBe("ask");
-    expect(hasContent(v)).toBe(true);
-  });
-
-  it("does not count seen done and error sessions", () => {
-    const ack = new Acknowledged();
-    const s = snap(...sessions().sessions, session("e", "error", 8));
-    for (const x of s.sessions.filter((x) => x.status === "done" || x.status === "error")) ack.add(triggerKey(x));
-    const v = panelView(s, ack, "counts");
-    expect(v.counts.map((c) => c.status)).toEqual(["waiting", "working"]);
-  });
-
-  it("decides per style whether there are rows to show instead of the empty line", () => {
+  it("shows the empty line only when no row is left, and hides the list only when asked", () => {
+    const sessions = snap(session("ask", "waiting", 5), session("w", "working", 3), session("i", "idle", 7));
     const idle = snap(session("i", "idle", 1));
-    // その場所に残した既読の完了は詳細では薄く出るが、件数には数えない。
+    // その場所に残した既読の完了は薄く出るので、行が残っているものとして扱う。
     const ack = new Acknowledged();
     const seen = session("seen", "done", 10);
     ack.add(triggerKey(seen));
     const keep = new Set([triggerKey(seen)]);
-    const cases: [string, Snapshot | null, Acknowledged, PanelStyle, boolean][] = [
-      ["detail with sessions", sessions(), new Acknowledged(), "detail", true],
-      ["counts with sessions", sessions(), new Acknowledged(), "counts", true],
-      ["detail with only idle sessions", idle, new Acknowledged(), "detail", false],
-      ["counts with only idle sessions", idle, new Acknowledged(), "counts", false],
-      ["detail without a snapshot", null, new Acknowledged(), "detail", false],
-      ["detail with a kept seen completion", snap(seen), ack, "detail", true],
-      ["counts with a kept seen completion", snap(seen), ack, "counts", false],
+    const cases: [string, Snapshot | null, Acknowledged, boolean][] = [
+      ["with sessions", sessions, new Acknowledged(), false],
+      ["with only idle sessions", idle, new Acknowledged(), true],
+      ["without a snapshot", null, new Acknowledged(), true],
+      ["with a kept seen completion", snap(seen), ack, false],
     ];
-    for (const [label, snapshot, acks, style, expected] of cases) {
-      expect(hasContent(panelView(snapshot, acks, style, "started", Date.now(), keep)), label).toBe(expected);
+    for (const [label, snapshot, acks, expected] of cases) {
+      expect(isEmpty(panelView(snapshot, acks, "detail", "started", Date.now(), keep).plan), label).toBe(expected);
     }
-  });
-
-  it("targets the highest-priority session needing attention, or nothing", () => {
-    const byPriority = snap(
-      session("ask", "waiting", 50, 50, 1),
-      session("e", "error", 40, 40, 2),
-      session("d", "done", 30, 30, 3),
-      session("w", "working", 20, 20, 4),
-    );
-    const cases: [string, Snapshot, string | null][] = [
-      ["done is the only one needing attention", snap(session("w", "working", 5), session("d", "done", 1)), "d"],
-      ["priority wins over started_at row order", byPriority, "ask"],
-      ["nothing needs attention", snap(session("w", "working", 1)), null],
-    ];
-    for (const [label, snapshot, expected] of cases) {
-      expect(panelView(snapshot, new Acknowledged(), "counts").target?.session_id ?? null, label).toBe(expected);
-    }
-    expect(ids(panelView(byPriority, new Acknowledged(), "detail").plan.rows)).toEqual(["w", "d", "e", "ask"]);
-    expect(panelView(snap(session("w", "working", 1)), new Acknowledged(), "counts").counts).toEqual([
-      { status: "working", count: 1 },
-    ]);
+    expect([panelView(sessions, new Acknowledged(), "detail").collapsed, panelView(sessions, new Acknowledged(), "collapsed").collapsed]).toEqual([false, true]);
   });
 });
 

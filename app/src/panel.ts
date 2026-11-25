@@ -2,17 +2,7 @@ import { MARKABLE, sessionKey } from "./acknowledged";
 import { chatTitle, folderName, formatAge, formatTokens, formatUpdated } from "./format";
 import { plural, t } from "./i18n";
 import { limitLine, limitTooltip, type LimitLine, type LimitSources } from "./limits";
-import {
-  countLabel,
-  hasContent,
-  panelSignature,
-  nextRowOrder,
-  rowOrderDescription,
-  rowOrderLabel,
-  type PanelPlan,
-  type PanelView,
-  type RowOrder,
-} from "./panelModel";
+import { isEmpty, panelSignature, type PanelPlan, type PanelView } from "./panelModel";
 import type { AppIcons, Provider, SessionState, Status } from "./types";
 
 function fallbackSummary(status: Status): string {
@@ -34,7 +24,6 @@ export interface PanelElements {
   panel: HTMLElement;
   rows: HTMLElement;
   limits: HTMLElement;
-  order: HTMLElement;
   drag: HTMLElement;
 }
 
@@ -102,7 +91,7 @@ export function holdRowsWhilePressed(rows: HTMLElement, redraw: () => void): voi
 }
 
 export function renderPanel(
-  { panel, rows, limits, order, drag }: PanelElements,
+  { panel, rows, limits, drag }: PanelElements,
   view: PanelView,
   rateLimits: LimitSources,
   icons: AppIcons,
@@ -114,106 +103,39 @@ export function renderPanel(
   if (line) renderLimits(limits, line, icons, now);
   limits.hidden = line === null;
   panel.hidden = false;
-  renderOrder(order, view.order);
   drag.title = t("ドラッグしてウィンドウを移動", "Drag to move window");
   const iconsShown = Object.entries(icons).map(([provider, src]) => [provider, src !== null]);
   const signature = panelSignature(view, now, todayOpen) + JSON.stringify(iconsShown);
-  if (signature === shownSignature) {
-    fitLayers(rows);
-    return;
-  }
+  if (signature === shownSignature) return;
   if (pressed) {
     deferred = true;
     return;
   }
+  const { plan } = view;
+  // リストを隠している間は利用制限の欄だけを残す。利用制限の欄も無いときは、パネルが空にならないよう、
+  // 隠していることを示す 1 行を出す。
+  const collapsed = view.collapsed;
+  rows.hidden = collapsed && line !== null;
   let children: HTMLElement[];
-  const empty = !hasContent(view);
-  if (empty) {
-    // 進行中のセッションが無くても、件数だけの表示を含めて今日の既読へすぐ戻れるようにする。
-    const today = todayChildren(view.plan, icons, now, actions, todayOpen);
-    children = [el("div", "empty", t("進行中のセッションはありません", "No active sessions")), ...today];
-  } else if (view.style === "counts") children = [renderCounts(view, icons, now, actions, todayOpen)];
-  else children = detailChildren(view.plan, icons, now, actions, todayOpen);
-  const kept = keepScroll(rows);
+  if (collapsed) children = [el("div", "empty", t("リストを隠しています", "List hidden"))];
+  else {
+    const today = todayChildren(plan, icons, now, actions, todayOpen);
+    children = isEmpty(plan)
+      ? [el("div", "empty", t("進行中のセッションはありません", "No active sessions")), ...today]
+      : [...plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, now, actions)), ...today];
+  }
+  // 描き直すたびに行を作り直すので、何もしなければスクロールの位置が一番上へ戻ってしまう。行が減って
+  // 届かなくなった位置は、ブラウザが一番下へ詰める。
+  const top = rows.scrollTop;
   rows.replaceChildren(...children);
+  rows.scrollTop = top;
   shownSignature = signature;
-  // 件数の行のレイヤーは #rows の外へ伸びるので、件数の行が出ている間は #rows をスクロールコンテナにしない。
-  // スクロールコンテナは内容をコンテナの外へはみ出させず、レイヤーが切れてしまうからである。
-  rows.classList.toggle("row-scroll", view.style === "detail" || empty);
-  fitLayers(rows);
-  restoreScroll(rows, kept);
-}
-
-function renderOrder(group: HTMLElement, order: RowOrder): void {
-  const button = group.querySelector("button");
-  if (!button) return;
-  const next = rowOrderLabel(nextRowOrder(order));
-  button.textContent = rowOrderLabel(order);
-  button.title = t(
-    `${rowOrderDescription(order)}に並べています。押すと${next}に切り替えます`,
-    `Sorted: ${rowOrderDescription(order)}. Click to sort by ${next}.`,
-  );
-}
-
-interface KeptScroll {
-  top: number;
-  /** 開いていた件数の行のキーごとに、そのレイヤーの中のスクロールの位置を持つ。 */
-  layers: Map<string, number>;
-}
-
-// 描き直すたびに行を作り直すので、何もしなければスクロールの位置が一番上へ戻ってしまう。作り直す前に
-// 位置を覚えておき、作り直した後に戻す。行が減って届かなくなった位置は、ブラウザが一番下へ詰める。
-function keepScroll(rows: HTMLElement): KeptScroll {
-  const layers = new Map<string, number>();
-  for (const group of rows.querySelectorAll<HTMLElement>("[data-expand-id].open")) {
-    layers.set(group.dataset.expandId ?? "", group.querySelector(".row-scroll")?.scrollTop ?? 0);
-  }
-  return { top: rows.scrollTop, layers };
-}
-
-// 開いていたレイヤーは、登録を待たずにそのまま開いて見せる。描き直すたびに測り直すとレイヤーがちらつき、行の増減で
-// 大きさが変わった分は、描き直しの後に送り直す領域で追いつくからである。見えていないレイヤーにはスクロールの
-// 位置を戻せないので、先に開いてから戻す。
-function restoreScroll(rows: HTMLElement, kept: KeptScroll): void {
-  rows.scrollTop = kept.top;
-  for (const group of rows.querySelectorAll<HTMLElement>("[data-expand-id]")) {
-    const top = kept.layers.get(group.dataset.expandId ?? "");
-    if (top === undefined) continue;
-    group.classList.add("open");
-    const scroller = group.querySelector<HTMLElement>(".row-scroll");
-    if (scroller) scroller.scrollTop = top;
-  }
-}
-
-// レイヤーは件数の行の下端から上へ、上の隅では上端から下へ伸びるので、ウィンドウの端までに収め、収まらない行はレイヤーの中で
-// スクロールさせる。ウィンドウの高さが変わっても、パネルは立ち絵の側の端を固定しているので、件数の行からその側の
-// ウィンドウの端までの距離は変わらない。その距離を CSS へ渡し、ウィンドウの高さからの計算は CSS に任せる。
-function fitLayers(rows: HTMLElement): void {
-  for (const layer of rows.querySelectorAll<HTMLElement>(".hover-layer")) {
-    const anchor = layer.parentElement?.getBoundingClientRect();
-    if (!anchor) continue;
-    layer.style.setProperty("--layer-below", `${window.innerHeight - anchor.bottom}px`);
-    layer.style.setProperty("--layer-above", `${anchor.top}px`);
-  }
 }
 
 /** スクロールバーの操作を、行を押したことやウィンドウのドラッグと取り違えないために見分ける。 */
 export function onScrollbar(e: MouseEvent): boolean {
   const target = e.target;
   return target instanceof HTMLElement && target.classList.contains("row-scroll") && e.offsetX >= target.clientWidth;
-}
-
-function detailChildren(
-  plan: PanelPlan,
-  icons: AppIcons,
-  now: number,
-  actions: RowActions,
-  todayOpen: boolean,
-): HTMLElement[] {
-  return [
-    ...plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, now, actions)),
-    ...todayChildren(plan, icons, now, actions, todayOpen),
-  ];
 }
 
 // 折りたたんだ既読の完了とエラーは 1 行の件数にまとめ、押すとその下に既読の行と同じ薄さで並べる。もう既読なので
@@ -246,52 +168,12 @@ function todayChildren(
   return [line, ...plan.today.map((s) => renderRow(s, true, icons, now, actions))];
 }
 
-function countItem(className: string, status: Status, text: string): HTMLElement {
-  const item = el("span", className);
-  item.append(el("span", `dot ${status}`), el("span", "", text));
-  return item;
-}
-
-// 件数だけの表示は 1 行に折りたたみ、マウスを載せたときに詳細の表示を上へ重ねて見せる。
-// 押したときは、最も優先度の高い要対応のセッションへ移動する。
-function renderCounts(
-  view: PanelView,
-  icons: AppIcons,
-  now: number,
-  actions: RowActions,
-  todayOpen: boolean,
-): HTMLElement {
-  const line = () => {
-    const node = el("div", "counts-line");
-    const items = view.counts.map((c) => countItem("counts-item", c.status, countLabel(c)));
-    items.forEach((item, i) => {
-      if (i > 0) node.append(el("span", "counts-sep", "·"));
-      node.append(item);
-    });
-    return node;
-  };
-  const wrap = el("div", "counts-group");
-  wrap.dataset.expandId = "counts";
-  const layer = el("div", "counts-detail hover-layer");
-  // 件数の行まで一緒に流れないよう、スクロールコンテナはその上の行だけにする。
-  const list = el("div", "layer-rows row-scroll");
-  list.append(...detailChildren(view.plan, icons, now, actions, todayOpen));
-  layer.append(list, line());
-  wrap.append(line(), layer);
-  const target = view.target;
-  if (target) {
-    wrap.classList.add("clickable");
-    wrap.addEventListener("click", (e) => {
-      if (!onScrollbar(e)) press(e, target, actions);
-    });
-  }
-  return wrap;
-}
-
-// 行は 2 段に詰めたまま広げない。広げるレイヤーを重ねると、押したときにレイヤーの開閉とクリックが競り、
-// 1 回で移動できないことがある。要約の全文とコマンドは title のツールチップで読める。
-// どのツールのセッションかを示すマークは、2 段目の左の空いている場所に状態の点と縦に並べ、行の高さを変えない。
-// 最後にフックが届いてからの時間は、2 段目の右のコンテキスト使用率の下に置く。
+// 状態は点ではなく、行の左から右へ薄れていく色で示す。文字を読まなくても、視界の端で何色の行が何本あるかが分かる。
+// 作業中の行は、眺めるときに要る名前、要約、経過時間、コンテキスト使用率だけを 1 段に並べ、手を貸す必要のある
+// 承認待ち、エラー、完了の行だけを 2 段にして目立たせる。
+// 行は広げない。広げるレイヤーを重ねると、押したときにレイヤーの開閉とクリックが競り、1 回で移動できないことがある。
+// チャットのタイトル、ツール、要約の全文、コマンドは title のツールチップで読める。
+// 2 段の行では、どのツールのセッションかを示すマークを 2 段目の左に置き、名前より一段下げて行の高さを変えない。
 // まだ見ていない完了とエラーの行は、マウスを載せている間だけ時間の場所に既読にするボタンを出し、アプリを開かずに折りたためるようにする。
 function renderRow(
   s: SessionState,
@@ -300,26 +182,33 @@ function renderRow(
   now: number,
   actions: RowActions,
 ): HTMLElement {
-  const row = el("div", read ? "row read" : "row");
+  const compact = s.status === "working";
+  const classes = ["row", `s-${s.status}`];
+  if (compact) classes.push("compact");
+  if (read) classes.push("read");
+  const row = el("div", classes.join(" "));
   row.dataset.sessionKey = sessionKey(s);
+  const provider = s.provider ?? "claude";
   const summary = s.activity?.summary || fallbackSummary(s.status);
-  const detail = s.activity?.detail ?? "";
-  const place = [s.title, s.cwd ?? s.session_id].filter(Boolean).join("\n");
-  row.title = [place, summary, detail].filter(Boolean).join("\n\n");
+  row.title = rowTooltip(s, provider, summary);
   row.addEventListener("click", (e) => {
     e.stopPropagation();
     press(e, s, actions);
   });
 
+  const folder = el("span", "folder", folderName(s));
+  if (compact) {
+    row.append(folder, renderSummary(s, summary), renderAge(s.updated_at, now), renderContext(s));
+    return row;
+  }
   const names = el("span", "names");
-  names.append(el("span", "folder", folderName(s)));
+  names.append(folder);
   const title = chatTitle(s);
   if (title) names.append(el("span", "chat-title", title));
   row.append(
-    el("span", `dot ${s.status}`),
     names,
     renderContext(s),
-    providerMarker(s.provider ?? "claude", icons),
+    providerMarker(provider, icons),
     renderSummary(s, summary),
     renderAge(s.updated_at, now),
   );
@@ -328,6 +217,11 @@ function renderRow(
     row.append(markReadButton(s, actions));
   }
   return row;
+}
+
+function rowTooltip(s: SessionState, provider: Provider, summary: string): string {
+  const place = [PROVIDER_NAME[provider], s.title, s.cwd ?? s.session_id].filter(Boolean).join("\n");
+  return [place, summary, s.activity?.detail ?? ""].filter(Boolean).join("\n\n");
 }
 
 // 動いているサブエージェントの数は、要約の頭に小さく出す。要約は右から省略されるので、数は隠れない。
@@ -405,24 +299,31 @@ export function renderContext(s: SessionState): HTMLElement {
   return el("span", "ctx-none");
 }
 
+// 各ツールの値は、ウィンドウごとの細いバーを上から 5h、7d の順に積み、横に数字を添える。80% を超えたバーは
+// コンテキスト使用率と同じく色を変え、文字を読まなくても残りの少なさに気づけるようにする。5h や 7d の見出しと
+// 更新の時刻は、三つのツールが並ぶと行に収まらないので、各グループのツールチップに任せる。
 // 古さはグループごとに示す。全部のグループが古いときは、以前のバージョンと同じく行全体を薄くする。
 function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, now: number): void {
   const allStale = line.groups.every((g) => g.stale);
-  let values: HTMLElement;
-  if (line.marked) {
-    values = el("span", "limit-values marked");
-    for (const g of line.groups) {
-      const group = el("span", !allStale && g.stale ? "limit-group stale" : "limit-group");
-      group.title = limitTooltip(g, PROVIDER_NAME[g.provider], now);
-      group.append(providerMarker(g.provider, icons), el("span", "", g.text));
-      values.append(group);
+  const values = el("span", line.marked ? "limit-values marked" : "limit-values");
+  for (const g of line.groups) {
+    const group = el("span", !allStale && g.stale ? "limit-group stale" : "limit-group");
+    group.title = limitTooltip(g, PROVIDER_NAME[g.provider], now);
+    // Claude Code の値しか無いときは、どのツールの値か迷わないのでアイコンを付けない。
+    if (line.marked) group.append(providerMarker(g.provider, icons));
+    const stack = el("span", "limit-stack");
+    for (const used of g.used) {
+      const pct = Math.max(0, Math.min(100, used));
+      const bar = el("span", "ctx-bar");
+      const fill = el("i", pct >= 80 ? "high" : "");
+      fill.style.width = `${pct}%`;
+      bar.append(fill);
+      stack.append(bar);
     }
-  } else {
-    values = el("span", "limit-values", line.groups.map((g) => g.text).join(" · "));
-    const first = line.groups[0];
-    if (first) values.title = limitTooltip(first, PROVIDER_NAME[first.provider], now);
+    group.append(stack, el("span", "limit-nums", `${g.used.map((u) => Math.round(u)).join(" · ")}%`));
+    values.append(group);
   }
-  container.replaceChildren(values, el("span", "limit-time", formatUpdated(line.updatedAt)));
+  container.replaceChildren(values);
   container.classList.toggle("stale", allStale);
 }
 

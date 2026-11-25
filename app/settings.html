@@ -26,11 +26,8 @@
           <h1 class="title" data-en="Display">表示</h1>
           <label class="check"><input type="checkbox" name="show_character" /><span data-en="Show character">立ち絵を表示</span></label>
           <div class="field">
-            <span class="label" data-en="Panel">パネル</span>
-            <div class="radio-list">
-              <label><input type="radio" name="panel_style" value="detail" /><span><span class="what" data-en="Details">詳細</span><span class="why" data-en="One row per session">セッションを 1 件ずつ</span></span></label>
-              <label><input type="radio" name="panel_style" value="counts" /><span><span class="what" data-en="Counts">件数</span><span class="why" data-en="Only the number of sessions in each status">状態ごとの件数だけ</span></span></label>
-            </div>
+            <label class="check"><input type="checkbox" name="panel_collapsed" /><span data-en="Hide list">リストを隠す</span></label>
+            <p class="hint" data-en="Leaves only the usage limits row. Clicking the character also switches this.">利用制限の欄だけを残します。立ち絵を押しても切り替えられます。</p>
           </div>
           <div class="field">
             <span class="label" data-en="Sort order">並べ方</span>
@@ -43,6 +40,10 @@
           <div class="field">
             <label class="label" for="panel-opacity"><span data-en="Background opacity">背景の不透明度</span><output for="panel-opacity" data-for="panel_opacity"></output></label>
             <input id="panel-opacity" type="range" name="panel_opacity" />
+          </div>
+          <div class="field">
+            <label class="label" for="panel-scale"><span data-en="Panel size">パネルの大きさ</span><output for="panel-scale" data-for="panel_scale"></output></label>
+            <input id="panel-scale" type="range" name="panel_scale" />
           </div>
           <div class="field">
             <span class="label" data-en="Window position">ウィンドウの位置</span>

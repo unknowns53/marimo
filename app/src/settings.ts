@@ -8,7 +8,7 @@ import {
   translateDocument,
   type LanguageState,
 } from "./i18n";
-import { PANEL_OPACITY_MAX, PANEL_OPACITY_MIN } from "./panelModel";
+import { PANEL_OPACITY_MAX, PANEL_OPACITY_MIN, PANEL_SCALE_MAX, PANEL_SCALE_MIN } from "./panelModel";
 import { SCALE_MAX, SCALE_MIN } from "./scale";
 import {
   bubbleSecondsLabel,
@@ -18,6 +18,7 @@ import {
   OPACITY_STEP_PERCENT,
   opacityPercent,
   requestFor,
+  panelScaleLabel,
   scaleLabel,
   shortcutFromKeyEvent,
   usageRefreshLabel,
@@ -41,12 +42,14 @@ import {
 } from "./settingsProtocol";
 
 const SCALE_STEP = 0.1;
+const PANEL_SCALE_STEP = 0.05;
 const IS_MAC = navigator.userAgent.includes("Mac");
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = $<HTMLFormElement>("settings");
 const opacityInput = $<HTMLInputElement>("panel-opacity");
 const scaleInput = $<HTMLInputElement>("scale");
+const panelScaleInput = $<HTMLInputElement>("panel-scale");
 const bubbleSecondsSelect = $<HTMLSelectElement>("bubble-seconds");
 const characterSelect = $<HTMLSelectElement>("character-select");
 const usageRefreshSelect = $<HTMLSelectElement>("usage-refresh");
@@ -129,6 +132,7 @@ function showRangeValues(): void {
   for (const [input, text] of [
     [opacityInput, `${opacityInput.value}%`],
     [scaleInput, scaleLabel(Number(scaleInput.value))],
+    [panelScaleInput, panelScaleLabel(Number(panelScaleInput.value))],
   ] as const) {
     const output = form.querySelector(`output[data-for="${input.name}"]`);
     if (output) output.textContent = text;
@@ -142,6 +146,9 @@ function bindForm(): void {
   scaleInput.min = String(SCALE_MIN);
   scaleInput.max = String(SCALE_MAX);
   scaleInput.step = String(SCALE_STEP);
+  panelScaleInput.min = String(PANEL_SCALE_MIN);
+  panelScaleInput.max = String(PANEL_SCALE_MAX);
+  panelScaleInput.step = String(PANEL_SCALE_STEP);
   form.addEventListener("submit", (e) => e.preventDefault());
   for (const phase of ["input", "change"] as const) {
     form.addEventListener(phase, (e) => {
@@ -155,7 +162,7 @@ function bindForm(): void {
       if (r) request(r);
     });
   }
-  for (const input of [opacityInput, scaleInput]) {
+  for (const input of [opacityInput, scaleInput, panelScaleInput]) {
     input.addEventListener("pointerdown", () => dragging.add(input.name));
   }
   document.addEventListener("pointerup", () => {

@@ -32,7 +32,8 @@ const MARGIN: f64 = 8.0;
 // 吹き出しは立ち絵の頭の上に出すので、その分を立ち絵の上に空けておく。上の隅に置くときも、立ち絵の上端は
 // ウィンドウの上端からこれだけ下にする。
 const BUBBLE_ROOM: f64 = 120.0;
-// パネルは行の増減や、件数の行に詳細を重ねたときに上へ伸びる。その最大の高さ。
+// パネルは行の増減で上へ伸びる。パネルの倍率 1.0 での最大の高さで、倍率に合わせて伸び縮みさせ、
+// 倍率を変えても並ぶ行の数が変わらないようにする。
 const PANEL_COLUMN_H: f64 = 380.0;
 
 /// パネルの背景の不透明度。文字や点は薄くしないので、下限は背景が見分けられるだけの濃さにする。
@@ -40,25 +41,39 @@ pub const OPACITY_MIN: f64 = 0.2;
 pub const OPACITY_MAX: f64 = 1.0;
 pub const DEFAULT_OPACITY: f64 = 0.8;
 
+/// パネルの文字と幅の倍率。行の文字が読める小ささから、画面の隅に収まる大きさまでにする。
+pub const PANEL_SCALE_MIN: f64 = 0.8;
+pub const PANEL_SCALE_MAX: f64 = 1.3;
+pub const DEFAULT_PANEL_SCALE: f64 = 1.0;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelStyle {
     #[default]
     Detail,
-    Counts,
+    /// セッションの行を隠し、利用制限の欄だけを残す。
+    Collapsed,
 }
 
 impl PanelStyle {
+    // 以前の「件数だけ」は、リストを 1 行に畳んで場所を空けるものだったので、リストを隠す表示へ読み替える。
     fn parse(s: &str) -> Option<Self> {
         match s {
             "detail" => Some(Self::Detail),
-            "counts" => Some(Self::Counts),
+            "collapsed" | "counts" => Some(Self::Collapsed),
             _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Detail => "detail",
+            Self::Collapsed => "collapsed",
         }
     }
 }
 
-/// 並べ方は詳細と件数のどちらの出し方にも効く。
+/// 並べ方は行の出し方によらず効く。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RowOrder {
@@ -144,7 +159,7 @@ impl Default for UsageTools {
     }
 }
 
-/// 立ち絵の有無と行の出し方と並べ方と地の不透明度はどれも独立に選べ、どの組み合わせでもパネルは常に出る。
+/// 立ち絵の有無と行の出し方と並べ方と地の不透明度とパネルの倍率はどれも独立に選べ、どの組み合わせでもパネルは常に出る。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PanelDisplay {
     pub show_character: bool,
@@ -153,10 +168,32 @@ pub struct PanelDisplay {
     pub row_order: RowOrder,
     #[serde(default = "default_opacity")]
     pub panel_opacity: f64,
+    #[serde(default = "default_panel_scale")]
+    pub panel_scale: f64,
 }
 
 fn default_opacity() -> f64 {
     DEFAULT_OPACITY
+}
+
+fn default_panel_scale() -> f64 {
+    DEFAULT_PANEL_SCALE
+}
+
+impl PanelDisplay {
+    pub fn frame(&self) -> Frame {
+        Frame {
+            show_character: self.show_character,
+            panel_scale: clamp_panel_scale(self.panel_scale),
+        }
+    }
+}
+
+/// ウィンドウの大きさを決める表示の設定。立ち絵を隠すとパネルの幅へ詰め、パネルの倍率で幅と高さが変わる。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Frame {
+    pub show_character: bool,
+    pub panel_scale: f64,
 }
 
 impl Default for PanelDisplay {
@@ -166,24 +203,24 @@ impl Default for PanelDisplay {
             panel_style: PanelStyle::Detail,
             row_order: RowOrder::Started,
             panel_opacity: DEFAULT_OPACITY,
+            panel_scale: DEFAULT_PANEL_SCALE,
         }
     }
 }
 
 // 以前のバージョンは、立ち絵の有無と行の出し方を混ぜた四つの段階を panel_mode に一つだけ持っていた。
-// 行を出さない「絵だけ」は選べなくなったので、立ち絵を残して最も場所を取らない件数だけへ読み替える。
+// 「件数だけ」と行を出さない「絵だけ」は、立ち絵を残してリストを隠す表示へ読み替える。
 fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
     let (show_character, panel_style) = match mode {
         "detail" => (true, PanelStyle::Detail),
-        "counts" | "picture" => (true, PanelStyle::Counts),
+        "counts" | "picture" => (true, PanelStyle::Collapsed),
         "list" => (false, PanelStyle::Detail),
         _ => return None,
     };
     Some(PanelDisplay {
         show_character,
         panel_style,
-        row_order: RowOrder::default(),
-        panel_opacity: DEFAULT_OPACITY,
+        ..PanelDisplay::default()
     })
 }
 
@@ -237,6 +274,8 @@ struct Display {
     // 手で "80%" のように書かれても倍率やキャラクターまで読み損ねないよう、数に限らず受けてから解釈する。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     panel_opacity: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    panel_scale: Option<serde_json::Value>,
     // 吹き出しの設定も、手で書き損じた値がほかの設定まで巻き込まないよう、型を決めずに受けてから解釈する。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     bubble_waiting: Option<serde_json::Value>,
@@ -348,18 +387,20 @@ pub fn spawn_saver(home: MarimoHome) -> mpsc::Sender<f64> {
 }
 
 /// 新しいキーも以前の panel_mode も保存されていなければ None を返し、フロントエンドに既定を決めさせる。
-/// 新しいキーが一部だけのときは、残りを panel_mode の読み替えか既定で補う。並べ方と不透明度は
+/// 新しいキーが一部だけのときは、残りを panel_mode の読み替えか既定で補う。並べ方と不透明度とパネルの倍率は
 /// panel_mode の頃には無かったので、無いか解釈できない値なら既定にする。
 pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
     let d = read_display(home);
     let style = d.panel_style.as_deref().and_then(PanelStyle::parse);
     let order = d.row_order.as_deref().and_then(RowOrder::parse);
     let opacity = d.panel_opacity.as_ref().and_then(serde_json::Value::as_f64);
+    let panel_scale = d.panel_scale.as_ref().and_then(serde_json::Value::as_f64);
     let legacy = d.panel_mode.as_deref().and_then(legacy_panel_mode);
     if d.show_character.is_none()
         && style.is_none()
         && order.is_none()
         && opacity.is_none()
+        && panel_scale.is_none()
         && legacy.is_none()
     {
         return None;
@@ -370,21 +411,17 @@ pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
         panel_style: style.unwrap_or(fallback.panel_style),
         row_order: order.unwrap_or_default(),
         panel_opacity: opacity.map_or(DEFAULT_OPACITY, clamp_opacity),
+        panel_scale: panel_scale.map_or(DEFAULT_PANEL_SCALE, clamp_panel_scale),
     })
 }
 
 pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Result<()> {
     update_display(home, |d| {
         d.show_character = Some(display.show_character);
-        d.panel_style = Some(
-            match display.panel_style {
-                PanelStyle::Detail => "detail",
-                PanelStyle::Counts => "counts",
-            }
-            .to_owned(),
-        );
+        d.panel_style = Some(display.panel_style.as_str().to_owned());
         d.row_order = Some(display.row_order.as_str().to_owned());
         d.panel_opacity = Some(clamp_opacity(display.panel_opacity).into());
+        d.panel_scale = Some(clamp_panel_scale(display.panel_scale).into());
         d.panel_mode = None;
     })
 }
@@ -549,6 +586,14 @@ pub fn clamp_opacity(opacity: f64) -> f64 {
     (opacity.clamp(OPACITY_MIN, OPACITY_MAX) * 100.0).round() / 100.0
 }
 
+// スライダーの 0.05 刻みを小数で表した誤差を残さないよう、不透明度と同じく小数第 2 位に丸める。
+pub fn clamp_panel_scale(scale: f64) -> f64 {
+    if !scale.is_finite() {
+        return DEFAULT_PANEL_SCALE;
+    }
+    (scale.clamp(PANEL_SCALE_MIN, PANEL_SCALE_MAX) * 100.0).round() / 100.0
+}
+
 // ホイールで 0.1 ずつ足すと 1.2000000000000002 のような誤差が積もるので、
 // 範囲に収めたうえで小数第 2 位に丸める。
 pub fn clamp(scale: f64) -> f64 {
@@ -558,26 +603,28 @@ pub fn clamp(scale: f64) -> f64 {
     (scale.clamp(MIN, MAX) * 100.0).round() / 100.0
 }
 
-// 行と吹き出しの文字は倍率で変えないので、ウィンドウは立ち絵が大きくなった分だけ広げる。
-// 立ち絵を隠しているときはパネルの幅だけに詰め、画面の左右どちらの端にも寄せられるようにする。
-pub fn window_size_for(scale: f64, aspect: f64, show_character: bool) -> (f64, f64) {
-    if !show_character {
-        return ((MARGIN + PANEL_W + MARGIN).round(), PANEL_COLUMN_H.round());
+// 行と吹き出しの文字は立ち絵の倍率で変えないので、ウィンドウは立ち絵が大きくなった分と、パネルの倍率で
+// パネルが広がった分だけ広げる。立ち絵を隠しているときはパネルの幅だけに詰め、画面の左右どちらの端にも寄せられるようにする。
+pub fn window_size_for(scale: f64, aspect: f64, frame: Frame) -> (f64, f64) {
+    let panel_w = PANEL_W * frame.panel_scale;
+    let column_h = PANEL_COLUMN_H * frame.panel_scale;
+    if !frame.show_character {
+        return ((MARGIN + panel_w + MARGIN).round(), column_h.round());
     }
-    let width = MARGIN + PANEL_W + MARGIN + STAGE_W * scale + MARGIN;
-    let height = PANEL_COLUMN_H.max(MARGIN + STAGE_W * aspect * scale + BUBBLE_ROOM);
+    let width = MARGIN + panel_w + MARGIN + STAGE_W * scale + MARGIN;
+    let height = column_h.max(MARGIN + STAGE_W * aspect * scale + BUBBLE_ROOM);
     (width.round(), height.round())
 }
 
 /// style.css の #stage と同じ置き方で、ウィンドウの中の立ち絵の領域を返す。
 /// 立ち絵を隠しているときはパネルの領域を返し、ドラッグ後に画面のどの半分へ置いたかで上下左右の隅を決める。
-pub fn stage_rect_for(scale: f64, aspect: f64, corner: Corner, show_character: bool) -> StageRect {
-    let (width, height) = window_size_for(scale, aspect, show_character);
-    if !show_character {
+pub fn stage_rect_for(scale: f64, aspect: f64, corner: Corner, frame: Frame) -> StageRect {
+    let (width, height) = window_size_for(scale, aspect, frame);
+    if !frame.show_character {
         return StageRect {
             x: MARGIN,
             y: MARGIN,
-            w: PANEL_W,
+            w: PANEL_W * frame.panel_scale,
             h: (height - MARGIN * 2.0).max(1.0),
         };
     }
@@ -638,8 +685,14 @@ mod tests {
         PanelDisplay {
             show_character,
             panel_style,
-            row_order: RowOrder::Started,
-            panel_opacity: DEFAULT_OPACITY,
+            ..PanelDisplay::default()
+        }
+    }
+
+    fn frame(show_character: bool) -> Frame {
+        Frame {
+            show_character,
+            panel_scale: DEFAULT_PANEL_SCALE,
         }
     }
 
@@ -648,18 +701,18 @@ mod tests {
         let (_d, home) = home();
         assert_eq!(load(&home), DEFAULT);
         assert_eq!(load_panel_display(&home), None);
-        let counts = display(true, PanelStyle::Counts);
+        let collapsed = display(true, PanelStyle::Collapsed);
         save(&home, 1.5).unwrap();
-        save_panel_display(&home, counts).unwrap();
+        save_panel_display(&home, collapsed).unwrap();
         assert_eq!(
             (load(&home), load_panel_display(&home)),
-            (1.5, Some(counts))
+            (1.5, Some(collapsed))
         );
         save(&home, 2.0).unwrap();
         save_character(&home, "clawd").unwrap();
         assert_eq!(
             (load_panel_display(&home), load_character(&home).as_str()),
-            (Some(counts), "clawd")
+            (Some(collapsed), "clawd")
         );
 
         save_aspect(&home, 1.0).unwrap();
@@ -670,7 +723,7 @@ mod tests {
                 load_aspect(&home),
                 load_character(&home).as_str()
             ),
-            (2.0, Some(counts), 1.0, "clawd")
+            (2.0, Some(collapsed), 1.0, "clawd")
         );
         save(&home, 4.0).unwrap();
         save_panel_display(&home, display(false, PanelStyle::Detail)).unwrap();
@@ -683,16 +736,19 @@ mod tests {
 
     #[test]
     fn panel_display_reads_legacy_panel_mode_until_saved() {
-        use PanelStyle::{Counts, Detail};
+        use PanelStyle::{Collapsed, Detail};
         use RowOrder::{Started, Status, Updated};
         let (_d, home) = home();
         let cases = [
             (r#"{"panel_mode": "detail"}"#, Some((true, Detail, Started))),
-            (r#"{"panel_mode": "counts"}"#, Some((true, Counts, Started))),
+            (
+                r#"{"panel_mode": "counts"}"#,
+                Some((true, Collapsed, Started)),
+            ),
             (r#"{"panel_mode": "list"}"#, Some((false, Detail, Started))),
             (
                 r#"{"panel_mode": "picture"}"#,
-                Some((true, Counts, Started)),
+                Some((true, Collapsed, Started)),
             ),
             (r#"{"scale": 1.2, "panel_mode": "tiny"}"#, None),
             (r#"{"scale": 1.7}"#, None),
@@ -701,19 +757,19 @@ mod tests {
             // 新しいキーは panel_mode より優先し、無い方だけを panel_mode の読み替えで補う。
             (
                 r#"{"panel_mode": "list", "show_character": true, "panel_style": "counts"}"#,
-                Some((true, Counts, Started)),
+                Some((true, Collapsed, Started)),
             ),
             (
-                r#"{"panel_mode": "list", "panel_style": "counts"}"#,
-                Some((false, Counts, Started)),
+                r#"{"panel_mode": "list", "panel_style": "collapsed"}"#,
+                Some((false, Collapsed, Started)),
             ),
             (
                 r#"{"show_character": false}"#,
                 Some((false, Detail, Started)),
             ),
             (
-                r#"{"panel_mode": "picture", "panel_style": "bogus"}"#,
-                Some((true, Counts, Started)),
+                r#"{"panel_mode": "counts", "panel_style": "bogus"}"#,
+                Some((true, Collapsed, Started)),
             ),
             (r#"{"row_order": "status"}"#, Some((true, Detail, Status))),
             (
@@ -722,7 +778,7 @@ mod tests {
             ),
             (
                 r#"{"show_character": true, "panel_style": "counts", "row_order": "bogus"}"#,
-                Some((true, Counts, Started)),
+                Some((true, Collapsed, Started)),
             ),
         ];
         for (content, expected) in cases {
@@ -733,7 +789,7 @@ mod tests {
                     show_character,
                     panel_style,
                     row_order,
-                    panel_opacity: DEFAULT_OPACITY,
+                    ..PanelDisplay::default()
                 }),
                 "content {content:?}"
             );
@@ -756,7 +812,7 @@ mod tests {
             serde_json::from_slice(&fs::read(home.display_file()).unwrap()).unwrap();
         assert_eq!(
             saved,
-            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status", "panel_opacity": 0.8, "future_key": [1]})
+            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status", "panel_opacity": 0.8, "panel_scale": 1.0, "future_key": [1]})
         );
     }
 
@@ -966,7 +1022,7 @@ mod tests {
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let declared = &conf["app"]["windows"][0];
         assert_eq!(
-            window_size_for(DEFAULT, DEFAULT_ASPECT, true),
+            window_size_for(DEFAULT, DEFAULT_ASPECT, frame(true)),
             (
                 declared["width"].as_f64().unwrap(),
                 declared["height"].as_f64().unwrap()
@@ -992,13 +1048,16 @@ mod tests {
             (1.0, 100.0, (444.0, 560.0)),
         ] {
             assert_eq!(
-                window_size_for(scale, clamp_aspect(aspect), true),
+                window_size_for(scale, clamp_aspect(aspect), frame(true)),
                 size,
                 "scale {scale} aspect {aspect}"
             );
         }
         // 立ち絵を隠しているときは倍率や縦横比によらずパネル幅だけに詰める。
-        assert_eq!(window_size_for(4.0, DEFAULT_ASPECT, false), (328.0, 380.0));
+        assert_eq!(
+            window_size_for(4.0, DEFAULT_ASPECT, frame(false)),
+            (328.0, 380.0)
+        );
     }
 
     #[test]

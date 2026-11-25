@@ -48,7 +48,7 @@ Right-click the icon to open the following menu. When sessions need your attenti
 | Hide marimo, Show marimo | Hides or shows the window. Only the one that applies to the current state is shown |
 | Reset Position | Clears the saved window position and moves the window back to the lower right of the main monitor, showing it if hidden |
 | Show Character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
-| Show Details, Show Counts Only | Switches how the panel is shown (see [Switching the display](#switching-the-display)) |
+| Hide List | Turns on or off hiding the session rows in the panel, leaving only the usage limits row (see [Switching the display](#switching-the-display)) |
 | Sort Order | Chooses how the panel orders sessions from a submenu of **Start Time**, **Status**, and **Last Update** (see [Sort order](#sort-order)) |
 | Mark All as Read | Marks every unread done and error session as read. It cannot be chosen when there are none (see [Marking Done and Error as read](#marking-done-and-error-as-read)) |
 | Update Available: X | Appears only when a newer stable version exists. Choosing it opens the settings window at **Updates** (see [Checking for updates](#checking-for-updates)) |
@@ -73,16 +73,17 @@ When you right-click a session row in the panel, session-specific items appear a
 
 ## Settings
 
-Choose **Settings…** from the right-click menu or the icon's menu to open the "marimo Settings" window. If it is already open, it comes to the front. This is an ordinary window with a frame, and you close it with its close button or the Esc key. Changes made in the window apply to the character and panel immediately, and are saved for the next start (see [Files and data](development.md#files-and-data) for where). If you change the display from a menu or a panel button while the window is open, the window follows.
+Choose **Settings…** from the right-click menu or the icon's menu to open the "marimo Settings" window. If it is already open, it comes to the front. This is an ordinary window with a frame, and you close it with its close button or the Esc key. Changes made in the window apply to the character and panel immediately, and are saved for the next start (see [Files and data](development.md#files-and-data) for where). If you change the display from a menu or by clicking the character while the window is open, the window follows.
 
 The left side of the window lists eight sections: **Display**, **Bubbles**, **Character**, **Usage limits**, **Shortcuts**, **Startup**, **Updates**, and **Language**. The settings of the selected section appear on the right. **Display** is selected when the window opens.
 
 | Section | Setting | What it does |
 | --- | --- | --- |
 | Display | Show character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
-| Display | Panel | Chooses how the panel is shown: **Details** or **Counts** (see [Switching the display](#switching-the-display)) |
+| Display | Hide list | Turns on or off hiding the session rows, leaving only the usage limits row (see [Switching the display](#switching-the-display)) |
 | Display | Sort order | Chooses how the panel orders sessions: **Start time**, **Status**, or **Last update** (see [Sort order](#sort-order)) |
 | Display | Background opacity | Changes how solid the panel background is with a slider (see [Background opacity](#background-opacity)) |
+| Display | Panel size | Changes the panel's text and width with a slider (see [Panel size](#panel-size)) |
 | Display | Window position | Click **Reset to Default Position** to move the window back to the lower right of the main monitor |
 | Bubbles | Show for (Waiting, Done, Error), Display time | Chooses which states show speech bubbles and how long until they close on their own (see [Speech bubbles](#speech-bubbles)) |
 | Character | Character | Chooses the character. The change takes effect immediately. If switching fails, the previous character stays |
@@ -117,33 +118,41 @@ marimo checks GitHub for a newer stable version 3 seconds after starting and onc
 
 The **Background opacity** slider changes how solid the panel background is, from 20% to 100% in steps of 5%. The default is 80%. The panel background changes as you move the slider, and the current value, such as "80%", appears to the right of the slider. The value is saved when you release the mouse button.
 
-Only the backgrounds of the panel and the row of buttons along its top edge become transparent; text, icons, and state color dots do not. The details that appear over the counts row when you point at it become more transparent along with the panel, but they stay more solid than the panel so that they do not blend with the counts row and button text underneath. When the panel is at 80% or more they are opaque, and at their most transparent they stay at 85%. Speech bubbles do not change.
+Only the backgrounds of the panel and the grip along its top edge become transparent; text, icons, and state colors do not. Speech bubbles do not change.
 
 ### Size
 
 The **Size** slider changes the scale of the character from 0.6× to 4.0× in steps of 0.1. The default is 1.0×, and the current scale, such as "1.0×", appears to the right of the slider. You can also change it over the same range in steps of 0.1 by turning the mouse wheel over the character while holding Cmd (Ctrl on systems other than macOS). The size of the character area at a scale of 1.0 is given in [Making your own character](customize.md#making-your-own-character).
 
-When you change the size, the corner of the window where the character sits stays in place, and any part that would go off screen is moved back inside. The text size of the panel and speech bubbles does not change.
+When you change the size, the corner of the window where the character sits stays in place, and any part that would go off screen is moved back inside. The text size of the panel and speech bubbles does not change. To change the panel's size, use [Panel size](#panel-size).
+
+### Panel size
+
+The **Panel size** slider changes the panel's text and width together, from 0.8× to 1.3× in steps of 0.05. The default is 1.0×, and the current scale, such as "1.00×", appears to the right of the slider. The change applies as you move the slider, and the window grows or shrinks to fit the panel. The corner of the window where the character sits stays in place. The panel's maximum height changes by the same scale, so the number of sessions visible at once stays the same. The size of the character and speech bubbles does not change.
 
 ## Switching the display
 
-**Show Character** and the panel's **Show Details** and **Show Counts Only** can be chosen independently. By default, the character is shown with the detailed panel. The panel is shown in every combination.
+**Show Character** and **Hide List** can be chosen independently. By default, both the character and the list are shown. The panel is shown in every combination.
 
-These and **Sort Order** can be changed from the right-click menu, the icon's menu, or **Display** in the settings window, and the same setting is saved wherever you change it. Every menu shows a check mark next to the current choice, and the settings window also shows the current state. Choices made in the icon's menu are applied and saved by the app immediately, so they are not lost even if you choose right after startup or several times in quick succession. You can also switch between details and counts by clicking the character, and change the sort order with the button at the top left of the panel (see [Sort order](#sort-order)).
+These and **Sort Order** can be changed from the right-click menu, the icon's menu, or **Display** in the settings window, and the same setting is saved wherever you change it. Every menu shows a check mark next to the current choice, and the settings window also shows the current state. Choices made in the icon's menu are applied and saved by the app immediately, so they are not lost even if you choose right after startup or several times in quick succession. You can also toggle **Hide List** by clicking the character.
 
-The detailed panel shows parts of file names and commands, so switch to **Show Counts Only** when you show your screen to others. The counts row shows neither file names nor commands, and the details appear on top of it only while you point at it. To hide the window entirely, click the menu bar icon.
+Turning on **Hide List** hides the session rows and the "Read today" line, leaving only the usage limits row in the panel. When there is no usage limits row either, a faint line reading "List hidden" is shown. The character's expression and speech bubbles do not change while the list is hidden. The panel shows chat titles and parts of file names and commands, so when you show your screen to others, hide the list or click the menu bar icon to hide the whole window.
 
-Turning off **Show Character** hides the character and speech bubbles and shrinks the window to the panel's width so you can place it flush against either edge of the screen. Drag an empty part of the panel or the grip on its upper-right edge to move the window, and right-click the panel to open the menu. While the character is hidden, no speech bubbles are shown; when you turn **Show Character** back on, a bubble appears if the state it is about still continues. Turning the wheel over the character is not available, so change the size with **Size** in the settings window.
+Turning off **Show Character** hides the character and speech bubbles and shrinks the window to the panel's width so you can place it flush against either edge of the screen. Drag an empty part of the panel or the grip that appears on its upper-right edge to move the window, and right-click the panel to open the menu. While the character is hidden, no speech bubbles are shown; when you turn **Show Character** back on, a bubble appears if the state it is about still continues. Turning the wheel over the character is not available, so change the size with **Size** in the settings window.
 
 ## Reading the panel
 
-The **Details** panel lists every session that is not idle, one per row. By default, sessions are ordered by start time, newest at the top (see [Sort order](#sort-order)). Each session takes two lines.
+The panel lists every session that is not idle, one per row. By default, sessions are ordered by start time, newest at the top (see [Sort order](#sort-order)).
 
-- **First line** A state color dot, the name, the chat title, and the context usage. The name is the name of the git repository containing the working folder, or the working folder's name outside a repository. Inside a git worktree, the name of the original repository is shown rather than the worktree folder's name. The title follows the name in small, faint text, and is shortened first when space runs out. Sessions with no known title show only the name.
+Each session's state is shown by a color that fades from the left of its row to the right: orange for waiting, red for error, blue for working, and green for done. Working is shown faintly, and the more a state needs your hand, the stronger its color. You can tell the situation from how many rows of each color there are, without reading the text.
+
+Waiting, error, and done sessions take two lines.
+
+- **First line** The name, the chat title, and the context usage. The name is the name of the git repository containing the working folder, or the working folder's name outside a repository. Inside a git worktree, the name of the original repository is shown rather than the worktree folder's name. The title follows the name in small, faint text, and is shortened first when space runs out. Sessions with no known title show only the name.
 - **Context usage** When the limit is known, a small bar and a percentage are shown, and the bar changes color at 80% or more. When the limit is unknown, the token count is shown as a number in a box (for example, `45.2k`) so that it is distinguishable from the bar. marimo does not guess the limit from the model name. Sessions in the Code tab of the desktop app show a token count because the limit is unknown, but once statusLine reports the limit for the same conversation opened in the CLI, a percentage is shown from then on.
 - **Second line** A one-line summary of the current activity. For shell commands, it is the description the agent gave the command, or the command itself if there is no description; for reading and writing files, the path relative to the working folder; while responding, the beginning of the text. While subagents run, their number appears in small text before the summary, such as "Sub 3". A subagent whose SubagentStop never arrived stays counted until 30 minutes pass or the session returns to idle.
 - **Time since the last update** To the right of the second line, below the context usage, the time since a hook (or, for OpenCode, a notification from the plugin) last arrived for the session is shown, such as "now", "5m ago", or "2h ago". The panel redraws every 30 seconds, so nothing finer than a minute is shown. Point at it to see the time the last hook arrived. statusLine input does not update this time.
-- **Tool icon** To the left of the second line, below the state dot, an app icon or a text mark shows which tool the session belongs to. The icons of Claude Code, Codex, and Antigravity are not bundled; marimo reads them from each tool's desktop app installed locally (see [What marimo reads](development.md#what-marimo-reads)). The icons of Hermes Agent and OpenCode are bundled from the files each project distributes under the MIT License (see `LICENSE-ASSETS` for sources).
+- **Tool icon** To the left of the second line, below the start of the name, an app icon or a text mark shows which tool the session belongs to. The icons of Claude Code, Codex, and Antigravity are not bundled; marimo reads them from each tool's desktop app installed locally (see [What marimo reads](development.md#what-marimo-reads)). The icons of Hermes Agent and OpenCode are bundled from the files each project distributes under the MIT License (see `LICENSE-ASSETS` for sources).
 
   | Tool | Icon | Mark when the icon cannot be read |
   | --- | --- | --- |
@@ -153,7 +162,9 @@ The **Details** panel lists every session that is not idle, one per row. By defa
   | OpenCode | On macOS, the OpenCode desktop app's icon. Without it, and on Windows, the bundled OpenCode icon | None (the icon is always shown) |
   | Antigravity | On macOS, the icon of the Gemini desktop app, which bundles Antigravity | `AG` |
 
-- **Tooltip** Point at a session to see the chat title, the full path of the working folder, the full summary, and the command or arguments themselves.
+- **Tooltip** Point at a session to see the tool name, the chat title, the full path of the working folder, the full summary, and the command or arguments themselves.
+
+Working sessions take one line, showing the name, the activity summary, the time since the last update, and the context usage. The chat title and tool icon are not shown; you can see them in the tooltip.
 
 How the title and context usage are obtained differs by tool, and is described in [How titles and context usage are read](development.md#how-titles-and-context-usage-are-read) and in the "What ... records" section for each tool. Titles in the Code tab of the desktop app are read from an undocumented format, so they may stop appearing after a Claude Code update.
 
@@ -161,17 +172,11 @@ There is no limit to the number of sessions listed. As sessions are added, the p
 
 Below the sessions and above the usage limits row, a faint line such as "Read today: 3" shows how many sessions became done or errored today and have been marked as read. Click it to list those sessions faintly, newest state change first, and click it again to close the list. Clicking a session in the list jumps to it like any other session. The "✓" button for marking as read is not shown there. Whether the list is open is not saved, and it starts closed. When no done or error session has been marked as read today, this line is not shown (see [Marking Done and Error as read](#marking-done-and-error-as-read)).
 
-<p align="center">
-  <img src="images/screenshot-counts.png" width="516" alt="The counts-only display. The panel is collapsed to a single line, 'Waiting 1 · Working 2 · Done 1', and the usage limits row">
-</p>
-
-The **Counts** panel shows the number of sessions in each state on a single counts row, together with the color dots (for example, "Waiting 1 · Working 3 · Done 2"). States with no sessions are left out. When there is nothing to count, it shows "No active sessions", followed by the "Read today" line if any sessions were marked as read today. Clicking the counts row jumps to the waiting, error, or done session with the highest priority.
-
-Point at the counts row to see the detailed panel on top of it. These details have no limit on the number of sessions either, and scroll when they do not fit in the window. While the mouse stays over the details, they do not close, even while you scroll. The details also include the "Read today" line below the sessions.
+In the usage limits row below it, point at each tool's values to see when they were last updated (see [Usage limits](#usage-limits)).
 
 ### Sort order
 
-At the top left of the panel is a button with the name of the current sort order; each click switches between **Start Time**, **Status**, and **Last Update** in that order. Point at it to see a tooltip that explains the current order and what the next click switches to. The button is shown even when there are no sessions. You can also choose from **Sort Order** in the right-click menu, the icon's menu, or the settings window. The chosen order applies both to the detailed panel and to the details shown over the counts row.
+Choose **Start Time**, **Status**, or **Last Update** from **Sort Order** in the right-click menu, the icon's menu, or the settings window.
 
 | Sort order | What it does |
 | --- | --- |
@@ -218,13 +223,13 @@ For OpenCode sessions, marimo looks for the OpenCode screen running in Ghostty o
 
 A session stays done until the next prompt is sent. When a session ends (SessionEnd), marimo removes it from the list, but it keeps done and error sessions unless you ended the conversation yourself in its own screen, as with `/exit` or `/clear`. The Claude desktop app may stop idle sessions in the background or reopen conversations when memory runs low, and marimo keeps these sessions so that unread results do not disappear without notice. When you delete a conversation in OpenCode, it cannot be reopened, so marimo removes done and error sessions as well.
 
-Done and error sessions are marked as read, and collapsed in the panel, by any of the following. Read done and error sessions count as idle for the character's expression and speech bubbles, and are not counted in the counts-only display.
+Done and error sessions are marked as read, and collapsed in the panel, by any of the following. Read done and error sessions count as idle for the character's expression and speech bubbles.
 
 - Click the session in the panel to jump to it.
 - Click its speech bubble. This jumps to the session, just like clicking it in the panel.
 - Choose **Mark All as Read** from the right-click menu or the icon's menu. This marks all unread done and error sessions as read at once.
 - Point at an unread done or error session and click the "✓" button that appears at its right edge, two lines tall. While the button is shown, the session's context usage and time since the last update are hidden.
-- Click a session or speech bubble while holding Option (Alt on systems other than macOS). This marks it as read without jumping. Doing this on the counts row in the counts-only display marks the session that a click would have jumped to as read, without jumping.
+- Click a session or speech bubble while holding Option (Alt on systems other than macOS). This marks it as read without jumping.
 
 The last three do not bring any app to the front.
 
@@ -265,7 +270,7 @@ Clawd changes expressions the same way as Koharu, and its working face changes w
 
 ## Interacting with the character
 
-- **Click** Switches the panel between the detailed and counts-only displays. As when you choose from a menu, the chosen display is saved (see [Switching the display](#switching-the-display)).
+- **Click** Toggles **Hide List**, hiding or showing the session rows in the panel. As when you choose from a menu, the chosen display is saved (see [Switching the display](#switching-the-display)).
 - **Point** Pointing at the character while working makes it look at you. When the mouse leaves, the original expression returns after a short pause.
 - **Drag** Press and move a little to move the whole window. The position is saved in `~/.marimo/window.json`, and the window appears in the same place next time. If the saved position ends up off screen, for example because the monitor setup changed, the window returns to the lower right of the screen.
 
@@ -306,13 +311,13 @@ Antigravity's usage limits are split by model group, and marimo shows the 5-hour
 
 ### The usage limits row
 
-At the bottom of the panel, the 5-hour and 7-day usage, such as `5h 23% · 7d 84%`, and the last update time (for example, `Updated 14:05`) are shown. There is one row for the whole account, and it is shown even when every session is idle. When there are no values to show, the row is not shown.
+At the bottom of the panel, the 5-hour and 7-day usage is shown as two thin bars stacked on top of each other, the 5-hour one above the 7-day one, followed by numbers such as `23 · 84%`. A bar at 80% or more changes color, as the context usage bar does. There is one row for the whole account, and it is shown even when every session is idle. When there are no values to show, the row is not shown.
 
-When there are Codex or Antigravity values, the values are listed in the order Claude Code, Codex, Antigravity, each preceded by the app's icon (or the text `CC`, `CX`, or `AG` if the icon cannot be read). For example, `5h 12% · 7d 30%` follows the Claude icon, `7d 13%` the Codex icon, and `5h 10% · 7d 3%` the Antigravity icon. When they do not fit in the width of the panel, they wrap between tools, and the update time stays at the right edge. When only Claude Code's values are shown, no icon is added.
+When there are Codex or Antigravity values, the values are listed in the order Claude Code, Codex, Antigravity, each preceded by the app's icon (or the text `CC`, `CX`, or `AG` if the icon cannot be read). Each tool has as many bars as it has windows to show. The values of the three tools are spread evenly across the width of the panel. When they do not fit in the width of the panel, they wrap between tools. When only Claude Code's values are shown, no icon is added.
 
-Codex window names are decided from the window length that Codex reports: `7d` if it divides evenly into days, `5h` if it divides evenly into hours, and otherwise the number of minutes (for example, `90m`). A window whose length was not reported is shown as a percentage without a name.
+Codex window names are decided from the window length that Codex reports: `7d` if it divides evenly into days, `5h` if it divides evenly into hours, and otherwise the number of minutes (for example, `90m`). A window whose length was not reported is shown in the tooltip as a percentage without a name.
 
-The time at the right edge is the newest update time among the values shown. Point at a value to see each window's reset time and its own update time in a tooltip. The update time is when the value arrived from statusLine or was obtained with `/usage` for Claude Code, when the value was written to the record or queried by marimo for Codex, and when `agy -p /usage` ran for Antigravity. Right-clicking the usage limits row also offers **Refresh Usage Limits Now**.
+Point at a value to see the usage with window names, such as `5h 12% · 7d 30%`, each window's reset time, and the update time in a tooltip. The update time is when the value arrived from statusLine or was obtained with `/usage` for Claude Code, when the value was written to the record or queried by marimo for Codex, and when `agy -p /usage` ran for Antigravity. Right-clicking the usage limits row also offers **Refresh Usage Limits Now**.
 
 Values 30 minutes or more past their last update are likely to have drifted from the actual values, so they are shown faintly. Staleness is judged for each value separately. If you set the **Refresh interval** longer than 30 minutes, Antigravity's values are shown faintly during the latter part of each interval. Values for windows whose reset time has passed are not shown.
 

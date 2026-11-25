@@ -30,8 +30,7 @@ const SESSION_PREFIX: &str = "tray-session:";
 const TOGGLE: &str = "tray:toggle";
 const RESET_POSITION: &str = "tray:reset-position";
 const SHOW_CHARACTER: &str = "tray:show-character";
-const STYLE_DETAIL: &str = "tray:style-detail";
-const STYLE_COUNTS: &str = "tray:style-counts";
+const COLLAPSED: &str = "tray:collapsed";
 // 並べ方の項目の ID は、この接頭辞に RowOrder の保存名を続けたものにする。
 const ORDER_PREFIX: &str = "tray:order-";
 const MARK_ALL_READ: &str = "tray:mark-all-read";
@@ -48,8 +47,7 @@ pub struct Tray {
     toggle: MenuItem<Wry>,
     reset_position: MenuItem<Wry>,
     show_character: CheckMenuItem<Wry>,
-    detail: CheckMenuItem<Wry>,
-    counts: CheckMenuItem<Wry>,
+    collapsed: CheckMenuItem<Wry>,
     orders: Vec<(RowOrder, CheckMenuItem<Wry>)>,
     order_menu: Submenu<Wry>,
     mark_all_read: MenuItem<Wry>,
@@ -102,8 +100,7 @@ impl Tray {
             self.toggle.set_text(toggle_label(visible, lang)),
             self.reset_position.set_text(reset_position_label(lang)),
             self.show_character.set_text(show_character_label(lang)),
-            self.detail.set_text(detail_label(lang)),
-            self.counts.set_text(counts_label(lang)),
+            self.collapsed.set_text(collapsed_label(lang)),
             self.order_menu.set_text(order_menu_label(lang)),
             self.mark_all_read.set_text(mark_all_read_label(lang)),
             self.settings.set_text(settings_label(lang)),
@@ -130,10 +127,8 @@ impl Tray {
     pub fn reflect(&self, display: PanelDisplay) {
         let results = [
             self.show_character.set_checked(display.show_character),
-            self.detail
-                .set_checked(display.panel_style == PanelStyle::Detail),
-            self.counts
-                .set_checked(display.panel_style == PanelStyle::Counts),
+            self.collapsed
+                .set_checked(display.panel_style == PanelStyle::Collapsed),
         ]
         .into_iter()
         .chain(
@@ -310,12 +305,8 @@ fn show_character_label(lang: Lang) -> &'static str {
     lang.pick("立ち絵を表示", "Show Character")
 }
 
-fn detail_label(lang: Lang) -> &'static str {
-    lang.pick("詳細を表示", "Show Details")
-}
-
-fn counts_label(lang: Lang) -> &'static str {
-    lang.pick("件数だけ表示", "Show Counts Only")
+fn collapsed_label(lang: Lang) -> &'static str {
+    lang.pick("リストを隠す", "Hide List")
 }
 
 fn order_menu_label(lang: Lang) -> &'static str {
@@ -372,20 +363,12 @@ pub fn build(app: &AppHandle, display: PanelDisplay, lang: Lang) -> tauri::Resul
         display.show_character,
         None::<&str>,
     )?;
-    let detail = CheckMenuItem::with_id(
+    let collapsed = CheckMenuItem::with_id(
         app,
-        STYLE_DETAIL,
-        detail_label(lang),
+        COLLAPSED,
+        collapsed_label(lang),
         true,
-        display.panel_style == PanelStyle::Detail,
-        None::<&str>,
-    )?;
-    let counts = CheckMenuItem::with_id(
-        app,
-        STYLE_COUNTS,
-        counts_label(lang),
-        true,
-        display.panel_style == PanelStyle::Counts,
+        display.panel_style == PanelStyle::Collapsed,
         None::<&str>,
     )?;
     let orders = RowOrder::ALL
@@ -423,8 +406,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay, lang: Lang) -> tauri::Resul
             &reset_position,
             &PredefinedMenuItem::separator(app)?,
             &show_character,
-            &detail,
-            &counts,
+            &collapsed,
             &order_menu,
             &PredefinedMenuItem::separator(app)?,
             &mark_all_read,
@@ -460,8 +442,7 @@ pub fn build(app: &AppHandle, display: PanelDisplay, lang: Lang) -> tauri::Resul
         toggle: toggle_item,
         reset_position,
         show_character,
-        detail,
-        counts,
+        collapsed,
         orders,
         order_menu,
         mark_all_read,
@@ -494,12 +475,11 @@ fn chosen_display(id: &str, current: PanelDisplay) -> Option<PanelDisplay> {
             show_character: !current.show_character,
             ..current
         }),
-        STYLE_DETAIL => Some(PanelDisplay {
-            panel_style: PanelStyle::Detail,
-            ..current
-        }),
-        STYLE_COUNTS => Some(PanelDisplay {
-            panel_style: PanelStyle::Counts,
+        COLLAPSED => Some(PanelDisplay {
+            panel_style: match current.panel_style {
+                PanelStyle::Detail => PanelStyle::Collapsed,
+                PanelStyle::Collapsed => PanelStyle::Detail,
+            },
             ..current
         }),
         id => id
@@ -551,7 +531,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
                 tray.reflect(saved);
             }
             if saved == next {
-                crate::sync_window_character(app, saved.show_character);
+                crate::sync_window_frame(app, saved.frame());
                 if let Err(e) = app.emit(PANEL_DISPLAY_EVENT, saved) {
                     eprintln!("marimo: cannot send the tray choice: {e}");
                 }
