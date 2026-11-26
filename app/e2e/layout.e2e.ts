@@ -96,7 +96,7 @@ test("each corner places the stage, panel and bubble", async ({ page }, info) =>
   }
 });
 
-test("pressing the stage hides and shows the list", async ({ page }) => {
+test("pressing the stage hides and shows the panel", async ({ page }) => {
   await open(page);
   await expect(page.locator(".row-agents")).toHaveText("サブ 3");
   // 作業中の行は 1 段なのでチャットのタイトルを出さず、承認待ちの行だけが出す。
@@ -104,10 +104,10 @@ test("pressing the stage hides and shows the list", async ({ page }) => {
 
   const stage = await box(page, "#stage");
   const center = { x: (stage.left + stage.right) / 2, y: (stage.top + stage.bottom) / 2 };
-  for (const expected of [0, 2]) {
-    await page.mouse.click(center.x, center.y);
-    await expect(page.locator("#rows .row")).toHaveCount(expected);
-  }
+  await page.mouse.click(center.x, center.y);
+  await expect(page.locator("#panel")).toBeHidden();
+  await page.mouse.click(center.x, center.y);
+  await expect(page.locator("#rows .row")).toHaveCount(2);
   const saved = await page.evaluate(() =>
     ((window as unknown as { __marimoCalls: [string, { display?: { panel_style: string } }][] }).__marimoCalls)
       .filter(([cmd]) => cmd === "set_panel_display")

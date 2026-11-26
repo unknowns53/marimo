@@ -306,7 +306,7 @@ fn show_character_label(lang: Lang) -> &'static str {
 }
 
 fn collapsed_label(lang: Lang) -> &'static str {
-    lang.pick("リストを隠す", "Hide List")
+    lang.pick("パネルを隠す", "Hide Panel")
 }
 
 fn order_menu_label(lang: Lang) -> &'static str {

@@ -619,37 +619,46 @@ body {
   opacity: 0.85;
 }
 
-/* ツールごとの値を、それぞれのアイコンを先頭に付けて並べ、パネルの幅に均等に散らす。Codex のウィンドウが
-   増えて収まらないときは、グループの切れ目で折り返す。 */
+/* ツールごとの値を、それぞれのアイコンを先頭に付けて並べる。表示するツールの数によらず欄の幅を埋めるよう、
+   グループは欄の幅を等分し、バーはグループの中の余りいっぱいに伸ばす。グループを決まった幅で置いて両端へ散らすと、
+   ツールを減らしたときに間が大きく空く。Codex のウィンドウが増えて収まらないときは、グループの切れ目で折り返す。 */
 .limit-values {
   display: flex;
   flex: 1;
   flex-wrap: wrap;
-  gap: calc(2 * var(--u)) calc(8 * var(--u));
+  gap: calc(2 * var(--u)) calc(10 * var(--u));
   min-width: 0;
-}
-
-.limit-values.marked {
-  justify-content: space-between;
 }
 
 .limit-stack {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: calc(2 * var(--u));
+  min-width: calc(24 * var(--u));
 }
 
 .limit-stack .ctx-bar {
-  width: calc(40 * var(--u));
+  width: auto;
   height: calc(3 * var(--u));
 }
 
 .limit-nums {
+  display: inline-flex;
+  flex-direction: column;
   font-variant-numeric: tabular-nums;
 }
 
+.limit-nums::before {
+  content: attr(data-widest);
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+
 .limit-group {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 0;
   align-items: center;
   gap: calc(4 * var(--u));
 }
@@ -665,7 +674,7 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-/* リストを隠しているときは利用制限の欄だけになるので、リストとの区切りを引かない。 */
+/* 立ち絵とパネルを隠しているときは利用制限の欄だけになるので、リストとの区切りを引かない。 */
 #rows[hidden] + #limits {
   margin-top: 0;
   padding-top: 0;

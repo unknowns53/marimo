@@ -84,8 +84,8 @@ export function isEmpty(plan: PanelPlan): boolean {
 }
 
 /**
- * リストを出すかどうかは、立ち絵を出すかどうかとは独立に選べる。collapsed ではセッションの行と今日の既読を隠し、
- * 利用制限の欄だけを残す。
+ * パネルを出すかどうかは、立ち絵を出すかどうかとは独立に選べる。collapsed ではパネルごと隠す。ただし立ち絵も
+ * 隠しているときは、セッションの行と今日の既読だけを隠し、利用制限の欄を残す。
  */
 export type PanelStyle = "detail" | "collapsed";
 

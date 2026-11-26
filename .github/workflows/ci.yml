@@ -3,9 +3,10 @@ name: CI
 # 文書だけを変えたコミットでは、検査の結果もビルドも変わらないので走らせない。
 # 検査はするがビルドはしないファイルの一覧は、下の target ジョブが持つ。
 # v で始まるタグの push では正式なリリースを作る。GitHub はタグの push に paths-ignore を当てないので、タグの push は必ず走る。
+# feature/ で始まるブランチの push でもビルドを公開し、マージする前に更新用のスクリプトで実物を試せるようにする。
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/**']
     tags: ['v*']
     paths-ignore:
       - '**.md'
@@ -23,6 +24,7 @@ permissions:
 
 # 同じブランチに続けて push したときは、古い方の実行を止めてランナーを空ける。
 # main と v で始まるタグでの実行では、公開の途中で実行ごと止めると作りかけのリリースが残るので、実行ごとに別のグループにする。
+# feature/ のブランチでも止めるので作りかけのビルドが残ることはあるが、次の push のビルドで足り、古いビルドとして消える。
 # main で古いビルドを止めるかどうかは、下のジョブごとの concurrency で決める。
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.run_id || 'latest' }}
@@ -107,12 +109,14 @@ jobs:
   # この一覧を変えるときは、tools/update.sh と tools/update.ps1 の同じ一覧も直す。
   # 内容の変わらないコミットへ force push すると push では CI が起動せず、そのコミットのビルドができない。
   # それを作り直せるよう、main での手動の実行でもビルドと公開を行う。
+  # feature/ のブランチでも同じ規則で build- を作る。ブランチのビルドは題名で main のビルドと分け、古いものを別々に消す。
+  # pull request の実行はフォークのコードを含みうるので、リリースを書き換えるジョブへ進ませない。
   # v で始まるタグでの実行では、タグの付いたコミットの build- のプレリリースがあれば、そのファイルをコピーして
   # タグと同じ名前のリリースとして公開する。無いとき（main の実行がまだ終わっていない、古いビルドが削除された）
   # だけ、検査とビルドをやり直す。
   target:
     name: find the build to publish
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.find.outputs.sha || steps.release.outputs.sha }}
@@ -130,13 +134,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ブランチを main へ早送りでマージすると、ブランチの題名のビルドが main のビルドになる。それをブランチの
+      # ビルドとして消さないよう、main ではブランチの題名のビルドを無いものとみなし、ビルドし直して題名を改める。
       - name: Find the commit the update scripts look for
         id: find
         if: github.ref_type == 'branch'
         run: |
           sha="$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore')"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          if gh release view "build-${sha::12}" >/dev/null 2>&1; then
+          title="$(gh release view "build-${sha::12}" --json name --jq .name 2>/dev/null || true)"
+          if [[ -n "$title" && ( "$GITHUB_REF_NAME" != main || "$title" == "main build "* ) ]]; then
             echo "build-${sha::12} はすでにあるので、ビルドしません"
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
@@ -358,17 +365,26 @@ jobs:
         working-directory: dist
         env:
           SHA: ${{ needs.target.outputs.sha }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           tag="build-${SHA::12}"
           files=(marimo-macos-arm64.tar.gz marimo-windows-x64.zip SHA256SUMS)
+          if [[ "$BRANCH" == main ]]; then
+            title="main build ${SHA::12}"
+            notes="main のコミット ${SHA} を自動でビルドしたものです。tools/update.sh と tools/update.ps1 がこのビルドを取りに来ます。"
+          else
+            title="branch build ${SHA::12} ($BRANCH)"
+            notes="ブランチ $BRANCH のコミット ${SHA} を自動でビルドしたものです。そのブランチをチェックアウトして tools/update.sh --no-pull か tools/update.ps1 -NoPull を実行すると、このビルドを取りに来ます。"
+          fi
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${files[@]}" --clobber
+            gh release edit "$tag" --title "$title" --notes "$notes"
           else
             gh release create "$tag" "${files[@]}" \
               --target "$SHA" \
               --prerelease \
-              --title "main build ${SHA::12}" \
-              --notes "main のコミット ${SHA} を自動でビルドしたものです。tools/update.sh と tools/update.ps1 がこのビルドを取りに来ます。"
+              --title "$title" \
+              --notes "$notes"
           fi
 
       # 更新用のスクリプトは、既定では GitHub が Latest と示す正式なリリースを取りに来る。
@@ -416,10 +432,13 @@ jobs:
             done
 
       # build- で始まるプレリリースだけを消し、v で始まるリリースとプレリリースには触れない。
+      # main のビルドとブランチのビルドは題名で分け、それぞれ新しい三つを残す。ブランチを続けて push しても、
+      # --main で取りに来る main のビルドが消えないようにするため。
       - name: Delete old builds
         run: |
-          gh release list --limit 200 --json tagName,isPrerelease,createdAt \
-            --jq '[.[] | select(.isPrerelease and (.tagName | startswith("build-")))] | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' |
+          gh release list --limit 200 --json tagName,name,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease and (.tagName | startswith("build-")))]
+              | group_by(.name | startswith("main build ")) | .[] | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' |
             while read -r old; do
               echo "古いビルド $old を消します"
               gh release delete "$old" --yes --cleanup-tag

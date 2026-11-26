@@ -48,7 +48,7 @@ Right-click the icon to open the following menu. When sessions need your attenti
 | Hide marimo, Show marimo | Hides or shows the window. Only the one that applies to the current state is shown |
 | Reset Position | Clears the saved window position and moves the window back to the lower right of the main monitor, showing it if hidden |
 | Show Character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
-| Hide List | Turns on or off hiding the session rows in the panel, leaving only the usage limits row (see [Switching the display](#switching-the-display)) |
+| Hide Panel | Turns hiding the panel on or off (see [Switching the display](#switching-the-display)) |
 | Sort Order | Chooses how the panel orders sessions from a submenu of **Start Time**, **Status**, and **Last Update** (see [Sort order](#sort-order)) |
 | Mark All as Read | Marks every unread done and error session as read. It cannot be chosen when there are none (see [Marking Done and Error as read](#marking-done-and-error-as-read)) |
 | Update Available: X | Appears only when a newer stable version exists. Choosing it opens the settings window at **Updates** (see [Checking for updates](#checking-for-updates)) |
@@ -80,7 +80,7 @@ The left side of the window lists seven sections: **Display**, **Bubbles**, **Ch
 | Section | Setting | What it does |
 | --- | --- | --- |
 | Display | Show character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
-| Display | Hide list | Turns on or off hiding the session rows, leaving only the usage limits row (see [Switching the display](#switching-the-display)) |
+| Display | Hide panel | Turns hiding the panel on or off (see [Switching the display](#switching-the-display)) |
 | Display | Sort order | Chooses how the panel orders sessions: **Start time**, **Status**, or **Last update** (see [Sort order](#sort-order)) |
 | Display | Background opacity | Changes how solid the panel background is with a slider (see [Background opacity](#background-opacity)) |
 | Display | Panel size | Changes the panel's text and width with a slider (see [Panel size](#panel-size)) |
@@ -132,11 +132,11 @@ The **Panel size** slider changes the panel's text and width together, from 0.8Ã
 
 ## Switching the display
 
-**Show Character** and **Hide List** can be chosen independently. By default, both the character and the list are shown. The panel is shown in every combination.
+**Show Character** and **Hide Panel** can be chosen independently. By default, both the character and the panel are shown.
 
-These and **Sort Order** can be changed from the right-click menu, the icon's menu, or **Display** in the settings window, and the same setting is saved wherever you change it. Every menu shows a check mark next to the current choice, and the settings window also shows the current state. Choices made in the icon's menu are applied and saved by the app immediately, so they are not lost even if you choose right after startup or several times in quick succession. You can also toggle **Hide List** by clicking the character.
+These and **Sort Order** can be changed from the right-click menu, the icon's menu, or **Display** in the settings window, and the same setting is saved wherever you change it. Every menu shows a check mark next to the current choice, and the settings window also shows the current state. Choices made in the icon's menu are applied and saved by the app immediately, so they are not lost even if you choose right after startup or several times in quick succession. You can also toggle **Hide Panel** by clicking the character.
 
-Turning on **Hide List** hides the session rows and the "Read today" line, leaving only the usage limits row in the panel. When there is no usage limits row either, a faint line reading "List hidden" is shown. The character's expression and speech bubbles do not change while the list is hidden. The panel shows chat titles and parts of file names and commands, so when you show your screen to others, hide the list or click the menu bar icon to hide the whole window.
+Turning on **Hide Panel** hides the whole panel, including the usage limits row, leaving only the character. While the character is hidden, nothing would be left to grab the window by, so only the session rows and the "Read today" line are hidden and the usage limits row stays in the panel. If there is no usage limits row then, a faint line reading "Panel hidden" is shown. The character's expression and speech bubbles do not change while the panel is hidden. The panel shows chat titles and parts of file names and commands, so when you show your screen to others, hide the panel or click the menu bar icon to hide the whole window.
 
 Turning off **Show Character** hides the character and speech bubbles and shrinks the window to the panel's width so you can place it flush against either edge of the screen. Drag an empty part of the panel or the grip that appears on its upper-right edge to move the window, and right-click the panel to open the menu. While the character is hidden, no speech bubbles are shown; when you turn **Show Character** back on, a bubble appears if the state it is about still continues. Turning the wheel over the character is not available, so change the size with **Size** in the settings window.
 
@@ -270,7 +270,7 @@ Clawd changes expressions the same way as Koharu, and its working face changes w
 
 ## Interacting with the character
 
-- **Click** Toggles **Hide List**, hiding or showing the session rows in the panel. As when you choose from a menu, the chosen display is saved (see [Switching the display](#switching-the-display)).
+- **Click** Toggles **Hide Panel**, hiding or showing the panel. As when you choose from a menu, the chosen display is saved (see [Switching the display](#switching-the-display)).
 - **Point** Pointing at the character while working makes it look at you. When the mouse leaves, the original expression returns after a short pause.
 - **Drag** Press and move a little to move the whole window. The position is saved in `~/.marimo/window.json`, and the window appears in the same place next time. If the saved position ends up off screen, for example because the monitor setup changed, the window returns to the lower right of the screen.
 
@@ -313,7 +313,7 @@ Antigravity's usage limits are split by model group, and marimo shows the 5-hour
 
 At the bottom of the panel, the 5-hour and 7-day usage is shown as two thin bars stacked on top of each other, the 5-hour one above the 7-day one, followed by numbers such as `23 Â· 84%`. A bar at 80% or more changes color, as the context usage bar does. There is one row for the whole account, and it is shown even when every session is idle. When there are no values to show, the row is not shown.
 
-When there are Codex or Antigravity values, the values are listed in the order Claude Code, Codex, Antigravity, each preceded by the app's icon (or the text `CC`, `CX`, or `AG` if the icon cannot be read). Each tool has as many bars as it has windows to show. The values of the three tools are spread evenly across the width of the panel. When they do not fit in the width of the panel, they wrap between tools. When only Claude Code's values are shown, no icon is added.
+When there are Codex or Antigravity values, the values are listed in the order Claude Code, Codex, Antigravity, each preceded by the app's icon (or the text `CC`, `CX`, or `AG` if the icon cannot be read). Each tool has as many bars as it has windows to show. However many tools are shown, their values share the width of the panel equally, and the bars stretch to fill the space. When they do not fit in the width of the panel, they wrap between tools. When only Claude Code's values are shown, no icon is added.
 
 Codex window names are decided from the window length that Codex reports: `7d` if it divides evenly into days, `5h` if it divides evenly into hours, and otherwise the number of minutes (for example, `90m`). A window whose length was not reported is shown in the tooltip as a percentage without a name.
 
@@ -348,7 +348,7 @@ The script updates in the following steps.
 5. It runs `install` with the downloaded `marimo-hook`, replacing `~/.marimo/bin/marimo-hook` (`marimo-hook.exe` on Windows) with the new one. `install` copies itself to this location, so the hooks keep working even though it runs from a temporary folder.
 6. It restarts marimo and deletes the temporary folder.
 
-With `--main`, before pulling, the script checks that the current branch is `main` and that the files tracked by Git have no uncommitted changes. If either check fails, it shows the reason and exits without doing anything. Untracked files are fine. With `--no-pull`, it skips the checks and the pull, and downloads the build of the commit currently checked out. The CI builds only commits pushed to main, so this works only for commits that went through main. Commits that change only files not included in the app, such as documents, are not built, so when using a `build-` release, the script downloads the build of the last commit that changed anything else (see [Tests and checks](development.md#tests-and-checks)).
+With `--main`, before pulling, the script checks that the current branch is `main` and that the files tracked by Git have no uncommitted changes. If either check fails, it shows the reason and exits without doing anything. Untracked files are fine. With `--no-pull`, it skips the checks and the pull, and downloads the build of the commit currently checked out. The CI builds only commits pushed to main or to branches whose names start with `feature/`, so this works only for those commits. To try a branch before merging it, push the branch, check it out, and run the script with `--no-pull --wait`. Commits that change only files not included in the app, such as documents, are not built, so when using a `build-` release, the script downloads the build of the last commit that changed anything else (see [Tests and checks](development.md#tests-and-checks)).
 
 ### When an update fails
 
@@ -364,7 +364,7 @@ When you click the button, marimo downloads the target release, verifies the che
 
 ### Building and updating locally
 
-With `--build`, the script builds locally instead of downloading a build. Use it when you have no network connection, or to try a branch other than main. Without `--no-pull`, it checks the branch and local changes and pulls the latest main before building, as with `--main`. To try a branch other than main, add `--no-pull --build` to build what is currently checked out as is. Building requires the tools in [Prerequisites](development.md#prerequisites).
+With `--build`, the script builds locally instead of downloading a build. Use it when you have no network connection, or to try a branch that the CI does not build. Without `--no-pull`, it checks the branch and local changes and pulls the latest main before building, as with `--main`. To try such a branch, add `--no-pull --build` to build what is currently checked out as is. Building requires the tools in [Prerequisites](development.md#prerequisites).
 
 In this case, `marimo-hook` and the app are built in place of step 2. The user interface dependencies are reinstalled with `npm ci`, which does not modify `package-lock.json`. On macOS, only `marimo.app` is built; on Windows, only the NSIS installer. If the environment variable `CARGO_TARGET_DIR` is set, the build outputs are looked up under it. If the build fails, the script does not quit marimo or replace the app. If `install` fails, run `install` again with the `marimo-hook` you built.
 
