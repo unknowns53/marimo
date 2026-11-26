@@ -29,7 +29,7 @@ To quit, choose **Quit** from the right-click menu or the icon's menu.
 
 ## Launching at login
 
-On macOS, open `marimo.app` from `/Applications`; on Windows, open `%LOCALAPPDATA%\marimo\marimo.exe` installed by the installer. Then check **Launch at login** under **Startup** in the [settings](#settings) window. It is off by default.
+On macOS, open `marimo.app` from `/Applications`; on Windows, open `%LOCALAPPDATA%\marimo\marimo.exe` installed by the installer. Then check **Launch at login** under **General** in the [settings](#settings) window. It is off by default.
 
 When it is on, marimo creates a LaunchAgent (a settings file that macOS uses to start a program at login) at `~/Library/LaunchAgents/com.marimo.desktop.plist` on macOS, and registers itself under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` in the registry on Windows. Both point to the path of the executable that was running when you turned it on.
 
@@ -75,7 +75,7 @@ When you right-click a session row in the panel, session-specific items appear a
 
 Choose **Settings…** from the right-click menu or the icon's menu to open the "marimo Settings" window. If it is already open, it comes to the front. This is an ordinary window with a frame, and you close it with its close button or the Esc key. Changes made in the window apply to the character and panel immediately, and are saved for the next start (see [Files and data](development.md#files-and-data) for where). If you change the display from a menu or by clicking the character while the window is open, the window follows.
 
-The left side of the window lists eight sections: **Display**, **Bubbles**, **Character**, **Usage limits**, **Shortcuts**, **Startup**, **Updates**, and **Language**. The settings of the selected section appear on the right. **Display** is selected when the window opens.
+The left side of the window lists seven sections: **Display**, **Bubbles**, **Character**, **Usage limits**, **Shortcuts**, **Updates**, and **General**. The settings of the selected section appear on the right. **Display** is selected when the window opens.
 
 | Section | Setting | What it does |
 | --- | --- | --- |
@@ -91,13 +91,13 @@ The left side of the window lists eight sections: **Display**, **Bubbles**, **Ch
 | Usage limits | Show for (Claude Code, Codex, Antigravity) | Chooses which tools' values appear in the usage limits row. All are shown by default. Tools you uncheck are not asked to refresh their usage limits. The last update time or any refresh error is shown beside each tool (see [Usage limits](#usage-limits)) |
 | Usage limits | Refresh interval, Refresh Now | Chooses how often the checked tools are asked to refresh their usage limits: **Never**, **Every 5 min**, **Every 10 min**, **Every 15 min**, **Every 30 min**, or **Every 60 min**. The default is **Never**. Click **Refresh Now** to refresh immediately regardless of the interval (see [Usage limits](#usage-limits)) |
 | Shortcuts | Jump to next session needing attention, Show or hide marimo | Assigns optional global keyboard shortcuts that work from any app. Both are unset by default. Click a box and press a combination that includes Ctrl, Alt or Cmd (the Windows key) to set it; click **Clear** or press Backspace / Delete to remove it, and press Esc to cancel. A combination with only Shift cannot be set, because it would stop that character from being typed in other apps |
-| Startup | Launch at login | Turns launching at login on or off. It is off by default (see [Launching at login](#launching-at-login)) |
 | Updates | Current version, latest release, last checked | Shows the version of the running marimo and the latest stable release found at the last check, and updates marimo if a newer version exists. Click **Release Notes** to open the GitHub release page (see [Checking for updates](#checking-for-updates)) |
-| Language | 日本語, English | Chooses the interface language, **日本語** or **English**. Until you choose one, marimo follows the OS language (see [Language](#language)) |
+| General | Launch at login | Turns launching at login on or off. It is off by default (see [Launching at login](#launching-at-login)) |
+| General | Language | Chooses the interface language, **日本語** or **English**. Until you choose one, marimo follows the OS language (see [Language](#language)) |
 
 ### Language
 
-Until you choose a language, marimo uses Japanese if your OS language is Japanese, and English otherwise, and **Language** shows the language in use. The OS language is the first of your preferred languages under Language & Region in System Settings on macOS, and the display language on Windows. Choosing **日本語** or **English** uses that language regardless of the OS language. The choice takes effect immediately and is saved as `language` in `display.json` (see [Files and data](development.md#files-and-data)). To follow the OS language again, quit marimo, delete `language` from `display.json`, and start marimo.
+Until you choose a language, marimo uses Japanese if your OS language is Japanese, and English otherwise, and **Language** under **General** shows the language in use. The OS language is the first of your preferred languages under Language & Region in System Settings on macOS, and the display language on Windows. Choosing **日本語** or **English** uses that language regardless of the OS language. The choice takes effect immediately and is saved as `language` in `display.json` (see [Files and data](development.md#files-and-data)). To follow the OS language again, quit marimo, delete `language` from `display.json`, and start marimo.
 
 The chosen language is used for the following.
 
