@@ -241,7 +241,7 @@ download_commit_build() {
   slug="$(repo_slug)"
   # CI はアプリに入らないファイルだけを変えたコミットをビルドしないので、アプリに入るファイルを変えた最後のコミットのビルドを探す。
   # この一覧は .github/workflows/ci.yml の target ジョブと同じにしておく。
-  sha="$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore')"
+  sha="$(git log --first-parent -1 --format=%H HEAD -- . ':(exclude)*.md' ':(exclude)docs' ':(exclude)LICENSE-*' ':(exclude)tools' ':(exclude)art' ':(exclude).gitignore' ':(exclude).github')"
   [[ -n "$sha" ]] || fail "$(msg "git でビルドを探すコミットを調べられませんでした。" "Could not determine which commit to find a build for (git log failed).")"
   tag="build-${sha:0:12}"
   msg "$tag のビルドを取得しています" "Downloading build $tag"
