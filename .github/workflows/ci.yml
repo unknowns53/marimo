@@ -218,9 +218,11 @@ jobs:
     needs: [test, target]
     if: needs.target.outputs.needed == 'true' && needs.target.outputs.reuse == ''
     runs-on: macos-latest
-    # 新しいコミットのビルドが始まったら、古いコミットのビルドは要らなくなるので止める。
+    # feature/ のブランチでは、後から始まったビルドが先のビルドを止める。止める相手はコミットの新旧ではなくジョブの
+    # 始まった順で決まり、古いコミットの検査が遅れて終わると新しいコミットのビルドを止めてしまう。main では
+    # tools/release.sh がマージの直後にバージョンのコミットを push し、そのビルドを待つので、実行ごとに別のグループにして止めない。
     concurrency:
-      group: build-macos-${{ github.ref }}
+      group: build-macos-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.run_id || 'latest' }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
@@ -269,7 +271,7 @@ jobs:
     if: needs.target.outputs.needed == 'true' && needs.target.outputs.reuse == ''
     runs-on: windows-latest
     concurrency:
-      group: build-windows-${{ github.ref }}
+      group: build-windows-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.run_id || 'latest' }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
