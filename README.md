@@ -7,10 +7,10 @@ marimo is a desktop widget that shows the state of your AI coding agent sessions
 A character standing in the corner of the screen uses facial expressions and speech bubbles to tell you whether each session is working, waiting for your approval, or done. The panel beside it shows the context usage of each session and the usage limits of your Claude Code, Codex, and Antigravity accounts. You can follow progress while doing other work, without switching to the agent's window.
 
 <p align="center">
-  <img src="docs/images/screenshot-detail.png" width="516" alt="The marimo window. A speech bubble above the character announces a session waiting for approval, and the panel on the left lists four sessions and the usage limits">
+  <img src="docs/images/screenshot-detail.png" width="509" alt="The marimo window. A speech bubble above the character announces a session waiting for approval, and the panel on the left lists four sessions and the usage limits">
 </p>
 
-In this screenshot, the gaussian-scan session is waiting for permission to run a command, so the character waves and points it out in a speech bubble. The panel lists one session each that is waiting (orange), working (blue), and done (green), and the bottom row shows the usage limits of the whole account. The screenshots show the Japanese interface; marimo also has an English interface (see [Requirements](#requirements)).
+In this screenshot, the gaussian-scan session is waiting for permission to run a command, so the character waves and points it out in a speech bubble. Each session row is tinted by its state: one waiting (orange), two working (blue), and one done (green). Working sessions take a single line. The bottom row shows the usage limits of the whole account as bars for the 5-hour and 7-day windows. The screenshots show the Japanese interface; marimo also has an English interface (see [Requirements](#requirements)).
 
 > [!NOTE]
 > marimo is an unofficial tool made by volunteers. It is not affiliated with, or endorsed by, Anthropic or any other developer of the tools marimo supports. Claude and Claude Code are trademarks of Anthropic. Other product names, such as Codex, ChatGPT, Hermes Agent, OpenCode, Antigravity, and Gemini, may be trademarks or registered trademarks of their respective companies.
