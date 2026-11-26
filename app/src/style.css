@@ -290,10 +290,12 @@ body {
 }
 
 /* 状態は、行の左から右へ薄れていく状態の色で示す。作業中は控えめにし、手を貸す必要のある行ほど濃くする。
-   色は background-image に置き、マウスを載せたときの明るさは background-color で重ねる。 */
+   色は background-image に置き、マウスを載せたときの明るさは background-color で重ねる。
+   色の濃さには背景の不透明度を掛け、背景を薄くしたときに色だけが浮かないようにする。--tint-strength は
+   不透明度 1 のときの濃さで、既定の 0.8 では 8 割になる。 */
 .row {
   --tint: var(--idle);
-  --tint-strength: 39%;
+  --tint-strength: 49%;
   --tint-reach: 68%;
   position: relative;
   display: grid;
@@ -305,7 +307,7 @@ body {
   border-radius: calc(6 * var(--u));
   background-image: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--tint) var(--tint-strength), transparent),
+    color-mix(in srgb, var(--tint) calc(var(--tint-strength) * var(--panel-alpha)), transparent),
     transparent var(--tint-reach)
   );
   cursor: pointer;
@@ -313,7 +315,7 @@ body {
 
 .row.s-working {
   --tint: var(--working);
-  --tint-strength: 21%;
+  --tint-strength: 26%;
   --tint-reach: 50%;
 }
 
