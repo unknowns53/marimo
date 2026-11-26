@@ -669,7 +669,8 @@ body {
   opacity: 0.4;
 }
 
-/* 前面に無いウィンドウでも読めるよう、title の代わりに tooltip.ts が出す。文字の大きさはパネルの倍率に合わせる。 */
+/* 前面に無いウィンドウでも読めるよう、title の代わりに tooltip.ts が出す。文字の大きさはパネルの倍率に、
+   背景の濃さはパネルの背景の不透明度に合わせる。 */
 #tip {
   position: fixed;
   z-index: 10;
@@ -677,7 +678,7 @@ body {
   box-sizing: border-box;
   padding: calc(4 * var(--panel-scale) * 1px) calc(7 * var(--panel-scale) * 1px);
   border-radius: calc(5 * var(--panel-scale) * 1px);
-  background: rgba(28, 28, 34, 0.96);
+  background: var(--panel-bg);
   color: var(--panel-fg);
   font-size: calc(11 * var(--panel-scale) * 1px);
   line-height: 1.4;
