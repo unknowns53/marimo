@@ -293,13 +293,14 @@ body {
    色は background-image に置き、マウスを載せたときの明るさは background-color で重ねる。
    色の濃さには背景の不透明度を掛け、背景を薄くしたときに色だけが浮かないようにする。--tint-strength は
    不透明度 1 のときの濃さで、既定の 0.8 では 8 割になる。
-   色は要約の文字が見えているところまで届かせ、右端の欄（コンテキスト使用率と、1 段の行では経過時間も）の
-   手前で消す。幅の割合で決めると、要約の途中で色が消える。 */
+   色は要約の列の右端で消す。右端の欄（コンテキスト使用率と経過時間）の幅は行ごとに違うので、行の幅からの
+   引き算で決めると、要約の途中で色が消えたり欄に掛かったりする。そこで色を、行の左端から要約の列の終わり
+   （グリッドの 3 本目の線）までを占める絶対配置の疑似要素に塗る。絶対配置なので、ほかの升の自動配置を押しのけない。 */
 .row {
   --tint: var(--idle);
   --tint-strength: 49%;
-  --tint-reach: calc(100% - 81 * var(--u));
   position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: calc(12 * var(--u)) minmax(0, 1fr) auto;
   column-gap: calc(6 * var(--u));
@@ -307,18 +308,27 @@ body {
   padding: calc(3 * var(--u)) calc(6 * var(--u));
   margin: 0 calc(-6 * var(--u));
   border-radius: calc(6 * var(--u));
+  cursor: pointer;
+}
+
+.row::before {
+  content: "";
+  position: absolute;
+  grid-column: auto / 3;
+  grid-row: auto;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
   background-image: linear-gradient(
     90deg,
     color-mix(in srgb, var(--tint) calc(var(--tint-strength) * var(--panel-alpha)), transparent),
-    transparent var(--tint-reach)
+    transparent
   );
-  cursor: pointer;
 }
 
 .row.s-working {
   --tint: var(--working);
   --tint-strength: 26%;
-  --tint-reach: calc(100% - 113 * var(--u));
 }
 
 .row.s-waiting {
@@ -360,10 +370,14 @@ body {
   justify-self: center;
 }
 
-/* 作業中の行は 1 段に、名前、要約、時間、コンテキスト使用率を並べる。 */
+/* 作業中の行は 1 段に、名前、要約、時間、コンテキスト使用率を並べる。時間を出さない行は、空の列の間隔を残さない。 */
 .row.compact {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   column-gap: calc(7 * var(--u));
+}
+
+.row.compact.fresh {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .row.compact > * {
@@ -547,23 +561,6 @@ body {
   background: var(--waiting);
 }
 
-/* 桁数でバーが動かないよう、いちばん広い 100% の幅を見えない行で確保して右に寄せる。 */
-.ctx-label {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-  font-size: calc(10 * var(--u));
-  opacity: 0.8;
-  font-variant-numeric: tabular-nums;
-}
-
-.ctx-label::before {
-  content: "100%";
-  height: 0;
-  overflow: hidden;
-  visibility: hidden;
-}
-
 /* 上限が分からずトークン数だけのときは、バーと見分けがつくよう枠線で囲んだ数値にする。 */
 .ctx-tokens {
   justify-self: end;
@@ -623,46 +620,29 @@ body {
   opacity: 0.85;
 }
 
-/* ツールごとの値を、それぞれのアイコンを先頭に付けて並べる。表示するツールの数によらず欄の幅を埋めるよう、
-   グループは欄の幅を等分し、バーはグループの中の余りいっぱいに伸ばす。グループを決まった幅で置いて両端へ散らすと、
-   ツールを減らしたときに間が大きく空く。Codex のウィンドウが増えて収まらないときは、グループの切れ目で折り返す。 */
+/* ツールごとの値を、それぞれのアイコンを先頭に付けて左から詰めて並べる。両端へ散らすとツールを減らしたときに
+   間が大きく空き、欄の幅いっぱいに伸ばすとバーが間延びするので、余りは右端にまとめる。バーの長さは、行の
+   コンテキスト使用率のバーと揃える。Codex のウィンドウが増えて収まらないときは、グループの切れ目で折り返す。 */
 .limit-values {
   display: flex;
   flex: 1;
   flex-wrap: wrap;
-  gap: calc(2 * var(--u)) calc(10 * var(--u));
+  gap: calc(2 * var(--u)) calc(14 * var(--u));
   min-width: 0;
 }
 
 .limit-stack {
   display: flex;
-  flex: 1;
   flex-direction: column;
   gap: calc(2 * var(--u));
-  min-width: calc(24 * var(--u));
 }
 
 .limit-stack .ctx-bar {
-  width: auto;
   height: calc(3 * var(--u));
-}
-
-.limit-nums {
-  display: inline-flex;
-  flex-direction: column;
-  font-variant-numeric: tabular-nums;
-}
-
-.limit-nums::before {
-  content: attr(data-widest);
-  height: 0;
-  overflow: hidden;
-  visibility: hidden;
 }
 
 .limit-group {
   display: flex;
-  flex: 1 1 0;
   align-items: center;
   gap: calc(4 * var(--u));
 }
@@ -687,4 +667,27 @@ body {
 
 #limits.stale {
   opacity: 0.4;
+}
+
+/* 前面に無いウィンドウでも読めるよう、title の代わりに tooltip.ts が出す。文字の大きさはパネルの倍率に、
+   背景の濃さはパネルの背景の不透明度に合わせる。 */
+#tip {
+  position: fixed;
+  z-index: 10;
+  max-width: calc(100vw - 8px);
+  box-sizing: border-box;
+  padding: calc(4 * var(--panel-scale) * 1px) calc(7 * var(--panel-scale) * 1px);
+  border-radius: calc(5 * var(--panel-scale) * 1px);
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  font-size: calc(11 * var(--panel-scale) * 1px);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+#tip[hidden] {
+  display: none;
 }

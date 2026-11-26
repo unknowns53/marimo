@@ -18,7 +18,7 @@ export class Bubble {
       children.push(more);
     }
     this.node.replaceChildren(...children);
-    this.node.title = title;
+    this.node.dataset.tip = title;
     fitToLines(this.node, body);
     this.node.classList.add("show");
   }

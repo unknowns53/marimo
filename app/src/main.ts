@@ -22,6 +22,7 @@ import { lang, LANGUAGE_EVENT, setLang, t, type LanguageState } from "./i18n";
 import { characterCandidates, characterInfo, characterName, DEFAULT_CHARACTER, type CharacterInfo } from "./manifest";
 import { holdRowsWhilePressed, onScrollbar, READ_KEY, renderPanel } from "./panel";
 import { RowHover, type Point } from "./rowHover";
+import { Tooltip } from "./tooltip";
 import {
   DEFAULT_PANEL_DISPLAY,
   panelView,
@@ -80,6 +81,7 @@ const bubble = new Bubble(bubbleNode, (e) => {
 });
 const hits = new HitReporter(collectHitRegions);
 const rowHover = new RowHover(panelElements.panel);
+const tooltip = new Tooltip($("tip"));
 
 let renderer: CharacterRenderer | undefined;
 // manifest を読めなかったキャラクターは選んでも出せないので、読めたものだけを設定のウィンドウに並べる。
@@ -232,6 +234,7 @@ function redrawPanel(): void {
   renderPanel(panelElements, view, limits, appIcons, now, actions, todayOpen, panelDisplay.show_character);
   placeBubble();
   rowHover.apply();
+  tooltip.apply();
   hits.schedule();
 }
 
@@ -688,6 +691,7 @@ function bindWindowControls(): void {
   // ことになり、パネルを隠すかどうかを切り替える。行と吹き出しとスクロールバーは押して操作するので、そこからはドラッグを始めない。
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
+    tooltip.dismiss();
     const target = e.target as HTMLElement | null;
     if (e.button !== 0 || onScrollbar(e) || target?.closest(".row, .today-line, #bubble")) {
       press = null;
@@ -804,6 +808,7 @@ async function start(): Promise<void> {
   await listen<Point | null>("window-cursor", (e) => {
     cursor = e.payload;
     rowHover.setCursor(e.payload);
+    tooltip.setCursor(e.payload);
     releaseKeptRead();
   });
   // 最初のスナップショットより先に戻さないと、既読の完了やエラーの吹き出しが一度出てしまう。
