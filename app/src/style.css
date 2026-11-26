@@ -620,23 +620,22 @@ body {
   opacity: 0.85;
 }
 
-/* ツールごとの値を、それぞれのアイコンを先頭に付けて並べる。表示するツールの数によらず欄の幅を埋めるよう、
-   グループは欄の幅を等分し、バーはグループの中の余りいっぱいに伸ばす。グループを決まった幅で置いて両端へ散らすと、
-   ツールを減らしたときに間が大きく空く。Codex のウィンドウが増えて収まらないときは、グループの切れ目で折り返す。 */
+/* ツールごとの値を、それぞれのアイコンを先頭に付けて左から詰めて並べる。両端へ散らすとツールを減らしたときに
+   間が大きく空き、欄の幅いっぱいに伸ばすとバーが間延びするので、余りは右端にまとめる。バーの長さは、三つの
+   ツールが並んでもパネルの幅に収まる長さにする。Codex のウィンドウが増えて収まらないときは、グループの切れ目で折り返す。 */
 .limit-values {
   display: flex;
   flex: 1;
   flex-wrap: wrap;
-  gap: calc(2 * var(--u)) calc(10 * var(--u));
+  gap: calc(2 * var(--u)) calc(14 * var(--u));
   min-width: 0;
 }
 
 .limit-stack {
   display: flex;
-  flex: 1;
   flex-direction: column;
   gap: calc(2 * var(--u));
-  min-width: calc(24 * var(--u));
+  width: calc(56 * var(--u));
 }
 
 .limit-stack .ctx-bar {
@@ -646,7 +645,6 @@ body {
 
 .limit-group {
   display: flex;
-  flex: 1 1 0;
   align-items: center;
   gap: calc(4 * var(--u));
 }
@@ -671,4 +669,26 @@ body {
 
 #limits.stale {
   opacity: 0.4;
+}
+
+/* 前面に無いウィンドウでも読めるよう、title の代わりに tooltip.ts が出す。文字の大きさはパネルの倍率に合わせる。 */
+#tip {
+  position: fixed;
+  z-index: 10;
+  max-width: calc(100vw - 8px);
+  box-sizing: border-box;
+  padding: calc(4 * var(--panel-scale) * 1px) calc(7 * var(--panel-scale) * 1px);
+  border-radius: calc(5 * var(--panel-scale) * 1px);
+  background: rgba(28, 28, 34, 0.96);
+  color: var(--panel-fg);
+  font-size: calc(11 * var(--panel-scale) * 1px);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+#tip[hidden] {
+  display: none;
 }
