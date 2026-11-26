@@ -292,11 +292,13 @@ body {
 /* 状態は、行の左から右へ薄れていく状態の色で示す。作業中は控えめにし、手を貸す必要のある行ほど濃くする。
    色は background-image に置き、マウスを載せたときの明るさは background-color で重ねる。
    色の濃さには背景の不透明度を掛け、背景を薄くしたときに色だけが浮かないようにする。--tint-strength は
-   不透明度 1 のときの濃さで、既定の 0.8 では 8 割になる。 */
+   不透明度 1 のときの濃さで、既定の 0.8 では 8 割になる。
+   色は要約の文字が見えているところまで届かせ、右端の欄（コンテキスト使用率と、1 段の行では経過時間も）の
+   手前で消す。幅の割合で決めると、要約の途中で色が消える。 */
 .row {
   --tint: var(--idle);
   --tint-strength: 49%;
-  --tint-reach: 68%;
+  --tint-reach: calc(100% - 81 * var(--u));
   position: relative;
   display: grid;
   grid-template-columns: calc(12 * var(--u)) minmax(0, 1fr) auto;
@@ -316,7 +318,7 @@ body {
 .row.s-working {
   --tint: var(--working);
   --tint-strength: 26%;
-  --tint-reach: 50%;
+  --tint-reach: calc(100% - 113 * var(--u));
 }
 
 .row.s-waiting {
