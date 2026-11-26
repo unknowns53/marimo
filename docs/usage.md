@@ -67,9 +67,9 @@ While the window is hidden, the icon and the session list in its menu keep follo
 
 ## The right-click menu
 
-Right-click the character or the panel to open the icon's menu without the session list, **N More**, **Hide marimo**, **Show marimo**, and **Reset Position**. Each item works the same as in the table in [The menu bar and notification area icon](#the-menu-bar-and-notification-area-icon).
+Right-click the character or the panel to open the icon's menu without **Hide marimo**, **Show marimo**, and **Reset Position**. Each item works the same as in the table in [The menu bar and notification area icon](#the-menu-bar-and-notification-area-icon). The sessions that need your attention are listed at the top, as in the icon's menu, so even while the panel is hidden you can right-click the character and choose the session to jump to.
 
-When you right-click a session row in the panel, session-specific items appear at the top: **Mark as Read** (for unread done or error sessions), **Copy Working Directory** (when the working directory is known), and **Remove from List**. Right-clicking the usage limits row adds **Refresh Usage Limits Now** at the top. Other settings are in the [settings](#settings) window.
+When you right-click a session row in the panel, session-specific items appear at the top instead of the session list: **Mark as Read** (for unread done or error sessions), **Copy Working Directory** (when the working directory is known), and **Remove from List**. Right-clicking the usage limits row shows **Refresh Usage Limits Now** at the top instead of the session list. Other settings are in the [settings](#settings) window.
 
 ## Settings
 

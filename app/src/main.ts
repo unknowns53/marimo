@@ -624,6 +624,22 @@ async function openMenu(ctx: ContextTarget = {}): Promise<void> {
       }),
       await PredefinedMenuItem.new({ item: "Separator" }),
     );
+  } else {
+    // パネルを隠していても立ち絵のそばで行き先を選べるよう、メニューバーのメニューと同じ一覧を先頭に並べる。
+    const list = trayList(snapshot, acknowledged);
+    for (const item of list.items) {
+      leading.push(
+        await MenuItem.new({
+          // メニューは & を手前の文字のニーモニックの指定として扱うので、タイトルの & はそのまま見えるよう重ねる。
+          text: item.label.replaceAll("&", "&&"),
+          action: () => selectTraySession(item.key),
+        }),
+      );
+    }
+    if (list.more > 0) {
+      leading.push(await MenuItem.new({ text: t(`ほか ${list.more} 件`, `${list.more} More`), enabled: false }));
+    }
+    if (leading.length > 0) leading.push(await PredefinedMenuItem.new({ item: "Separator" }));
   }
   const sortItems = await Promise.all(
     ROW_ORDERS.map((order) =>
