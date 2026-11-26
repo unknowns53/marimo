@@ -1,6 +1,8 @@
 import type { Point } from "./rowHover";
 
 const DELAY_MS = 500;
+/** data-tip-slow を付けた要素の待ち時間。行のように、通り過ぎるだけや押す途中でもカーソルが止まる大きい要素に使う。 */
+const SLOW_DELAY_MS = 1500;
 /** カーソルの先端から下へずらす量。ポインタの絵に文字が隠れないようにする。 */
 const OFFSET = 14;
 
@@ -25,11 +27,13 @@ export class Tooltip {
   /** 描き直して要素が入れ替わっても、同じ文字なら出したままにする。 */
   apply(): void {
     const hit = this.cursor ? document.elementFromPoint(this.cursor.x, this.cursor.y) : null;
-    const text = hit?.closest<HTMLElement>("[data-tip]")?.dataset.tip || null;
+    const target = hit?.closest<HTMLElement>("[data-tip]");
+    const text = target?.dataset.tip || null;
     if (text === this.text) return;
     this.text = text;
     this.hide();
-    if (text) this.timer = window.setTimeout(() => this.show(), DELAY_MS);
+    const delay = target?.dataset.tipSlow !== undefined ? SLOW_DELAY_MS : DELAY_MS;
+    if (text) this.timer = window.setTimeout(() => this.show(), delay);
   }
 
   /** 押したときは、ネイティブのツールチップと同じく消し、カーソルが別の要素へ移るまで出さない。 */

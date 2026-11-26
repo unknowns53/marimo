@@ -194,6 +194,7 @@ function renderRow(
   const provider = s.provider ?? "claude";
   const summary = s.activity?.summary || fallbackSummary(s.status);
   row.dataset.tip = rowTooltip(s, provider, summary);
+  row.dataset.tipSlow = "";
   row.addEventListener("click", (e) => {
     e.stopPropagation();
     press(e, s, actions);
@@ -226,9 +227,12 @@ function renderRow(
   return row;
 }
 
+// 未読の完了とエラーの行では、マウスを載せると既読にするボタンがコンテキスト使用率の上に重なり、バーのツールチップを
+// 読めなくなる。そこで行のツールチップにもコンテキストを入れる。
 function rowTooltip(s: SessionState, provider: Provider, summary: string): string {
   const place = [PROVIDER_NAME[provider], s.title, s.cwd ?? s.session_id].filter(Boolean).join("\n");
-  return [place, summary, s.activity?.detail ?? ""].filter(Boolean).join("\n\n");
+  const context = s.context ? contextParts(s.context).join(" · ") : "";
+  return [place, context, summary, s.activity?.detail ?? ""].filter(Boolean).join("\n\n");
 }
 
 // 動いているサブエージェントの数は、要約の頭に小さく出す。要約は右から省略されるので、数は隠れない。
@@ -287,9 +291,7 @@ export function renderContext(s: SessionState): HTMLElement {
   if (ctx?.used_percentage != null) {
     const pct = Math.max(0, Math.min(100, ctx.used_percentage));
     const wrap = el("span", "ctx");
-    wrap.dataset.tip = [t(`コンテキスト ${Math.round(pct)}%`, `Context ${Math.round(pct)}%`), tokenCount(ctx)]
-      .filter(Boolean)
-      .join("\n");
+    wrap.dataset.tip = contextParts(ctx).join("\n");
     const bar = el("span", "ctx-bar");
     const fill = el("i", pct >= 80 ? "high" : "");
     fill.style.width = `${pct}%`;
@@ -309,12 +311,21 @@ export function renderContext(s: SessionState): HTMLElement {
   return el("span", "ctx-none");
 }
 
-function tokenCount(ctx: ContextUsage): string {
-  if (ctx.total_input_tokens == null) return "";
-  const used = ctx.total_input_tokens.toLocaleString();
-  if (ctx.context_window_size == null) return t(`${used} トークン`, `${used} tokens`);
-  const size = ctx.context_window_size.toLocaleString();
-  return t(`${used} / ${size} トークン`, `${used} / ${size} tokens`);
+/** ツールチップに出すコンテキスト使用率。% とトークン数のうち分かるものを、% を先にして返す。 */
+function contextParts(ctx: ContextUsage): string[] {
+  const parts: string[] = [];
+  if (ctx.used_percentage != null) {
+    const pct = Math.round(Math.max(0, Math.min(100, ctx.used_percentage)));
+    parts.push(t(`コンテキスト ${pct}%`, `Context ${pct}%`));
+  }
+  if (ctx.total_input_tokens != null) {
+    const used = ctx.total_input_tokens.toLocaleString();
+    const size = ctx.context_window_size?.toLocaleString();
+    const count = size ? `${used} / ${size}` : used;
+    const label = t(`${count} トークン`, `${count} tokens`);
+    parts.push(parts.length > 0 ? label : t(`コンテキスト ${label}`, `Context ${label}`));
+  }
+  return parts;
 }
 
 // 各ツールの値は、ウィンドウごとの細いバーを上から 5h、7d の順に積む。80% を超えたバーはコンテキスト使用率と
