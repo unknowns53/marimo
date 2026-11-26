@@ -229,7 +229,7 @@ function redrawPanel(): void {
     antigravity: usageTools.antigravity ? (shown?.antigravity_rate_limits ?? null) : null,
   };
   const actions = { select: selectSession, markRead, toggleToday };
-  renderPanel(panelElements, view, limits, appIcons, now, actions, todayOpen);
+  renderPanel(panelElements, view, limits, appIcons, now, actions, todayOpen, panelDisplay.show_character);
   placeBubble();
   rowHover.apply();
   hits.schedule();
@@ -440,7 +440,7 @@ function setShowCharacter(show: boolean): void {
   setPanelDisplay({ ...panelDisplay, show_character: show });
 }
 
-function toggleList(): void {
+function togglePanel(): void {
   setPanelDisplay({ ...panelDisplay, panel_style: panelDisplay.panel_style === "collapsed" ? "detail" : "collapsed" });
 }
 
@@ -643,9 +643,9 @@ async function openMenu(ctx: ContextTarget = {}): Promise<void> {
     }),
     // 英語はトレイのメニュー（tray.rs）と揃える。
     await CheckMenuItem.new({
-      text: t("リストを隠す", "Hide List"),
+      text: t("パネルを隠す", "Hide Panel"),
       checked: panelDisplay.panel_style === "collapsed",
-      action: toggleList,
+      action: togglePanel,
     }),
     await Submenu.new({ text: t("並べ方", "Sort Order"), items: sortItems }),
     await PredefinedMenuItem.new({ item: "Separator" }),
@@ -669,7 +669,7 @@ async function openMenu(ctx: ContextTarget = {}): Promise<void> {
 function bindWindowControls(): void {
   // data-tauri-drag-region はダブルクリックで最大化を切り替えるので使わず、自前で始める。
   // ドラッグはすぐには始めず、押したまま少し動いてから始める。動かずに離したら、立ち絵を押した
-  // ことになり、リストを隠すかどうかを切り替える。行と吹き出しとスクロールバーは押して操作するので、そこからはドラッグを始めない。
+  // ことになり、パネルを隠すかどうかを切り替える。行と吹き出しとスクロールバーは押して操作するので、そこからはドラッグを始めない。
   let press: { x: number; y: number; onStage: boolean; dragging: boolean } | null = null;
   document.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement | null;
@@ -687,7 +687,7 @@ function bindWindowControls(): void {
     void getCurrentWindow().startDragging();
   });
   document.addEventListener("mouseup", () => {
-    if (press && !press.dragging && press.onStage) toggleList();
+    if (press && !press.dragging && press.onStage) togglePanel();
     press = null;
   });
   document.addEventListener("contextmenu", (e) => {

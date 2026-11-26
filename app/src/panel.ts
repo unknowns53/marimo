@@ -98,11 +98,18 @@ export function renderPanel(
   now: number,
   actions: RowActions,
   todayOpen: boolean,
+  characterShown: boolean,
 ): void {
   const line = limitLine(rateLimits, now);
   if (line) renderLimits(limits, line, icons, now);
+  // パネルを隠す間も、立ち絵を出していれば立ち絵を押して戻せるので、パネルごと隠す。立ち絵も隠しているときは、
+  // 何も残らないと掴んで動かせず、どこにあるかも分からなくなるので、利用制限の欄だけを残す。利用制限の欄も
+  // 無いときは、隠していることを示す 1 行を出す。
+  // 利用制限の欄の有無は行の描き方を決める入力に含めないので、下の早期の return より前で決める。
+  const collapsed = view.collapsed;
+  panel.hidden = collapsed && characterShown;
   limits.hidden = line === null;
-  panel.hidden = false;
+  rows.hidden = collapsed && line !== null;
   drag.title = t("ドラッグしてウィンドウを移動", "Drag to move window");
   const iconsShown = Object.entries(icons).map(([provider, src]) => [provider, src !== null]);
   const signature = panelSignature(view, now, todayOpen) + JSON.stringify(iconsShown);
@@ -112,12 +119,8 @@ export function renderPanel(
     return;
   }
   const { plan } = view;
-  // リストを隠している間は利用制限の欄だけを残す。利用制限の欄も無いときは、パネルが空にならないよう、
-  // 隠していることを示す 1 行を出す。
-  const collapsed = view.collapsed;
-  rows.hidden = collapsed && line !== null;
   let children: HTMLElement[];
-  if (collapsed) children = [el("div", "empty", t("リストを隠しています", "List hidden"))];
+  if (collapsed) children = [el("div", "empty", t("パネルを隠しています", "Panel hidden"))];
   else {
     const today = todayChildren(plan, icons, now, actions, todayOpen);
     children = isEmpty(plan)
@@ -305,7 +308,7 @@ export function renderContext(s: SessionState): HTMLElement {
 // 古さはグループごとに示す。全部のグループが古いときは、以前のバージョンと同じく行全体を薄くする。
 function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, now: number): void {
   const allStale = line.groups.every((g) => g.stale);
-  const values = el("span", line.marked ? "limit-values marked" : "limit-values");
+  const values = el("span", "limit-values");
   for (const g of line.groups) {
     const group = el("span", !allStale && g.stale ? "limit-group stale" : "limit-group");
     group.title = limitTooltip(g, PROVIDER_NAME[g.provider], now);

@@ -51,12 +51,12 @@ pub const DEFAULT_PANEL_SCALE: f64 = 1.0;
 pub enum PanelStyle {
     #[default]
     Detail,
-    /// セッションの行を隠し、利用制限の欄だけを残す。
+    /// パネルを隠す。立ち絵も隠しているときは、利用制限の欄だけを残す。
     Collapsed,
 }
 
 impl PanelStyle {
-    // 以前の「件数だけ」は、リストを 1 行に畳んで場所を空けるものだったので、リストを隠す表示へ読み替える。
+    // 以前の「件数だけ」は、リストを 1 行に畳んで場所を空けるものだったので、パネルを隠す表示へ読み替える。
     fn parse(s: &str) -> Option<Self> {
         match s {
             "detail" => Some(Self::Detail),
@@ -209,7 +209,7 @@ impl Default for PanelDisplay {
 }
 
 // 以前のバージョンは、立ち絵の有無と行の出し方を混ぜた四つの段階を panel_mode に一つだけ持っていた。
-// 「件数だけ」と行を出さない「絵だけ」は、立ち絵を残してリストを隠す表示へ読み替える。
+// 「件数だけ」と行を出さない「絵だけ」は、立ち絵を残してパネルを隠す表示へ読み替える。
 fn legacy_panel_mode(mode: &str) -> Option<PanelDisplay> {
     let (show_character, panel_style) = match mode {
         "detail" => (true, PanelStyle::Detail),

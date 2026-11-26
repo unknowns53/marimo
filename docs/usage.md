@@ -48,7 +48,7 @@ Right-click the icon to open the following menu. When sessions need your attenti
 | Hide marimo, Show marimo | Hides or shows the window. Only the one that applies to the current state is shown |
 | Reset Position | Clears the saved window position and moves the window back to the lower right of the main monitor, showing it if hidden |
 | Show Character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
-| Hide List | Turns on or off hiding the session rows in the panel, leaving only the usage limits row (see [Switching the display](#switching-the-display)) |
+| Hide Panel | Turns hiding the panel on or off (see [Switching the display](#switching-the-display)) |
 | Sort Order | Chooses how the panel orders sessions from a submenu of **Start Time**, **Status**, and **Last Update** (see [Sort order](#sort-order)) |
 | Mark All as Read | Marks every unread done and error session as read. It cannot be chosen when there are none (see [Marking Done and Error as read](#marking-done-and-error-as-read)) |
 | Update Available: X | Appears only when a newer stable version exists. Choosing it opens the settings window at **Updates** (see [Checking for updates](#checking-for-updates)) |
@@ -80,7 +80,7 @@ The left side of the window lists seven sections: **Display**, **Bubbles**, **Ch
 | Section | Setting | What it does |
 | --- | --- | --- |
 | Display | Show character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
-| Display | Hide list | Turns on or off hiding the session rows, leaving only the usage limits row (see [Switching the display](#switching-the-display)) |
+| Display | Hide panel | Turns hiding the panel on or off (see [Switching the display](#switching-the-display)) |
 | Display | Sort order | Chooses how the panel orders sessions: **Start time**, **Status**, or **Last update** (see [Sort order](#sort-order)) |
 | Display | Background opacity | Changes how solid the panel background is with a slider (see [Background opacity](#background-opacity)) |
 | Display | Panel size | Changes the panel's text and width with a slider (see [Panel size](#panel-size)) |
@@ -132,11 +132,11 @@ The **Panel size** slider changes the panel's text and width together, from 0.8Ã
 
 ## Switching the display
 
-**Show Character** and **Hide List** can be chosen independently. By default, both the character and the list are shown. The panel is shown in every combination.
+**Show Character** and **Hide Panel** can be chosen independently. By default, both the character and the panel are shown.
 
-These and **Sort Order** can be changed from the right-click menu, the icon's menu, or **Display** in the settings window, and the same setting is saved wherever you change it. Every menu shows a check mark next to the current choice, and the settings window also shows the current state. Choices made in the icon's menu are applied and saved by the app immediately, so they are not lost even if you choose right after startup or several times in quick succession. You can also toggle **Hide List** by clicking the character.
+These and **Sort Order** can be changed from the right-click menu, the icon's menu, or **Display** in the settings window, and the same setting is saved wherever you change it. Every menu shows a check mark next to the current choice, and the settings window also shows the current state. Choices made in the icon's menu are applied and saved by the app immediately, so they are not lost even if you choose right after startup or several times in quick succession. You can also toggle **Hide Panel** by clicking the character.
 
-Turning on **Hide List** hides the session rows and the "Read today" line, leaving only the usage limits row in the panel. When there is no usage limits row either, a faint line reading "List hidden" is shown. The character's expression and speech bubbles do not change while the list is hidden. The panel shows chat titles and parts of file names and commands, so when you show your screen to others, hide the list or click the menu bar icon to hide the whole window.
+Turning on **Hide Panel** hides the whole panel, including the usage limits row, leaving only the character. While the character is hidden, nothing would be left to grab the window by, so only the session rows and the "Read today" line are hidden and the usage limits row stays in the panel. If there is no usage limits row then, a faint line reading "Panel hidden" is shown. The character's expression and speech bubbles do not change while the panel is hidden. The panel shows chat titles and parts of file names and commands, so when you show your screen to others, hide the panel or click the menu bar icon to hide the whole window.
 
 Turning off **Show Character** hides the character and speech bubbles and shrinks the window to the panel's width so you can place it flush against either edge of the screen. Drag an empty part of the panel or the grip that appears on its upper-right edge to move the window, and right-click the panel to open the menu. While the character is hidden, no speech bubbles are shown; when you turn **Show Character** back on, a bubble appears if the state it is about still continues. Turning the wheel over the character is not available, so change the size with **Size** in the settings window.
 
@@ -270,7 +270,7 @@ Clawd changes expressions the same way as Koharu, and its working face changes w
 
 ## Interacting with the character
 
-- **Click** Toggles **Hide List**, hiding or showing the session rows in the panel. As when you choose from a menu, the chosen display is saved (see [Switching the display](#switching-the-display)).
+- **Click** Toggles **Hide Panel**, hiding or showing the panel. As when you choose from a menu, the chosen display is saved (see [Switching the display](#switching-the-display)).
 - **Point** Pointing at the character while working makes it look at you. When the mouse leaves, the original expression returns after a short pause.
 - **Drag** Press and move a little to move the whole window. The position is saved in `~/.marimo/window.json`, and the window appears in the same place next time. If the saved position ends up off screen, for example because the monitor setup changed, the window returns to the lower right of the screen.
 
@@ -313,7 +313,7 @@ Antigravity's usage limits are split by model group, and marimo shows the 5-hour
 
 At the bottom of the panel, the 5-hour and 7-day usage is shown as two thin bars stacked on top of each other, the 5-hour one above the 7-day one, followed by numbers such as `23 Â· 84%`. A bar at 80% or more changes color, as the context usage bar does. There is one row for the whole account, and it is shown even when every session is idle. When there are no values to show, the row is not shown.
 
-When there are Codex or Antigravity values, the values are listed in the order Claude Code, Codex, Antigravity, each preceded by the app's icon (or the text `CC`, `CX`, or `AG` if the icon cannot be read). Each tool has as many bars as it has windows to show. The values of the three tools are spread evenly across the width of the panel. When they do not fit in the width of the panel, they wrap between tools. When only Claude Code's values are shown, no icon is added.
+When there are Codex or Antigravity values, the values are listed in the order Claude Code, Codex, Antigravity, each preceded by the app's icon (or the text `CC`, `CX`, or `AG` if the icon cannot be read). Each tool has as many bars as it has windows to show. However many tools are shown, their values share the width of the panel equally, and the bars stretch to fill the space. When they do not fit in the width of the panel, they wrap between tools. When only Claude Code's values are shown, no icon is added.
 
 Codex window names are decided from the window length that Codex reports: `7d` if it divides evenly into days, `5h` if it divides evenly into hours, and otherwise the number of minutes (for example, `90m`). A window whose length was not reported is shown in the tooltip as a percentage without a name.
 
