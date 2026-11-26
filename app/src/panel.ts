@@ -3,7 +3,7 @@ import { chatTitle, folderName, formatAge, formatTokens, formatUpdated } from ".
 import { plural, t } from "./i18n";
 import { limitLine, limitTooltip, type LimitLine, type LimitSources } from "./limits";
 import { isEmpty, panelSignature, type PanelPlan, type PanelView } from "./panelModel";
-import type { AppIcons, Provider, SessionState, Status } from "./types";
+import type { AppIcons, ContextUsage, Provider, SessionState, Status } from "./types";
 
 function fallbackSummary(status: Status): string {
   switch (status) {
@@ -201,7 +201,11 @@ function renderRow(
 
   const folder = el("span", "folder", folderName(s));
   if (compact) {
-    row.append(folder, renderSummary(s, summary), renderAge(s.updated_at, now), renderContext(s));
+    row.append(folder, renderSummary(s, summary));
+    // 作業中の行は更新が続くので「今」が並ぶだけになる。時間は 1 分以上止まったときにだけ出し、止まっていることを示す。
+    if (now - s.updated_at < 60_000) row.classList.add("fresh");
+    else row.append(renderAge(s.updated_at, now));
+    row.append(renderContext(s));
     return row;
   }
   const names = el("span", "names");
@@ -277,17 +281,20 @@ function providerMarker(provider: Provider, icons: AppIcons): HTMLElement {
 }
 
 // % が分かるときはバー、上限が分からずトークン数だけのときは数値だけを出し、見分けられるようにする。
+// % の数字はバーと重複するので、ツールチップに任せる。
 export function renderContext(s: SessionState): HTMLElement {
   const ctx = s.context;
   if (ctx?.used_percentage != null) {
     const pct = Math.max(0, Math.min(100, ctx.used_percentage));
     const wrap = el("span", "ctx");
-    wrap.title = t(`コンテキスト ${Math.round(pct)}%`, `Context ${Math.round(pct)}%`);
+    wrap.title = [t(`コンテキスト ${Math.round(pct)}%`, `Context ${Math.round(pct)}%`), tokenCount(ctx)]
+      .filter(Boolean)
+      .join("\n");
     const bar = el("span", "ctx-bar");
     const fill = el("i", pct >= 80 ? "high" : "");
     fill.style.width = `${pct}%`;
     bar.append(fill);
-    wrap.append(bar, el("span", "ctx-label", `${Math.round(pct)}%`));
+    wrap.append(bar);
     return wrap;
   }
   if (ctx?.total_input_tokens != null) {
@@ -302,18 +309,22 @@ export function renderContext(s: SessionState): HTMLElement {
   return el("span", "ctx-none");
 }
 
-// 各ツールの値は、ウィンドウごとの細いバーを上から 5h、7d の順に積み、横に数字を添える。80% を超えたバーは
-// コンテキスト使用率と同じく色を変え、文字を読まなくても残りの少なさに気づけるようにする。5h や 7d の見出しと
-// 更新の時刻は、三つのツールが並ぶと行に収まらないので、各グループのツールチップに任せる。
+function tokenCount(ctx: ContextUsage): string {
+  if (ctx.total_input_tokens == null) return "";
+  const used = ctx.total_input_tokens.toLocaleString();
+  if (ctx.context_window_size == null) return t(`${used} トークン`, `${used} tokens`);
+  const size = ctx.context_window_size.toLocaleString();
+  return t(`${used} / ${size} トークン`, `${used} / ${size} tokens`);
+}
+
+// 各ツールの値は、ウィンドウごとの細いバーを上から 5h、7d の順に積む。80% を超えたバーはコンテキスト使用率と
+// 同じく色を変え、文字を読まなくても残りの少なさに気づけるようにする。数字、5h や 7d の見出し、リセットと
+// 更新の時刻は、各グループのツールチップに任せる。
 // 古さはグループごとに示す。全部のグループが古いときは、以前のバージョンと同じく行全体を薄くする。
 function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, now: number): void {
   const allStale = line.groups.every((g) => g.stale);
   const values = el("span", "limit-values");
-  const nums = line.groups.map((g) => `${g.used.map((u) => Math.round(u)).join(" · ")}%`);
-  // 数字の欄を、いちばん長い数字の幅にそろえる。グループは欄の幅を等分するので、数字の幅が違うと、同じ使用率でも
-  // グループごとにバーの長さが変わって見える。数字はどれも tabular-nums なので、文字数が多いほど幅も広い。
-  const widest = nums.reduce((a, b) => (b.length > a.length ? b : a), "");
-  for (const [i, g] of line.groups.entries()) {
+  for (const g of line.groups) {
     const group = el("span", !allStale && g.stale ? "limit-group stale" : "limit-group");
     group.title = limitTooltip(g, PROVIDER_NAME[g.provider], now);
     // Claude Code の値しか無いときは、どのツールの値か迷わないのでアイコンを付けない。
@@ -327,9 +338,7 @@ function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, 
       bar.append(fill);
       stack.append(bar);
     }
-    const label = el("span", "limit-nums", nums[i]);
-    label.dataset.widest = widest;
-    group.append(stack, label);
+    group.append(stack);
     values.append(group);
   }
   container.replaceChildren(values);
