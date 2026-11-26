@@ -9,6 +9,9 @@ usage() {
 バージョンのファイルを <バージョン> に書き換えて main へコミットし、push します。main の CI がテストとビルドを終えたら、
 v<バージョン> のタグを push して、タグの CI がリリースを公開し終えるまで待ちます。
 0.1.3 のように - を含まないバージョンは正式なリリースに、0.1.3-beta.2 のように - を含むバージョンはプレリリースになります。
+
+プレリリースは feature/ で始まるブランチからも出せます。そのときはバージョンのコミットをそのブランチへ push し、
+続けてタグを push します。ブランチへの push では CI がビルドしないので、タグの CI が検査とビルドを行います。
 EOF
 }
 
@@ -32,15 +35,23 @@ command -v gh >/dev/null || fail "gh が見つかりません。GitHub CLI を�
 gh auth status >/dev/null 2>&1 || fail "gh が GitHub にログインしていません。gh auth login を実行してください。"
 
 branch="$(git branch --show-current)"
-[[ "$branch" == "main" ]] || fail "今のブランチは「${branch:-（ブランチなし）}」です。main へ切り替えてから実行してください。"
+if [[ "$branch" == feature/* ]]; then
+  [[ "$version" == *-* ]] ||
+    fail "正式なリリースは main からだけ出せます。feature/ のブランチから出せるのは 0.1.3-beta.2 のように - を含むプレリリースです。"
+elif [[ "$branch" != "main" ]]; then
+  fail "今のブランチは「${branch:-（ブランチなし）}」です。main か feature/ で始まるブランチへ切り替えてから実行してください。"
+fi
 dirty="$(git status --porcelain --untracked-files=no)"
 if [[ -n "$dirty" ]]; then
   echo "$dirty" >&2
   fail "上のファイルにコミットしていない変更があります。コミットするか取り消してから実行してください。"
 fi
 
-echo "最新の main を pull しています"
-git pull --ff-only
+# まだ push していないブランチには取ってくる先が無いので、pull を飛ばす。
+if git rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then
+  echo "最新の $branch を pull しています"
+  git pull --ff-only origin "$branch"
+fi
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null || [[ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]]; then
   fail "タグ $tag はすでにあります。別のバージョンを指定してください。"
 fi
@@ -68,13 +79,13 @@ git add Cargo.toml Cargo.lock app/src-tauri/tauri.conf.json app/package.json app
 # main の CI が落ちて直したあとに同じバージョンでやり直すときは、バージョンのファイルがもう書き換わっているので、
 # コミットせずに今の main の先端にタグを付ける。
 if git diff --cached --quiet; then
-  echo "バージョンはすでに $version なので、コミットせずに今の main を使います"
+  echo "バージョンはすでに $version なので、コミットせずに今の $branch を使います"
 else
   git commit -q -m "Bump the version to $version"
 fi
 sha="$(git rev-parse HEAD)"
-echo "main へ push しています（${sha:0:12}）"
-git push -q origin main
+echo "$branch へ push しています（${sha:0:12}）"
+git push -q -u origin "$branch"
 
 # push してから実行が一覧に出るまで数秒かかる。
 run_of() {
@@ -90,10 +101,14 @@ run_of() {
   return 1
 }
 
-main_run="$(run_of main)" || fail "main の CI の実行が見つかりません。https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions を確認してください。"
-echo "main の CI（${main_run}）がテストとビルドを終えるのを待っています"
-gh run watch "$main_run" --exit-status --interval 30 >/dev/null ||
-  fail "main の CI（${main_run}）が失敗しました。gh run view $main_run --log-failed で理由を確認し、直してからバージョンを変えずにもう一度実行してください（バージョンのコミットは main に残っています）。タグは付けていません。"
+# main では、main の CI のビルドをタグの CI がコピーするので、それを待ってからタグを付ける。ブランチへの push では
+# CI がビルドしないので、すぐにタグを付け、タグの CI に検査とビルドを任せる。
+if [[ "$branch" == "main" ]]; then
+  main_run="$(run_of main)" || fail "main の CI の実行が見つかりません。https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions を確認してください。"
+  echo "main の CI（${main_run}）がテストとビルドを終えるのを待っています"
+  gh run watch "$main_run" --exit-status --interval 30 >/dev/null ||
+    fail "main の CI（${main_run}）が失敗しました。gh run view $main_run --log-failed で理由を確認し、直してからバージョンを変えずにもう一度実行してください（バージョンのコミットは main に残っています）。タグは付けていません。"
+fi
 
 echo "タグ $tag を push しています"
 git tag "$tag" "$sha"

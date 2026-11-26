@@ -348,7 +348,7 @@ The script updates in the following steps.
 5. It runs `install` with the downloaded `marimo-hook`, replacing `~/.marimo/bin/marimo-hook` (`marimo-hook.exe` on Windows) with the new one. `install` copies itself to this location, so the hooks keep working even though it runs from a temporary folder.
 6. It restarts marimo and deletes the temporary folder.
 
-With `--main`, before pulling, the script checks that the current branch is `main` and that the files tracked by Git have no uncommitted changes. If either check fails, it shows the reason and exits without doing anything. Untracked files are fine. With `--no-pull`, it skips the checks and the pull, and downloads the build of the commit currently checked out. The CI builds only commits pushed to main or to branches whose names start with `feature/`, so this works only for those commits. To try a branch before merging it, push the branch, check it out, and run the script with `--no-pull --wait`. Commits that change only files not included in the app, such as documents, are not built, so when using a `build-` release, the script downloads the build of the last commit that changed anything else (see [Tests and checks](development.md#tests-and-checks)).
+With `--main`, before pulling, the script checks that the current branch is `main` and that the files tracked by Git have no uncommitted changes. If either check fails, it shows the reason and exits without doing anything. Untracked files are fine. With `--no-pull`, it skips the checks and the pull, and downloads the build of the commit currently checked out. The CI builds only commits pushed to main, so this works only for commits that went through main. Commits that change only files not included in the app, such as documents, are not built, so when using a `build-` release, the script downloads the build of the last commit that changed anything else (see [Tests and checks](development.md#tests-and-checks)).
 
 ### When an update fails
 
@@ -364,7 +364,7 @@ When you click the button, marimo downloads the target release, verifies the che
 
 ### Building and updating locally
 
-With `--build`, the script builds locally instead of downloading a build. Use it when you have no network connection, or to try a branch that the CI does not build. Without `--no-pull`, it checks the branch and local changes and pulls the latest main before building, as with `--main`. To try such a branch, add `--no-pull --build` to build what is currently checked out as is. Building requires the tools in [Prerequisites](development.md#prerequisites).
+With `--build`, the script builds locally instead of downloading a build. Use it when you have no network connection, or to try a branch other than main. Without `--no-pull`, it checks the branch and local changes and pulls the latest main before building, as with `--main`. To try a branch other than main, add `--no-pull --build` to build what is currently checked out as is. Building requires the tools in [Prerequisites](development.md#prerequisites).
 
 In this case, `marimo-hook` and the app are built in place of step 2. The user interface dependencies are reinstalled with `npm ci`, which does not modify `package-lock.json`. On macOS, only `marimo.app` is built; on Windows, only the NSIS installer. If the environment variable `CARGO_TARGET_DIR` is set, the build outputs are looked up under it. If the build fails, the script does not quit marimo or replace the app. If `install` fails, run `install` again with the `marimo-hook` you built.
 

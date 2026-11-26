@@ -20,16 +20,16 @@ Pulls the latest main and downloads the CI build of that commit from the GitHub 
 main の最新を pull し、そのコミットを CI がビルドしたものを GitHub のリリースから取得します。
 
 .PARAMETER NoPull
-Skips checking that the branch is main and pulling, and uses the commit currently checked out. Without -Build, it downloads the build of that commit, so it works only for commits pushed to main or to a feature/ branch.
-ブランチが main であることの確認と pull を省き、今チェックアウトしているコミットを使います。-Build を付けなければ、そのコミットのビルドを取得するので、main か feature/ で始まるブランチへ push したコミットでしか使えません。
+Skips checking that the branch is main and pulling, and uses the commit currently checked out. Without -Build, it downloads the build of that commit, so it works only for commits that went through main.
+ブランチが main であることの確認と pull を省き、今チェックアウトしているコミットを使います。-Build を付けなければ、そのコミットのビルドを取得するので、main を通ったコミットでしか使えません。
 
 .PARAMETER Wait
 Use together with -Main or -NoPull. When the CI build is not ready yet, checks every 30 seconds for up to 30 minutes.
 -Main か -NoPull と一緒に使います。CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
 
 .PARAMETER Build
-Builds locally instead of downloading. Without -NoPull, pulls the latest main before building. Use it when there is no network connection, or to try a branch that CI does not build.
-取得する代わりにローカルでビルドします。-NoPull が無ければ、main の最新を pull してからビルドします。ネットワークにつながらないときや、CI がビルドしないブランチを試すときに使います。
+Builds locally instead of downloading. Without -NoPull, pulls the latest main before building. Use it when there is no network connection, or to try a branch other than main.
+取得する代わりにローカルでビルドします。-NoPull が無ければ、main の最新を pull してからビルドします。ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
 #>
 [CmdletBinding()]
 param(
@@ -248,7 +248,7 @@ try {
         if ($LASTEXITCODE -ne 0) { Fail (Msg 'git でブランチを調べられませんでした。' 'Could not check the branch with git.') }
         if ($branch -ne 'main') {
             if (-not $branch) { $branch = Msg '（ブランチなし）' '(no branch)' }
-            Fail (Msg "今のブランチは「$branch」です。main へ切り替えてから実行してください。ほかのブランチを試すときは -NoPull を付けます（CI がビルドしないブランチでは -NoPull と -Build）。" "The current branch is '$branch'. Switch to main and run again. To try another branch, add -NoPull (or -NoPull and -Build for a branch that CI does not build).")
+            Fail (Msg "今のブランチは「$branch」です。main へ切り替えてから実行してください。ほかのブランチを試すときは -NoPull と -Build を付けます。" "The current branch is '$branch'. Switch to main and run again. To try another branch, add -NoPull and -Build.")
         }
         $dirty = git status --porcelain --untracked-files=no
         if ($LASTEXITCODE -ne 0) { Fail (Msg 'git で変更の有無を調べられませんでした。' 'Could not check for changes with git.') }
