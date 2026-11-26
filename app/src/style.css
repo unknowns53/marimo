@@ -644,7 +644,16 @@ body {
 }
 
 .limit-nums {
+  display: inline-flex;
+  flex-direction: column;
   font-variant-numeric: tabular-nums;
+}
+
+.limit-nums::before {
+  content: attr(data-widest);
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
 }
 
 .limit-group {

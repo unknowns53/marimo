@@ -309,7 +309,11 @@ export function renderContext(s: SessionState): HTMLElement {
 function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, now: number): void {
   const allStale = line.groups.every((g) => g.stale);
   const values = el("span", "limit-values");
-  for (const g of line.groups) {
+  const nums = line.groups.map((g) => `${g.used.map((u) => Math.round(u)).join(" · ")}%`);
+  // 数字の欄を、いちばん長い数字の幅にそろえる。グループは欄の幅を等分するので、数字の幅が違うと、同じ使用率でも
+  // グループごとにバーの長さが変わって見える。数字はどれも tabular-nums なので、文字数が多いほど幅も広い。
+  const widest = nums.reduce((a, b) => (b.length > a.length ? b : a), "");
+  for (const [i, g] of line.groups.entries()) {
     const group = el("span", !allStale && g.stale ? "limit-group stale" : "limit-group");
     group.title = limitTooltip(g, PROVIDER_NAME[g.provider], now);
     // Claude Code の値しか無いときは、どのツールの値か迷わないのでアイコンを付けない。
@@ -323,7 +327,9 @@ function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, 
       bar.append(fill);
       stack.append(bar);
     }
-    group.append(stack, el("span", "limit-nums", `${g.used.map((u) => Math.round(u)).join(" · ")}%`));
+    const label = el("span", "limit-nums", nums[i]);
+    label.dataset.widest = widest;
+    group.append(stack, label);
     values.append(group);
   }
   container.replaceChildren(values);
