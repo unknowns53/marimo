@@ -40,10 +40,10 @@ By default, downloads the latest stable release from GitHub and replaces the app
 
   --main     Pull the latest main and download the build that CI made for that commit from GitHub releases.
   --no-pull  Skip checking that the branch is main and skip the pull; use the commit currently checked out.
-             Without --build, this downloads the build of that commit, so it only works for commits that went through main.
+             Without --build, this downloads the build of that commit, so it only works for commits pushed to main or to a feature/ branch.
   --wait     Use with --main or --no-pull. If the CI build is not ready yet, check every 30 seconds for up to 30 minutes.
   --build    Build locally instead of downloading. Without --no-pull, pull the latest main before building.
-             Use this when offline or to try a branch other than main.
+             Use this when offline or to try a branch that CI does not build.
 EOF
     return
   fi
@@ -56,10 +56,10 @@ EOF
 
   --main     main の最新を pull し、そのコミットを CI がビルドしたものを GitHub のリリースから取得します。
   --no-pull  ブランチが main であることの確認と pull を省き、今チェックアウトしているコミットを使います。
-             --build を付けなければ、そのコミットのビルドを取得するので、main を通ったコミットでしか使えません。
+             --build を付けなければ、そのコミットのビルドを取得するので、main か feature/ で始まるブランチへ push したコミットでしか使えません。
   --wait     --main か --no-pull と一緒に使います。CI のビルドがまだ無いときに、30 秒おきに最大 30 分待ちます。
   --build    取得する代わりにローカルでビルドします。--no-pull が無ければ、main の最新を pull してからビルドします。
-             ネットワークにつながらないときや、main 以外のブランチを試すときに使います。
+             ネットワークにつながらないときや、CI がビルドしないブランチを試すときに使います。
 EOF
 }
 
@@ -138,7 +138,7 @@ trap cleanup EXIT
 if [[ $no_pull -eq 0 && ($main -eq 1 || $build -eq 1) ]]; then
   branch="$(git branch --show-current)"
   if [[ "$branch" != "main" ]]; then
-    fail "$(msg "今のブランチは「${branch:-（ブランチなし）}」です。main へ切り替えてから実行してください。ほかのブランチを試すときは --no-pull と --build を付けます。" "The current branch is '${branch:-(no branch)}'. Switch to main and run again. To try another branch, add --no-pull and --build.")"
+    fail "$(msg "今のブランチは「${branch:-（ブランチなし）}」です。main へ切り替えてから実行してください。ほかのブランチを試すときは --no-pull を付けます（CI がビルドしないブランチでは --no-pull と --build）。" "The current branch is '${branch:-(no branch)}'. Switch to main and run again. To try another branch, add --no-pull (or --no-pull and --build for a branch that CI does not build).")"
   fi
   dirty="$(git status --porcelain --untracked-files=no)"
   if [[ -n "$dirty" ]]; then
