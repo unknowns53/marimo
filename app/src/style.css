@@ -293,8 +293,8 @@ body {
    色は background-image に置き、マウスを載せたときの明るさは background-color で重ねる。 */
 .row {
   --tint: var(--idle);
-  --tint-strength: 30%;
-  --tint-reach: 60%;
+  --tint-strength: 39%;
+  --tint-reach: 68%;
   position: relative;
   display: grid;
   grid-template-columns: calc(12 * var(--u)) minmax(0, 1fr) auto;
@@ -313,8 +313,8 @@ body {
 
 .row.s-working {
   --tint: var(--working);
-  --tint-strength: 16%;
-  --tint-reach: 45%;
+  --tint-strength: 21%;
+  --tint-reach: 50%;
 }
 
 .row.s-waiting {
