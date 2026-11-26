@@ -121,6 +121,14 @@ pub fn translate(
                 ..hook(event)
             }
         }
+        // 自動の承認（smart approval）は、判定役の LLM に聞く数秒の間も surface が smart の承認のフックを出す
+        // （tools/approval_smart.py）。利用者は何もしなくてよいので、承認待ちにしない。LLM が決めきれずに
+        // 人へ回したときは、別の surface でもう一度 pre_approval_request が届く。
+        "pre_approval_request" | "post_approval_response"
+            if text("surface").as_deref() == Some("smart") =>
+        {
+            return Event::Ignore;
+        }
         // 危険なコマンドの承認を利用者に求めている間。承認を求めるのはシェルのコマンドなので、
         // Bash の実行許可として出す。
         "pre_approval_request" => HookInput {
@@ -525,6 +533,16 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(resolved.status, Status::Working);
+
+        let smart = run(&[
+            turn(),
+            input(
+                "pre_approval_request",
+                json!({ "turn_id": "t", "surface": "smart", "command": "rm -rf build" }),
+            ),
+        ])
+        .unwrap();
+        assert_eq!(smart.status, Status::Working);
 
         let clarify = run(&[
             turn(),

@@ -577,7 +577,7 @@ For every event, the input of Hermes hooks has `hook_event_name`, `tool_name`, `
   | `on_session_start`, `on_session_reset` | SessionStart | Idle. Done and error sessions are kept as they are |
   | `pre_llm_call` | UserPromptSubmit | Working |
   | `pre_tool_call`, `post_tool_call` | PreToolUse, PostToolUse | Working. Waiting only while the clarifying tool `clarify` is in use |
-  | `pre_approval_request` | PermissionRequest | Waiting (while asking you to approve a dangerous command) |
+  | `pre_approval_request` | PermissionRequest | Waiting (while asking you to approve a dangerous command). Ignored while smart approval asks its guardian LLM (`surface` is `smart`), since it is not waiting for you |
   | `post_approval_response` | PostToolUse or PermissionDenied | Working |
   | `post_llm_call`, `on_session_end` (`completed`) | Stop | Done |
   | `on_session_end` (`interrupted`) | Interrupt | Idle |

@@ -577,7 +577,7 @@ Hermes のフックの入力は、どのイベントでも `hook_event_name`、`
   | `on_session_start`、`on_session_reset` | SessionStart | 待機。完了とエラーのセッションはそのまま残す |
   | `pre_llm_call` | UserPromptSubmit | 作業中 |
   | `pre_tool_call`、`post_tool_call` | PreToolUse、PostToolUse | 作業中。聞き返しのツール `clarify` の間のみ承認待ち |
-  | `pre_approval_request` | PermissionRequest | 承認待ち（危険なコマンドの承認を利用者に求めている間） |
+  | `pre_approval_request` | PermissionRequest | 承認待ち（危険なコマンドの承認を利用者に求めている間）。自動の承認（smart approval）が判定役の LLM に聞いている間（`surface` が `smart`）は、利用者を待っていないので無視する |
   | `post_approval_response` | PostToolUse か PermissionDenied | 作業中 |
   | `post_llm_call`、`on_session_end`（`completed`） | Stop | 完了 |
   | `on_session_end`（`interrupted`） | Interrupt | 待機 |
