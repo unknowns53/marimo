@@ -675,15 +675,19 @@ body {
   gap: calc(4 * var(--u));
 }
 
-/* 数字は行の箱の中で上に寄って描かれるので、字形の中心がバーの中心に来るよう 1u 下げる。 */
+/* 数値の各段を、横のバーと同じ 7u の間隔の升に置く。字形が行の箱のどこに描かれるかはエンジン（WebKit と
+   WebView2）で違うので、text-box で箱を大文字の高さからベースラインまでに切り詰め、升の中央へ置く。 */
 .limit-nums {
-  position: relative;
-  top: calc(1 * var(--u));
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-auto-rows: calc(7 * var(--u));
+  align-items: center;
   font-size: calc(8 * var(--u));
-  line-height: calc(7 * var(--u));
+  line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+
+.limit-nums > * {
+  text-box: trim-both cap alphabetic;
 }
 
 /* 行の不透明度 0.85 に重なるので、行全体が古いときの 0.4 と同じ濃さになるようにする。 */
