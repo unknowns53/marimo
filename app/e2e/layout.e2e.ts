@@ -41,11 +41,11 @@ function snapshot() {
   };
 }
 
-async function open(page: Page): Promise<void> {
+async function open(page: Page, shown = snapshot()): Promise<void> {
   await page.setViewportSize({ width: WIDTH, height: HEIGHT });
   await mockTauri(page, {
     get_layout: { left: false, top: false },
-    get_snapshot: snapshot(),
+    get_snapshot: shown,
     get_scale: 1,
     get_character: "clawd",
     get_panel_display: null,
@@ -55,7 +55,7 @@ async function open(page: Page): Promise<void> {
     app_icons: { claude: null, codex: null, hermes: null, opencode: null, antigravity: null },
   });
   await page.goto("/");
-  await expect(page.locator("#rows .row")).toHaveCount(2);
+  await expect(page.locator("#rows .row")).toHaveCount(shown.sessions.length);
   await expect(page.locator("#stage .character")).toHaveCount(1);
   await expect(page.locator("#bubble")).toHaveClass(/show/);
 }
@@ -114,4 +114,28 @@ test("pressing the stage hides and shows the panel", async ({ page }) => {
       .map(([, args]) => args.display?.panel_style),
   );
   expect(saved).toEqual(["collapsed", "detail"]);
+});
+
+test("rows that do not fit scroll inside the panel instead of covering the usage limits", async ({ page }) => {
+  const base = snapshot();
+  const resets_at = Date.now() / 1000 + 3600;
+  await open(page, {
+    ...base,
+    aggregate: "done",
+    rate_limits: {
+      five_hour: { used_percentage: 12, resets_at },
+      seven_day: { used_percentage: 30, resets_at },
+      updated_at: Date.now(),
+    },
+    sessions: Array.from({ length: 10 }, (_, i) => ({ ...base.sessions[0], session_id: `done-${i}`, status: "done" })),
+  });
+  const limits = await box(page, "#limits");
+  const covering = await page.evaluate(
+    ([x, y]) => document.elementFromPoint(x, y)?.closest("#limits") !== null,
+    [(limits.left + limits.right) / 2, (limits.top + limits.bottom) / 2],
+  );
+  expect(covering).toBe(true);
+  await page.locator("#rows").evaluate((e) => (e.scrollTop = e.scrollHeight));
+  const last = await box(page, "#rows .row:last-child");
+  expect(last.bottom).toBeLessThanOrEqual((await box(page, "#rows")).bottom + 0.5);
 });
