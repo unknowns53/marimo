@@ -13,6 +13,9 @@ import {
   PANEL_OPACITY_MIN,
   PANEL_SCALE_MAX,
   PANEL_SCALE_MIN,
+  TINT_MAX,
+  TINT_MIN,
+  DEFAULT_TINT,
 } from "./panelModel";
 import { SCALE_MAX, SCALE_MIN } from "./scale";
 import { MAX_USAGE_REFRESH_MINUTES } from "./settingsForm";
@@ -37,6 +40,9 @@ describe("constants shared with Rust", () => {
       ["PANEL_SCALE_MIN", PANEL_SCALE_MIN],
       ["PANEL_SCALE_MAX", PANEL_SCALE_MAX],
       ["DEFAULT_PANEL_SCALE", DEFAULT_PANEL_SCALE],
+      ["TINT_MIN", TINT_MIN],
+      ["TINT_MAX", TINT_MAX],
+      ["DEFAULT_TINT", DEFAULT_TINT],
       ["MAX_BUBBLE_SECONDS", MAX_BUBBLE_SECONDS],
       ["DEFAULT_ASPECT", DEFAULT_ASPECT],
       ["MAX_USAGE_REFRESH_MINUTES", MAX_USAGE_REFRESH_MINUTES],

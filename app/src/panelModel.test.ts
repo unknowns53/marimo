@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Acknowledged, triggerKey } from "./acknowledged";
 import { setLang } from "./i18n";
 import {
+  DEFAULT_PANEL_DISPLAY,
   isEmpty,
   panelView,
   planPanel,
@@ -187,9 +188,9 @@ describe("panelView", () => {
       ["with a kept seen completion", snap(seen), ack, false],
     ];
     for (const [label, snapshot, acks, expected] of cases) {
-      expect(isEmpty(panelView(snapshot, acks, "detail", "started", Date.now(), keep).plan), label).toBe(expected);
+      expect(isEmpty(panelView(snapshot, acks, DEFAULT_PANEL_DISPLAY, Date.now(), keep).plan), label).toBe(expected);
     }
-    expect([panelView(sessions, new Acknowledged(), "detail").collapsed, panelView(sessions, new Acknowledged(), "collapsed").collapsed]).toEqual([false, true]);
+    expect([panelView(sessions, new Acknowledged()).collapsed, panelView(sessions, new Acknowledged(), { ...DEFAULT_PANEL_DISPLAY, panel_style: "collapsed" }).collapsed]).toEqual([false, true]);
   });
 });
 

@@ -101,13 +101,13 @@ export function renderPanel(
   characterShown: boolean,
 ): void {
   const line = limitLine(rateLimits, now);
-  if (line) renderLimits(limits, line, icons, now);
+  if (line) renderLimits(limits, line, icons, now, view.numbers);
   // パネルを隠す間も、立ち絵を出していれば立ち絵を押して戻せるので、パネルごと隠す。立ち絵も隠しているときは、
   // 何も残らないと掴んで動かせず、どこにあるかも分からなくなるので、利用制限の欄だけを残す。利用制限の欄も
-  // 無いときは、隠していることを示す 1 行を出す。
+  // 無いときは、隠していることを示す 1 行を出す。keepLimits を選んだときは、立ち絵を出していても利用制限の欄を残す。
   // 利用制限の欄の有無は行の描き方を決める入力に含めないので、下の早期の return より前で決める。
   const collapsed = view.collapsed;
-  panel.hidden = collapsed && characterShown;
+  panel.hidden = collapsed && characterShown && !(view.keepLimits && line !== null);
   limits.hidden = line === null;
   rows.hidden = collapsed && line !== null;
   drag.dataset.tip = t("ドラッグしてウィンドウを移動", "Drag to move window");
@@ -122,10 +122,10 @@ export function renderPanel(
   let children: HTMLElement[];
   if (collapsed) children = [el("div", "empty", t("パネルを隠しています", "Panel hidden"))];
   else {
-    const today = todayChildren(plan, icons, now, actions, todayOpen);
+    const today = todayChildren(plan, icons, now, actions, todayOpen, view.numbers);
     children = isEmpty(plan)
       ? [el("div", "empty", t("進行中のセッションはありません", "No active sessions")), ...today]
-      : [...plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, now, actions)), ...today];
+      : [...plan.rows.map((s) => renderRow(s, plan.read.has(sessionKey(s)), icons, now, actions, view.numbers)), ...today];
   }
   // 描き直すたびに行を作り直すので、何もしなければスクロールの位置が一番上へ戻ってしまう。行が減って
   // 届かなくなった位置は、ブラウザが一番下へ詰める。
@@ -149,6 +149,7 @@ function todayChildren(
   now: number,
   actions: RowActions,
   open: boolean,
+  numbers: boolean,
 ): HTMLElement[] {
   if (plan.today.length === 0) return [];
   const line = el("div", "today-line");
@@ -168,7 +169,7 @@ function todayChildren(
     actions.toggleToday();
   });
   if (!open) return [line];
-  return [line, ...plan.today.map((s) => renderRow(s, true, icons, now, actions))];
+  return [line, ...plan.today.map((s) => renderRow(s, true, icons, now, actions, numbers))];
 }
 
 // 状態は点ではなく、行の左から右へ薄れていく色で示す。文字を読まなくても、視界の端で何色の行が何本あるかが分かる。
@@ -184,6 +185,7 @@ function renderRow(
   icons: AppIcons,
   now: number,
   actions: RowActions,
+  numbers: boolean,
 ): HTMLElement {
   const compact = s.status === "working";
   const classes = ["row", `s-${s.status}`];
@@ -206,7 +208,7 @@ function renderRow(
     // 作業中の行は更新が続くので「今」が並ぶだけになる。時間は 1 分以上止まったときにだけ出し、止まっていることを示す。
     if (now - s.updated_at < 60_000) row.classList.add("fresh");
     else row.append(renderAge(s.updated_at, now));
-    row.append(renderContext(s));
+    row.append(renderContext(s, numbers));
     return row;
   }
   const names = el("span", "names");
@@ -215,7 +217,7 @@ function renderRow(
   if (title) names.append(el("span", "chat-title", title));
   row.append(
     names,
-    renderContext(s),
+    renderContext(s, numbers),
     providerMarker(provider, icons),
     renderSummary(s, summary),
     renderAge(s.updated_at, now),
@@ -285,8 +287,8 @@ function providerMarker(provider: Provider, icons: AppIcons): HTMLElement {
 }
 
 // % が分かるときはバー、上限が分からずトークン数だけのときは数値だけを出し、見分けられるようにする。
-// % の数字はバーと重複するので、ツールチップに任せる。
-export function renderContext(s: SessionState): HTMLElement {
+// % の数字はバーと重複するので、numbers を選んだときだけバーの横に出し、それ以外はツールチップに任せる。
+function renderContext(s: SessionState, numbers: boolean): HTMLElement {
   const ctx = s.context;
   if (ctx?.used_percentage != null) {
     const pct = Math.max(0, Math.min(100, ctx.used_percentage));
@@ -297,6 +299,7 @@ export function renderContext(s: SessionState): HTMLElement {
     fill.style.width = `${pct}%`;
     bar.append(fill);
     wrap.append(bar);
+    if (numbers) wrap.append(el("span", "ctx-label", `${Math.round(pct)}%`));
     return wrap;
   }
   if (ctx?.total_input_tokens != null) {
@@ -330,9 +333,10 @@ function contextParts(ctx: ContextUsage): string[] {
 
 // 各ツールの値は、ウィンドウごとの細いバーを上から 5h、7d の順に積む。80% を超えたバーはコンテキスト使用率と
 // 同じく色を変え、文字を読まなくても残りの少なさに気づけるようにする。数字、5h や 7d の見出し、リセットと
-// 更新の時刻は、各グループのツールチップに任せる。
+// 更新の時刻は、各グループのツールチップに任せる。numbers を選んだときは、各バーの数字をバーと同じ順に縦に積んで
+// 横に添える。横に並べると、三つのツールの値がパネルの幅に収まらず折り返す。
 // 古さはグループごとに示す。全部のグループが古いときは、以前のバージョンと同じく行全体を薄くする。
-function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, now: number): void {
+function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, now: number, numbers: boolean): void {
   const allStale = line.groups.every((g) => g.stale);
   const values = el("span", "limit-values");
   for (const g of line.groups) {
@@ -350,6 +354,11 @@ function renderLimits(container: HTMLElement, line: LimitLine, icons: AppIcons, 
       stack.append(bar);
     }
     group.append(stack);
+    if (numbers) {
+      const nums = el("span", "limit-nums");
+      nums.append(...g.used.map((u) => el("span", "", `${Math.round(u)}%`)));
+      group.append(nums);
+    }
     values.append(group);
   }
   container.replaceChildren(values);
