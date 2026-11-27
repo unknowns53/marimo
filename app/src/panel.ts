@@ -215,9 +215,12 @@ function renderRow(
   names.append(folder);
   const title = chatTitle(s);
   if (title) names.append(el("span", "chat-title", title));
+  // 名前とコンテキスト使用率は 1 段目の中だけで並べ、グリッドの右の列に入れない。右の列に入れると、使用率の数値で
+  // 広がった列の分だけ、2 段目の要約まで狭くなる。2 段目の右には経過時間しか無い。
+  const head = el("div", "row-head");
+  head.append(names, renderContext(s, numbers));
   row.append(
-    names,
-    renderContext(s, numbers),
+    head,
     providerMarker(provider, icons),
     renderSummary(s, summary),
     renderAge(s.updated_at, now),
