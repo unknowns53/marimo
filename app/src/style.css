@@ -662,14 +662,11 @@ body {
   min-width: 0;
 }
 
+/* 二本のバーの間隔（太さ 4u と隙間 3u）を、横の数値の行の高さ 7u と揃え、各段の数値をバーの高さに合わせる。 */
 .limit-stack {
   display: flex;
   flex-direction: column;
-  gap: calc(2 * var(--u));
-}
-
-.limit-stack .ctx-bar {
-  height: calc(3 * var(--u));
+  gap: calc(3 * var(--u));
 }
 
 .limit-group {
@@ -678,11 +675,14 @@ body {
   gap: calc(4 * var(--u));
 }
 
+/* 数字は行の箱の中で上に寄って描かれるので、字形の中心がバーの中心に来るよう 1u 下げる。 */
 .limit-nums {
+  position: relative;
+  top: calc(1 * var(--u));
   display: flex;
   flex-direction: column;
   font-size: calc(8 * var(--u));
-  line-height: 1;
+  line-height: calc(7 * var(--u));
   font-variant-numeric: tabular-nums;
 }
 
