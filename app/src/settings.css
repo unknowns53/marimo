@@ -15,6 +15,10 @@
   --danger: #c2372c;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.08);
   --on-accent: #fff;
+  /* select、スライダー、選択肢のカードは同じ幅に揃える。 */
+  --control-w: 320px;
+  /* チェックボックスの幅と文字との間隔。子の設定と説明文をチェックボックスの文字の位置へ揃える。 */
+  --check-indent: 21px;
   --font: "Segoe UI Variable Text", "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Meiryo UI", system-ui, sans-serif;
 }
 
@@ -167,8 +171,29 @@ h1.title {
   margin-top: 16px;
 }
 
+/* 一つのページの中の設定のまとまり。 */
+h2.group {
+  margin: 26px 0 10px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.title + h2.group {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+h2.group + .field {
+  margin-top: 0;
+}
+
 .field .label {
   display: flex;
+  max-width: var(--control-w);
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 5px;
@@ -209,22 +234,22 @@ h1.title {
   margin: 0;
 }
 
-.field + .check {
-  margin-top: 16px;
-}
-
-.hint + .check {
-  margin-top: 8px;
-}
-
 .checks {
   display: grid;
   gap: 6px;
 }
 
+.checks .hint {
+  margin: -2px 0 4px var(--check-indent);
+}
+
+.check.sub-check {
+  margin-left: var(--check-indent);
+}
+
 select {
   width: 100%;
-  max-width: 280px;
+  max-width: var(--control-w);
   padding: 7px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 7px;
@@ -241,12 +266,14 @@ select:focus {
 
 input[type="range"] {
   width: 100%;
+  max-width: var(--control-w);
   margin: 0;
 }
 
 .radio-list {
   display: grid;
   gap: 6px;
+  max-width: var(--control-w);
 }
 
 .radio-list label {
@@ -268,10 +295,6 @@ input[type="range"] {
   margin: 4px 0 0;
 }
 
-.radio-list.narrow {
-  max-width: 320px;
-}
-
 .radio-list .what {
   display: block;
   font-weight: 500;
@@ -283,8 +306,10 @@ input[type="range"] {
   font-size: 12.5px;
 }
 
+/* 読めずに操作できない設定を薄くする。ボタンは .btn:disabled で薄くなるので含めない。含めると、ショートカットが
+   未設定でクリアのボタンが押せないだけの欄まで、全体が薄くなる。 */
 .check:has(:disabled),
-.field:has(:disabled),
+.field:has(:is(input, select):disabled),
 .radio-list label:has(:disabled) {
   opacity: 0.5;
   cursor: default;
@@ -335,6 +360,7 @@ input[type="range"] {
   align-items: baseline;
   justify-content: space-between;
   gap: 4px 12px;
+  max-width: var(--control-w);
 }
 
 .usage-meta {

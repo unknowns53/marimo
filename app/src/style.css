@@ -209,7 +209,9 @@ body {
 /* 画面の隅で場所を取りすぎないよう、立ち絵の倍率とは別に幅を決める。文字と幅は --panel-scale でまとめて変え、
    パネルの中の寸法は --u（倍率を掛けた 1px）の倍数で書く。 */
 /* パネルは立ち絵の左に、下端を揃えて置く。行が増えるとパネルだけが上へ伸びる。ウィンドウの上端から
-   --panel-top-room だけ下までで止め、それより多い行は #rows の中でスクロールさせる。 */
+   --panel-top-room だけ下までで止め、それより多い行は #rows の中でスクロールさせる。上下の余白 4u は、行の背景と
+   パネルの左右の縁との隙間（余白 8u から行のはみ出し 4u を引いた分）と揃える。四方の隙間が等しいと、行の角
+   6u がパネルの角 10u と同心になる。 */
 #panel {
   --u: calc(var(--panel-scale) * 1px);
   position: absolute;
@@ -219,7 +221,7 @@ body {
   flex-direction: column;
   width: calc(var(--panel-w) * var(--panel-scale));
   max-height: calc(100% - var(--panel-top-room) - var(--panel-tab-h) - var(--margin));
-  padding: calc(5 * var(--u)) calc(8 * var(--u));
+  padding: calc(4 * var(--u)) calc(8 * var(--u));
   box-sizing: border-box;
   border-radius: calc(10 * var(--u));
   background: var(--panel-bg);
@@ -307,8 +309,8 @@ body {
   grid-template-columns: calc(12 * var(--u)) minmax(0, 1fr) auto;
   column-gap: calc(6 * var(--u));
   align-items: center;
-  padding: calc(3 * var(--u)) calc(6 * var(--u));
-  margin: 0 calc(-6 * var(--u));
+  padding: calc(3 * var(--u)) calc(4 * var(--u));
+  margin: 0 calc(-4 * var(--u));
   border-radius: calc(6 * var(--u));
   cursor: pointer;
 }
@@ -466,7 +468,7 @@ body {
   display: none;
   position: absolute;
   top: calc(2 * var(--u));
-  right: calc(6 * var(--u));
+  right: calc(4 * var(--u));
   bottom: calc(2 * var(--u));
   width: calc(28 * var(--u));
   align-items: center;
@@ -519,19 +521,19 @@ body {
   opacity: 0.85;
 }
 
-/* 行を縦に並べてスクロールさせるコンテナ。行は角丸の背景のために左右へ 6px はみ出すので、コンテナも左右へ 6px
-   広げて左は内側の余白で受ける。右ではみ出す分は行の右の余白で、スクロールバーの下に隠れるだけなので
-   行の内容の位置は変わらない。スクロールバーは行が溢れていないときも場所を取らせ、溢れた瞬間に行の幅が
-   変わらないようにする。 */
+/* 行を縦に並べてスクロールさせるコンテナ。行の背景は角丸をパネルの角と同心にするため、パネルの縁から 4u の所まで
+   左右へはみ出す。コンテナはパネルの左右の縁まで広げ、スクロールバーを行の右の 4u の隙間に置く。スクロールバーを
+   行の内側に置くと、行の右端がその手前で四角く切れる。スクロールバーは行が溢れていないときも場所を取らせ、
+   溢れた瞬間に行の幅が変わらないようにする。 */
 .row-scroll {
-  margin: 0 calc(-6 * var(--u));
-  padding-left: calc(6 * var(--u));
+  margin: 0 calc(-8 * var(--u));
+  padding: 0 calc(8 * var(--u) - 4px) 0 calc(8 * var(--u));
   overflow-x: hidden;
   overflow-y: scroll;
 }
 
 .row-scroll::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .row-scroll::-webkit-scrollbar-track {
@@ -540,7 +542,7 @@ body {
 
 .row-scroll::-webkit-scrollbar-thumb {
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: 2px;
   background: rgba(255, 255, 255, 0.22) padding-box;
 }
 
@@ -610,8 +612,8 @@ body {
   display: flex;
   align-items: center;
   gap: calc(4 * var(--u));
-  padding: calc(3 * var(--u)) calc(6 * var(--u));
-  margin: 0 calc(-6 * var(--u));
+  padding: calc(3 * var(--u)) calc(4 * var(--u));
+  margin: 0 calc(-4 * var(--u));
   border-radius: calc(6 * var(--u));
   opacity: 0.6;
   cursor: pointer;

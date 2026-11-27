@@ -251,7 +251,8 @@ function renderUsageStatus(): void {
   if (!usageStatus) return;
   for (const key of ["claude", "codex", "antigravity"] as const) {
     const node = usageMetaNodes[key];
-    const info = formatToolUsage(usageStatus[key]);
+    // チェックを外したツールは再取得しないので、前の時刻を出しても今の状態を表さない。
+    const info = state && !state.usage_tools[key] ? { text: "", error: false } : formatToolUsage(usageStatus[key]);
     node.textContent = info.text;
     node.classList.toggle("error", info.error);
   }

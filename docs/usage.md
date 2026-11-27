@@ -82,11 +82,11 @@ The left side of the window lists seven sections: **Display**, **Bubbles**, **Ch
 | Display | Show character | Turns the character and speech bubbles on or off (see [Switching the display](#switching-the-display)) |
 | Display | Hide panel | Turns hiding the panel on or off (see [Switching the display](#switching-the-display)) |
 | Display | Keep usage limits when hiding the panel | Keeps the usage limits row while the panel is hidden, whether or not the character is shown. Off by default (see [Switching the display](#switching-the-display)) |
+| Display | Always show numbers | Shows the context usage and usage limit percentages next to the bars. Off by default; when off, they appear in a tooltip on hover |
 | Display | Sort order | Chooses how the panel orders sessions: **Start time**, **Status**, or **Last update** (see [Sort order](#sort-order)) |
 | Display | Background opacity | Changes how solid the panel background is with a slider (see [Background opacity](#background-opacity)) |
 | Display | Panel size | Changes the panel's text and width with a slider (see [Panel size](#panel-size)) |
 | Display | Status color strength | Changes how strong the status colors on session rows are with a slider (see [Status color strength](#status-color-strength)) |
-| Display | Always show numbers | Shows the context usage and usage limit percentages next to the bars. Off by default; when off, they appear in a tooltip on hover |
 | Display | Window position | Click **Reset to Default Position** to move the window back to the lower right of the main monitor |
 | Bubbles | Show for (Waiting, Done, Error), Display time | Chooses which states show speech bubbles and how long until they close on their own (see [Speech bubbles](#speech-bubbles)) |
 | Character | Character | Chooses the character. The change takes effect immediately. If switching fails, the previous character stays |
