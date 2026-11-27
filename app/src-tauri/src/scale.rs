@@ -425,7 +425,10 @@ pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
     let panel_scale = d.panel_scale.as_ref().and_then(serde_json::Value::as_f64);
     let tint = d.tint_strength.as_ref().and_then(serde_json::Value::as_f64);
     let numbers = d.show_numbers.as_ref().and_then(serde_json::Value::as_bool);
-    let keeps_limits = d.hide_keeps_limits.as_ref().and_then(serde_json::Value::as_bool);
+    let keeps_limits = d
+        .hide_keeps_limits
+        .as_ref()
+        .and_then(serde_json::Value::as_bool);
     let legacy = d.panel_mode.as_deref().and_then(legacy_panel_mode);
     if d.show_character.is_none()
         && style.is_none()
