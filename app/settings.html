@@ -24,20 +24,22 @@
         <p id="settings-error" class="sub error" role="status" aria-live="polite" hidden></p>
         <section id="section-display">
           <h1 class="title" data-en="Display">表示</h1>
-          <label class="check"><input type="checkbox" name="show_character" /><span data-en="Show character">立ち絵を表示</span></label>
-          <div class="field">
+          <h2 class="group" data-en="What to show">表示するもの</h2>
+          <div class="checks">
+            <label class="check"><input type="checkbox" name="show_character" /><span data-en="Show character">立ち絵を表示</span></label>
             <label class="check"><input type="checkbox" name="panel_collapsed" /><span data-en="Hide panel">パネルを隠す</span></label>
-            <p class="hint" data-en="While the character is hidden, the usage limits row stays. Clicking the character also switches this.">立ち絵を隠している間は、利用制限の欄だけを残します。立ち絵を押しても切り替えられます。</p>
-            <label class="check"><input type="checkbox" name="hide_keeps_limits" /><span data-en="Keep usage limits when hiding the panel">パネルを隠すときも利用制限の欄を残す</span></label>
+            <label class="check sub-check"><input type="checkbox" name="hide_keeps_limits" /><span data-en="Keep usage limits when hiding the panel">パネルを隠すときも利用制限の欄を残す</span></label>
+            <p class="hint" data-en="Clicking the character also hides or shows the panel. While the character is hidden, the usage limits row always stays.">立ち絵を押しても切り替えられます。立ち絵を隠している間は、この設定によらず利用制限の欄が残ります。</p>
+            <label class="check"><input type="checkbox" name="show_numbers" /><span data-en="Always show numbers">数値を常に表示</span></label>
+            <p class="hint" data-en="Shows context usage and usage limit percentages.">コンテキスト使用率と利用制限の数値を表示します。</p>
           </div>
-          <div class="field">
-            <span class="label" data-en="Sort order">並べ方</span>
-            <div class="radio-list">
-              <label><input type="radio" name="row_order" value="started" /><span><span class="what" data-en="Start time">開始順</span><span class="why" data-en="Most recently started first">始まった時刻の新しい順</span></span></label>
-              <label><input type="radio" name="row_order" value="status" /><span><span class="what" data-en="Status">状態順</span><span class="why" data-en="Waiting, error, working, then done">承認待ち、エラー、作業中、完了の順</span></span></label>
-              <label><input type="radio" name="row_order" value="updated" /><span><span class="what" data-en="Last update">更新順</span><span class="why" data-en="Most recently updated first">最後に更新された時刻の新しい順</span></span></label>
-            </div>
+          <h2 class="group" data-en="Sort order">並べ方</h2>
+          <div class="radio-list">
+            <label><input type="radio" name="row_order" value="started" /><span><span class="what" data-en="Start time">開始順</span><span class="why" data-en="Most recently started first">始まった時刻の新しい順</span></span></label>
+            <label><input type="radio" name="row_order" value="status" /><span><span class="what" data-en="Status">状態順</span><span class="why" data-en="Waiting, error, working, then done">承認待ち、エラー、作業中、完了の順</span></span></label>
+            <label><input type="radio" name="row_order" value="updated" /><span><span class="what" data-en="Last update">更新順</span><span class="why" data-en="Most recently updated first">最後に更新された時刻の新しい順</span></span></label>
           </div>
+          <h2 class="group" data-en="Appearance">見た目</h2>
           <div class="field">
             <label class="label" for="panel-opacity"><span data-en="Background opacity">背景の不透明度</span><output for="panel-opacity" data-for="panel_opacity"></output></label>
             <input id="panel-opacity" type="range" name="panel_opacity" />
@@ -50,14 +52,8 @@
             <label class="label" for="tint-strength"><span data-en="Status color strength">状態の色の濃さ</span><output for="tint-strength" data-for="tint_strength"></output></label>
             <input id="tint-strength" type="range" name="tint_strength" />
           </div>
-          <div class="field">
-            <label class="check"><input type="checkbox" name="show_numbers" /><span data-en="Always show numbers">数値を常に表示</span></label>
-            <p class="hint" data-en="Shows context and usage limit percentages next to the bars. Without this, they appear on hover.">コンテキスト使用率と利用制限の数値を、バーの横に表示します。オフのときは、マウスを載せると表示されます。</p>
-          </div>
-          <div class="field">
-            <span class="label" data-en="Window position">ウィンドウの位置</span>
-            <button type="button" class="btn" id="reset-position" data-en="Reset to Default Position">既定の位置に戻す</button>
-          </div>
+          <h2 class="group" data-en="Window position">ウィンドウの位置</h2>
+          <button type="button" class="btn" id="reset-position" data-en="Reset to Default Position">既定の位置に戻す</button>
         </section>
 
         <section id="section-bubble" hidden>
@@ -110,7 +106,7 @@
           <div class="field">
             <label class="label" for="usage-refresh" data-en="Refresh interval">再取得の間隔</label>
             <select id="usage-refresh" name="usage_refresh_minutes"></select>
-            <p class="hint" data-en="How often the checked tools refresh their usage limits. Antigravity and the Claude desktop app's Code tab need a refresh interval or manual refresh to appear.">チェックしたツールに利用制限を再取得させる間隔。Antigravity やデスクトップアプリの Code タブでは、間隔を選ぶか下のボタンから取得します</p>
+            <p class="hint" data-en="How often the checked tools refresh their usage limits. Antigravity and the Claude desktop app's Code tab need a refresh interval or manual refresh to appear.">チェックしたツールに利用制限を再取得させる間隔。Antigravity やデスクトップアプリの Code タブでは、間隔を選ぶか下のボタンから取得します。</p>
           </div>
           <div class="actions">
             <button type="button" class="btn" id="refresh-usage" data-en="Refresh Now">今すぐ再取得</button>
@@ -119,7 +115,7 @@
 
         <section id="section-shortcuts" hidden>
           <h1 class="title" data-en="Shortcuts">ショートカット</h1>
-          <p class="hint" data-en="Optional global shortcuts that work from any app. Click a box and press a key combination that includes Ctrl, Alt or Cmd (the Windows key). Press Esc to cancel and Backspace or Delete to clear.">他のアプリを操作しているときにも使えるキーボード操作です。枠を押して、Ctrl、Alt、Cmd（Windows キー）のいずれかを含む組み合わせを入力してください。Esc で取りやめ、Backspace か Delete で消去します。</p>
+          <p class="hint" data-en="Key shortcuts that work even while you use another app. Press a combination that includes Ctrl, Alt or Cmd (the Windows key).">他のアプリを操作している間も使えるキー操作です。Ctrl、Alt、Cmd（Windows キー）のいずれかを含む組み合わせを入力してください。</p>
           <div class="field">
             <span class="label" data-en="Jump to next session needing attention">要対応のセッションへ移動</span>
             <div class="shortcut-row">
@@ -163,11 +159,11 @@
             <label class="check"><input type="checkbox" name="autostart" /><span data-en="Launch at login">ログイン時に起動</span></label>
           </div>
           <div class="field">
-            <span class="label" data-en="Language">言語</span>
-            <div class="radio-list narrow">
-              <label><input type="radio" name="language" value="ja" /><span><span class="what">日本語</span></span></label>
-              <label><input type="radio" name="language" value="en" /><span><span class="what">English</span></span></label>
-            </div>
+            <label class="label" for="language-select" data-en="Language">言語</label>
+            <select id="language-select" name="language">
+              <option value="ja">日本語</option>
+              <option value="en">English</option>
+            </select>
           </div>
         </section>
       </form>
