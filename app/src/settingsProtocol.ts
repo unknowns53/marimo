@@ -41,8 +41,8 @@ export type SettingsRequest =
   /** ウィンドウを開いたときに今の状態を求める。 */
   | { kind: "sync" }
   | { kind: "display"; patch: Partial<PanelDisplay> }
-  /** スライダーを動かしている間の不透明度。見た目だけに反映し、保存は離したときの display で行う。 */
-  | { kind: "opacity-preview"; opacity: number }
+  /** スライダーを動かしている間の背景の不透明度と色の濃さ。見た目だけに反映し、保存は離したときの display で行う。 */
+  | { kind: "display-preview"; patch: Pick<Partial<PanelDisplay>, "panel_opacity" | "tint_strength"> }
   | { kind: "bubble"; patch: Partial<BubbleSettings> }
   | { kind: "character"; id: string }
   | { kind: "scale"; scale: number }

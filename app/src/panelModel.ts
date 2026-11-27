@@ -85,7 +85,7 @@ export function isEmpty(plan: PanelPlan): boolean {
 
 /**
  * パネルを出すかどうかは、立ち絵を出すかどうかとは独立に選べる。collapsed ではパネルごと隠す。ただし立ち絵も
- * 隠しているときは、セッションの行と今日の既読だけを隠し、利用制限の欄を残す。
+ * 隠しているときと hide_keeps_limits を選んだときは、セッションの行と今日の既読だけを隠し、利用制限の欄を残す。
  */
 export type PanelStyle = "detail" | "collapsed";
 
@@ -96,6 +96,9 @@ export const DEFAULT_PANEL_OPACITY = 0.8;
 export const PANEL_SCALE_MIN = 0.8;
 export const PANEL_SCALE_MAX = 1.3;
 export const DEFAULT_PANEL_SCALE = 1;
+export const TINT_MIN = 0.4;
+export const TINT_MAX = 2;
+export const DEFAULT_TINT = 1;
 
 /** Rust の scale::PanelDisplay と同じ形で、display.json に保存する。 */
 export interface PanelDisplay {
@@ -106,6 +109,12 @@ export interface PanelDisplay {
   panel_opacity: number;
   /** パネルの文字と幅をまとめて変える倍率。立ち絵の倍率とは独立に選べる。 */
   panel_scale: number;
+  /** 行の状態の色の濃さに掛ける倍率。 */
+  tint_strength: number;
+  /** コンテキスト使用率と利用制限の数値を、ツールチップだけでなくバーの横にも出す。 */
+  show_numbers: boolean;
+  /** パネルを隠すときも、立ち絵の有無によらず利用制限の欄を残す。 */
+  hide_keeps_limits: boolean;
 }
 
 export const DEFAULT_PANEL_DISPLAY: PanelDisplay = {
@@ -114,10 +123,15 @@ export const DEFAULT_PANEL_DISPLAY: PanelDisplay = {
   row_order: "started",
   panel_opacity: DEFAULT_PANEL_OPACITY,
   panel_scale: DEFAULT_PANEL_SCALE,
+  tint_strength: DEFAULT_TINT,
+  show_numbers: false,
+  hide_keeps_limits: false,
 };
 
 export interface PanelView {
   collapsed: boolean;
+  keepLimits: boolean;
+  numbers: boolean;
   order: RowOrder;
   plan: PanelPlan;
 }
@@ -125,12 +139,18 @@ export interface PanelView {
 export function panelView(
   snapshot: Snapshot | null,
   ack: Acknowledged,
-  style: PanelStyle,
-  order: RowOrder = "started",
+  display: Pick<PanelDisplay, "panel_style" | "row_order" | "show_numbers" | "hide_keeps_limits"> = DEFAULT_PANEL_DISPLAY,
   now: number = Date.now(),
   keep: ReadonlySet<string> = new Set(),
 ): PanelView {
-  return { collapsed: style === "collapsed", order, plan: planPanel(snapshot, ack, order, now, keep) };
+  const order = display.row_order;
+  return {
+    collapsed: display.panel_style === "collapsed",
+    keepLimits: display.hide_keeps_limits,
+    numbers: display.show_numbers,
+    order,
+    plan: planPanel(snapshot, ack, order, now, keep),
+  };
 }
 
 /**
@@ -145,6 +165,7 @@ export function panelSignature(view: PanelView, now: number, todayOpen: boolean)
   return JSON.stringify([
     lang(),
     view.collapsed,
+    view.numbers,
     view.order,
     todayOpen,
     plan.rows,

@@ -28,6 +28,7 @@
           <div class="field">
             <label class="check"><input type="checkbox" name="panel_collapsed" /><span data-en="Hide panel">パネルを隠す</span></label>
             <p class="hint" data-en="While the character is hidden, the usage limits row stays. Clicking the character also switches this.">立ち絵を隠している間は、利用制限の欄だけを残します。立ち絵を押しても切り替えられます。</p>
+            <label class="check"><input type="checkbox" name="hide_keeps_limits" /><span data-en="Keep usage limits when hiding the panel">パネルを隠すときも利用制限の欄を残す</span></label>
           </div>
           <div class="field">
             <span class="label" data-en="Sort order">並べ方</span>
@@ -44,6 +45,14 @@
           <div class="field">
             <label class="label" for="panel-scale"><span data-en="Panel size">パネルの大きさ</span><output for="panel-scale" data-for="panel_scale"></output></label>
             <input id="panel-scale" type="range" name="panel_scale" />
+          </div>
+          <div class="field">
+            <label class="label" for="tint-strength"><span data-en="Status color strength">状態の色の濃さ</span><output for="tint-strength" data-for="tint_strength"></output></label>
+            <input id="tint-strength" type="range" name="tint_strength" />
+          </div>
+          <div class="field">
+            <label class="check"><input type="checkbox" name="show_numbers" /><span data-en="Always show numbers">数値を常に表示</span></label>
+            <p class="hint" data-en="Shows context and usage limit percentages next to the bars. Without this, they appear on hover.">コンテキスト使用率と利用制限の数値を、バーの横に表示します。オフのときは、マウスを載せると表示されます。</p>
           </div>
           <div class="field">
             <span class="label" data-en="Window position">ウィンドウの位置</span>

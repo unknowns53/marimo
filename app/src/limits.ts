@@ -16,7 +16,7 @@ export interface LimitReset {
 export interface LimitGroup {
   provider: LimitTool;
   text: string;
-  /** 表示中の各ウィンドウの使用率（%）。text と同じ順に並べ、パネルではバーで示す。 */
+  /** 表示中の各ウィンドウの使用率（%）。text と同じ順に並べ、パネルではバーで示し、数値を常に出す設定のときは数字も添える。 */
   used: number[];
   /** 値が最後に届いた時刻（Unix ミリ秒）。Codex では rollout の行の時刻を使う。 */
   updatedAt: number;

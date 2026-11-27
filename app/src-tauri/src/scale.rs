@@ -46,6 +46,12 @@ pub const PANEL_SCALE_MIN: f64 = 0.8;
 pub const PANEL_SCALE_MAX: f64 = 1.3;
 pub const DEFAULT_PANEL_SCALE: f64 = 1.0;
 
+/// 行の状態の色の濃さに掛ける倍率。上限は、手を貸す必要のある行の色（style.css の --tint-strength）に掛けても
+/// 100% を超えない値にする。下限でも状態の色を見分けられるようにする。
+pub const TINT_MIN: f64 = 0.4;
+pub const TINT_MAX: f64 = 2.0;
+pub const DEFAULT_TINT: f64 = 1.0;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelStyle {
@@ -159,7 +165,8 @@ impl Default for UsageTools {
     }
 }
 
-/// 立ち絵の有無と行の出し方と並べ方と地の不透明度とパネルの倍率はどれも独立に選べ、どの組み合わせでもパネルは常に出る。
+/// 立ち絵の有無、行の出し方、並べ方、地の不透明度、パネルの倍率、状態の色の濃さ、数値の出し方、隠すときに利用制限の欄を
+/// 残すかはどれも独立に選べる。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PanelDisplay {
     pub show_character: bool,
@@ -170,6 +177,14 @@ pub struct PanelDisplay {
     pub panel_opacity: f64,
     #[serde(default = "default_panel_scale")]
     pub panel_scale: f64,
+    #[serde(default = "default_tint")]
+    pub tint_strength: f64,
+    /// コンテキスト使用率と利用制限の数値を、ツールチップだけでなくバーの横にも出す。
+    #[serde(default)]
+    pub show_numbers: bool,
+    /// パネルを隠すときも、立ち絵の有無によらず利用制限の欄を残す。
+    #[serde(default)]
+    pub hide_keeps_limits: bool,
 }
 
 fn default_opacity() -> f64 {
@@ -178,6 +193,10 @@ fn default_opacity() -> f64 {
 
 fn default_panel_scale() -> f64 {
     DEFAULT_PANEL_SCALE
+}
+
+fn default_tint() -> f64 {
+    DEFAULT_TINT
 }
 
 impl PanelDisplay {
@@ -204,6 +223,9 @@ impl Default for PanelDisplay {
             row_order: RowOrder::Started,
             panel_opacity: DEFAULT_OPACITY,
             panel_scale: DEFAULT_PANEL_SCALE,
+            tint_strength: DEFAULT_TINT,
+            show_numbers: false,
+            hide_keeps_limits: false,
         }
     }
 }
@@ -276,6 +298,12 @@ struct Display {
     panel_opacity: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     panel_scale: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tint_strength: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    show_numbers: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hide_keeps_limits: Option<serde_json::Value>,
     // 吹き出しの設定も、手で書き損じた値がほかの設定まで巻き込まないよう、型を決めずに受けてから解釈する。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     bubble_waiting: Option<serde_json::Value>,
@@ -387,7 +415,7 @@ pub fn spawn_saver(home: MarimoHome) -> mpsc::Sender<f64> {
 }
 
 /// 新しいキーも以前の panel_mode も保存されていなければ None を返し、フロントエンドに既定を決めさせる。
-/// 新しいキーが一部だけのときは、残りを panel_mode の読み替えか既定で補う。並べ方と不透明度とパネルの倍率は
+/// 新しいキーが一部だけのときは、残りを panel_mode の読み替えか既定で補う。並べ方より後に加えた項目は
 /// panel_mode の頃には無かったので、無いか解釈できない値なら既定にする。
 pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
     let d = read_display(home);
@@ -395,12 +423,21 @@ pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
     let order = d.row_order.as_deref().and_then(RowOrder::parse);
     let opacity = d.panel_opacity.as_ref().and_then(serde_json::Value::as_f64);
     let panel_scale = d.panel_scale.as_ref().and_then(serde_json::Value::as_f64);
+    let tint = d.tint_strength.as_ref().and_then(serde_json::Value::as_f64);
+    let numbers = d.show_numbers.as_ref().and_then(serde_json::Value::as_bool);
+    let keeps_limits = d
+        .hide_keeps_limits
+        .as_ref()
+        .and_then(serde_json::Value::as_bool);
     let legacy = d.panel_mode.as_deref().and_then(legacy_panel_mode);
     if d.show_character.is_none()
         && style.is_none()
         && order.is_none()
         && opacity.is_none()
         && panel_scale.is_none()
+        && tint.is_none()
+        && numbers.is_none()
+        && keeps_limits.is_none()
         && legacy.is_none()
     {
         return None;
@@ -412,6 +449,9 @@ pub fn load_panel_display(home: &MarimoHome) -> Option<PanelDisplay> {
         row_order: order.unwrap_or_default(),
         panel_opacity: opacity.map_or(DEFAULT_OPACITY, clamp_opacity),
         panel_scale: panel_scale.map_or(DEFAULT_PANEL_SCALE, clamp_panel_scale),
+        tint_strength: tint.map_or(DEFAULT_TINT, clamp_tint),
+        show_numbers: numbers.unwrap_or(false),
+        hide_keeps_limits: keeps_limits.unwrap_or(false),
     })
 }
 
@@ -422,6 +462,9 @@ pub fn save_panel_display(home: &MarimoHome, display: PanelDisplay) -> io::Resul
         d.row_order = Some(display.row_order.as_str().to_owned());
         d.panel_opacity = Some(clamp_opacity(display.panel_opacity).into());
         d.panel_scale = Some(clamp_panel_scale(display.panel_scale).into());
+        d.tint_strength = Some(clamp_tint(display.tint_strength).into());
+        d.show_numbers = Some(display.show_numbers.into());
+        d.hide_keeps_limits = Some(display.hide_keeps_limits.into());
         d.panel_mode = None;
     })
 }
@@ -592,6 +635,14 @@ pub fn clamp_panel_scale(scale: f64) -> f64 {
         return DEFAULT_PANEL_SCALE;
     }
     (scale.clamp(PANEL_SCALE_MIN, PANEL_SCALE_MAX) * 100.0).round() / 100.0
+}
+
+// スライダーの 10% 刻みを小数で表した誤差を残さないよう、不透明度と同じく小数第 2 位に丸める。
+pub fn clamp_tint(tint: f64) -> f64 {
+    if !tint.is_finite() {
+        return DEFAULT_TINT;
+    }
+    (tint.clamp(TINT_MIN, TINT_MAX) * 100.0).round() / 100.0
 }
 
 // ホイールで 0.1 ずつ足すと 1.2000000000000002 のような誤差が積もるので、
@@ -812,7 +863,7 @@ mod tests {
             serde_json::from_slice(&fs::read(home.display_file()).unwrap()).unwrap();
         assert_eq!(
             saved,
-            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status", "panel_opacity": 0.8, "panel_scale": 1.0, "future_key": [1]})
+            serde_json::json!({"scale": 1.3, "show_character": true, "panel_style": "detail", "row_order": "status", "panel_opacity": 0.8, "panel_scale": 1.0, "tint_strength": 1.0, "show_numbers": false, "hide_keeps_limits": false, "future_key": [1]})
         );
     }
 

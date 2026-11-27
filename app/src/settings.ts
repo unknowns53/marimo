@@ -8,7 +8,7 @@ import {
   translateDocument,
   type LanguageState,
 } from "./i18n";
-import { PANEL_OPACITY_MAX, PANEL_OPACITY_MIN, PANEL_SCALE_MAX, PANEL_SCALE_MIN } from "./panelModel";
+import { PANEL_OPACITY_MAX, PANEL_OPACITY_MIN, PANEL_SCALE_MAX, PANEL_SCALE_MIN, TINT_MAX, TINT_MIN } from "./panelModel";
 import { SCALE_MAX, SCALE_MIN } from "./scale";
 import {
   bubbleSecondsLabel,
@@ -21,6 +21,8 @@ import {
   panelScaleLabel,
   scaleLabel,
   shortcutFromKeyEvent,
+  TINT_STEP_PERCENT,
+  tintPercent,
   usageRefreshLabel,
   usageRefreshOptions,
 } from "./settingsForm";
@@ -50,6 +52,9 @@ const form = $<HTMLFormElement>("settings");
 const opacityInput = $<HTMLInputElement>("panel-opacity");
 const scaleInput = $<HTMLInputElement>("scale");
 const panelScaleInput = $<HTMLInputElement>("panel-scale");
+const tintInput = $<HTMLInputElement>("tint-strength");
+// 動かしている間は見た目だけを変え、離したときに保存するスライダー。
+const previewInputs = [opacityInput, tintInput];
 const bubbleSecondsSelect = $<HTMLSelectElement>("bubble-seconds");
 const characterSelect = $<HTMLSelectElement>("character-select");
 const usageRefreshSelect = $<HTMLSelectElement>("usage-refresh");
@@ -131,6 +136,7 @@ function fillSelect(select: HTMLSelectElement, options: [string, string][]): voi
 function showRangeValues(): void {
   for (const [input, text] of [
     [opacityInput, `${opacityInput.value}%`],
+    [tintInput, `${tintInput.value}%`],
     [scaleInput, scaleLabel(Number(scaleInput.value))],
     [panelScaleInput, panelScaleLabel(Number(panelScaleInput.value))],
   ] as const) {
@@ -143,6 +149,9 @@ function bindForm(): void {
   opacityInput.min = String(opacityPercent(PANEL_OPACITY_MIN));
   opacityInput.max = String(opacityPercent(PANEL_OPACITY_MAX));
   opacityInput.step = String(OPACITY_STEP_PERCENT);
+  tintInput.min = String(tintPercent(TINT_MIN));
+  tintInput.max = String(tintPercent(TINT_MAX));
+  tintInput.step = String(TINT_STEP_PERCENT);
   scaleInput.min = String(SCALE_MIN);
   scaleInput.max = String(SCALE_MAX);
   scaleInput.step = String(SCALE_STEP);
@@ -162,15 +171,16 @@ function bindForm(): void {
       if (r) request(r);
     });
   }
-  for (const input of [opacityInput, scaleInput, panelScaleInput]) {
+  for (const input of [...previewInputs, scaleInput, panelScaleInput]) {
     input.addEventListener("pointerdown", () => dragging.add(input.name));
   }
   document.addEventListener("pointerup", () => {
     if (dragging.size === 0) return;
-    // 背景の不透明度は、動かしている間は見た目だけを変えている。離したときに今の値を保存させ、手元の状態も
+    // 背景の不透明度と色の濃さは、動かしている間は見た目だけを変えている。離したときに今の値を保存させ、手元の状態も
     // 先に合わせておく。合わせないと、保存した値が届くまでの描き直しでつまみが前の値へ戻る。
-    if (dragging.has(opacityInput.name) && state) {
-      const r = requestFor({ name: opacityInput.name, value: opacityInput.value, checked: false }, "change");
+    for (const input of previewInputs) {
+      if (!dragging.has(input.name) || !state) continue;
+      const r = requestFor({ name: input.name, value: input.value, checked: false }, "change");
       if (r?.kind === "display") {
         request(r);
         state = { ...state, display: { ...state.display, ...r.patch } };

@@ -263,6 +263,9 @@ The fields of `display.json` are as follows. When a value is missing or invalid,
 | `row_order` | How the panel orders sessions: `"started"` (Start Time), `"status"` (Status), or `"updated"` (Last Update) | `"started"` |
 | `panel_opacity` | The opacity of the panel background (a number from 0.2 to 1.0). Text and icons are not made transparent | 0.8. Numbers outside the range are moved to the nearest end |
 | `panel_scale` | The scale of the panel's text and width (a number from 0.8 to 1.3) | 1.0. Numbers outside the range are moved to the nearest end |
+| `tint_strength` | The multiplier for the strength of the status colors on session rows (a number from 0.4 to 2.0) | 1.0. Numbers outside the range are moved to the nearest end |
+| `show_numbers` | Whether to also show the context usage and usage limit percentages next to the bars | `false` |
+| `hide_keeps_limits` | Whether to keep the usage limits row while the panel is hidden, whether or not the character is shown | `false` |
 | `bubble_waiting`, `bubble_done`, `bubble_error` | Which states show speech bubbles (booleans) | `true` |
 | `bubble_seconds` | Seconds until a speech bubble closes on its own (an integer from 0 to 3600). 0 keeps it until clicked | 0. Numbers above the limit are moved to the limit |
 | `usage_refresh_minutes` | The interval for refreshing usage limits (in minutes, an integer from 0 to 1440). 0 means never | 0. Numbers above the limit are moved to the limit |

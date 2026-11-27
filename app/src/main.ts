@@ -224,7 +224,7 @@ function collectHitRegions(): HitRegions {
 
 function redrawPanel(): void {
   const now = Date.now();
-  const view = panelView(shown, acknowledged, panelDisplay.panel_style, panelDisplay.row_order, now, keptRead);
+  const view = panelView(shown, acknowledged, panelDisplay, now, keptRead);
   const limits = {
     claude: usageTools.claude ? (shown?.rate_limits ?? null) : null,
     codex: usageTools.codex ? (shown?.codex_rate_limits ?? null) : null,
@@ -419,7 +419,7 @@ async function loadPanelDisplay(): Promise<PanelDisplay> {
 function applyPanelDisplay(display: PanelDisplay): void {
   panelDisplay = display;
   applyCharacterVisibility();
-  applyPanelOpacity(display.panel_opacity);
+  applyPanelLook(display);
   applyPanelScale(display.panel_scale);
   showSpeech();
   redrawPanel();
@@ -469,8 +469,10 @@ function applyCharacterVisibility(): void {
   app.classList.toggle("character-hidden", !panelDisplay.show_character);
 }
 
-function applyPanelOpacity(opacity: number): void {
-  document.documentElement.style.setProperty("--panel-alpha", String(opacity));
+// スライダーを動かしている間に、保存せずに見た目だけを変えられる項目。
+function applyPanelLook(display: Pick<PanelDisplay, "panel_opacity" | "tint_strength">): void {
+  document.documentElement.style.setProperty("--panel-alpha", String(display.panel_opacity));
+  document.documentElement.style.setProperty("--tint-scale", String(display.tint_strength));
 }
 
 function applyPanelScale(scale: number): void {
@@ -514,7 +516,7 @@ async function readAutostart(): Promise<void> {
 }
 
 async function handleSettingsRequest(request: SettingsRequest): Promise<void> {
-  if (request.kind !== "opacity-preview") settingsError = null;
+  if (request.kind !== "display-preview") settingsError = null;
   switch (request.kind) {
     case "sync":
       await readAutostart();
@@ -522,8 +524,8 @@ async function handleSettingsRequest(request: SettingsRequest): Promise<void> {
     case "display":
       setPanelDisplay({ ...panelDisplay, ...request.patch });
       return;
-    case "opacity-preview":
-      applyPanelOpacity(request.opacity);
+    case "display-preview":
+      applyPanelLook({ ...panelDisplay, ...request.patch });
       return;
     case "bubble":
       setBubbleSettings({ ...bubbleSettings, ...request.patch });
@@ -787,7 +789,7 @@ async function start(): Promise<void> {
     return appIcons;
   });
   applyCharacterVisibility();
-  applyPanelOpacity(panelDisplay.panel_opacity);
+  applyPanelLook(panelDisplay);
   applyPanelScale(panelDisplay.panel_scale);
   try {
     scale = new ScaleControl(await invoke<number>("get_scale"), () => publishSettings());

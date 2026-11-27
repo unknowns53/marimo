@@ -2,6 +2,8 @@
   /* パネルとその掴みしろの背景の不透明度。display.json の panel_opacity を main.ts が入れる。
      文字やアイコンや状態の色は地と別に描くので薄くならない。 */
   --panel-alpha: 0.8;
+  /* 行の状態の色の濃さに掛ける倍率。display.json の tint_strength を main.ts が入れる。 */
+  --tint-scale: 1;
   --panel-bg: rgba(28, 28, 34, var(--panel-alpha));
   --panel-fg: #f4f4f5;
   --bubble-bg: #ffffff;
@@ -292,8 +294,8 @@ body {
 /* 状態は、行の左から右へ薄れていく状態の色で示す。作業中は控えめにし、手を貸す必要のある行ほど濃くする。
    色は background-image に置き、マウスを載せたときの明るさは background-color で重ねる。
    色の濃さには背景の不透明度を掛け、背景を薄くしたときに色だけが浮かないようにする。--tint-strength は
-   不透明度 1 のときの濃さで、既定の 0.8 では 8 割になる。
-   色は要約の列の右端で消す。右端の欄（コンテキスト使用率と経過時間）の幅は行ごとに違うので、行の幅からの
+   不透明度 1 のときの濃さで、既定の 0.8 では 8 割になる。さらに設定の倍率 --tint-scale を掛ける。
+   色は要約の列の右端で消す。右端の欄（2 段の行では経過時間、1 段の行では経過時間とコンテキスト使用率）の幅は行ごとに違うので、行の幅からの
    引き算で決めると、要約の途中で色が消えたり欄に掛かったりする。そこで色を、行の左端から要約の列の終わり
    （グリッドの 3 本目の線）までを占める絶対配置の疑似要素に塗る。絶対配置なので、ほかの升の自動配置を押しのけない。 */
 .row {
@@ -321,7 +323,7 @@ body {
   border-radius: inherit;
   background-image: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--tint) calc(var(--tint-strength) * var(--panel-alpha)), transparent),
+    color-mix(in srgb, var(--tint) calc(var(--tint-strength) * var(--panel-alpha) * var(--tint-scale)), transparent),
     transparent
   );
 }
@@ -359,10 +361,20 @@ body {
   opacity: 0.65;
 }
 
-/* 2 段の行の 1 段目は、名前とチャットのタイトルを左端から並べ、右にコンテキスト使用率を置く。
+/* 2 段の行の 1 段目は、名前とチャットのタイトルを左端から並べ、右にコンテキスト使用率を置く。1 段目は行の幅いっぱいを
+   一つの升にするので、グリッドの右の列の幅は 2 段目の最後の更新からの時間だけで決まる。
    2 段目は、左の列にツールのマーク、要約、右に最後の更新からの時間を置く。 */
-.row > .names {
-  grid-column: 1 / 3;
+.row-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(6 * var(--u));
+  min-width: 0;
+}
+
+.row-head > :is(.ctx, .ctx-tokens) {
+  flex: none;
 }
 
 .row > .provider {
@@ -561,6 +573,23 @@ body {
   background: var(--waiting);
 }
 
+/* 桁数でバーが動かないよう、いちばん広い 100% の幅を見えない行で確保して右に寄せる。 */
+.ctx-label {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: calc(10 * var(--u));
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-label::before {
+  content: "100%";
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+
 /* 上限が分からずトークン数だけのときは、バーと見分けがつくよう枠線で囲んだ数値にする。 */
 .ctx-tokens {
   justify-self: end;
@@ -645,6 +674,14 @@ body {
   display: flex;
   align-items: center;
   gap: calc(4 * var(--u));
+}
+
+.limit-nums {
+  display: flex;
+  flex-direction: column;
+  font-size: calc(8 * var(--u));
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 行の不透明度 0.85 に重なるので、行全体が古いときの 0.4 と同じ濃さになるようにする。 */

@@ -1,17 +1,31 @@
 import { BUBBLE_SECONDS_CHOICES } from "./bubbleSettings";
-import { DEFAULT_PANEL_OPACITY, PANEL_OPACITY_MAX, PANEL_OPACITY_MIN, ROW_ORDERS } from "./panelModel";
+import {
+  DEFAULT_PANEL_OPACITY,
+  DEFAULT_TINT,
+  PANEL_OPACITY_MAX,
+  PANEL_OPACITY_MIN,
+  ROW_ORDERS,
+  TINT_MAX,
+  TINT_MIN,
+} from "./panelModel";
 import { LANGUAGES, t } from "./i18n";
 import type { SettingsRequest, SettingsState } from "./settingsProtocol";
 
 // スライダーは百分率の整数で持つ。小数の刻みにすると値の文字列に 0.35000000000000003 のような誤差が出る。
 export const OPACITY_STEP_PERCENT = 5;
+export const TINT_STEP_PERCENT = 10;
 
 /** 範囲外は近い端へ寄せ、数でなければ既定にした百分率。 */
+function percentIn(value: number, min: number, max: number, fallback: number): number {
+  return Math.round((Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback) * 100);
+}
+
 export function opacityPercent(opacity: number): number {
-  const value = Number.isFinite(opacity)
-    ? Math.min(PANEL_OPACITY_MAX, Math.max(PANEL_OPACITY_MIN, opacity))
-    : DEFAULT_PANEL_OPACITY;
-  return Math.round(value * 100);
+  return percentIn(opacity, PANEL_OPACITY_MIN, PANEL_OPACITY_MAX, DEFAULT_PANEL_OPACITY);
+}
+
+export function tintPercent(tint: number): number {
+  return percentIn(tint, TINT_MIN, TINT_MAX, DEFAULT_TINT);
 }
 
 export function bubbleSecondsLabel(seconds: number): string {
@@ -169,9 +183,12 @@ export function formValues(state: SettingsState): FormValues {
     language: state.language,
     show_character: display.show_character,
     panel_collapsed: display.panel_style === "collapsed",
+    hide_keeps_limits: display.hide_keeps_limits,
+    show_numbers: display.show_numbers,
     row_order: display.row_order,
     panel_opacity: String(opacityPercent(display.panel_opacity)),
     panel_scale: String(display.panel_scale),
+    tint_strength: String(tintPercent(display.tint_strength)),
     bubble_waiting: bubble.bubble_waiting,
     bubble_done: bubble.bubble_done,
     bubble_error: bubble.bubble_error,
@@ -195,7 +212,7 @@ export interface FormControl {
 /**
  * フォームの部品の変化から、メインのウィンドウへ送る要求を作る。スライダーは動かしている間（input）から送り、
  * それ以外は確定したとき（change）だけ送る。チェックボックスや選択でも input は届くので、二重に送らない。
- * 背景の不透明度は、動かしている間は見た目だけを変えさせ、離したときに一度だけ保存させる。input の
+ * 背景の不透明度と色の濃さは、動かしている間は見た目だけを変えさせ、離したときに一度だけ保存させる。input の
  * たびに保存すると、ドラッグ一回で display.json を何十回も書き直すからである。パネルの倍率は刻みが 10 段ほどで、
  * ウィンドウの大きさも合わせ直す必要があるので、動かしている間から保存させる。
  */
@@ -203,7 +220,12 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
   const { name, value, checked } = control;
   if (name === "panel_opacity") {
     const opacity = Number(value) / 100;
-    return phase === "input" ? { kind: "opacity-preview", opacity } : { kind: "display", patch: { panel_opacity: opacity } };
+    const patch = { panel_opacity: opacity };
+    return phase === "input" ? { kind: "display-preview", patch } : { kind: "display", patch };
+  }
+  if (name === "tint_strength") {
+    const patch = { tint_strength: Number(value) / 100 };
+    return phase === "input" ? { kind: "display-preview", patch } : { kind: "display", patch };
   }
   if (name === "scale") return phase === "input" ? { kind: "scale", scale: Number(value) } : null;
   if (name === "panel_scale") {
@@ -217,6 +239,8 @@ export function requestFor(control: FormControl, phase: "input" | "change"): Set
       return setting ? { kind: "language", setting } : null;
     }
     case "show_character":
+    case "show_numbers":
+    case "hide_keeps_limits":
       return { kind: "display", patch: { [name]: checked } };
     case "panel_collapsed":
       return { kind: "display", patch: { panel_style: checked ? "collapsed" : "detail" } };
