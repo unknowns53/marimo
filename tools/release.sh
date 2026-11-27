@@ -101,12 +101,38 @@ run_of() {
   return 1
 }
 
+# 実行が終わるまで状態を問い合わせる。成功なら 0、失敗なら 1、状態を続けて取得できなければ 2 を返す。gh run watch は
+# 通信が一度切れただけでも CI の失敗と同じ終了コードで終わるので使わない。
+wait_run() {
+  local id="$1" interval="$2" errors=0 state
+  while :; do
+    if state="$(gh run view "$id" --json status,conclusion --jq '.status + " " + .conclusion' 2>/dev/null)"; then
+      errors=0
+      case "$state" in
+        "completed success") return 0 ;;
+        completed*) return 1 ;;
+      esac
+    else
+      errors=$((errors + 1))
+      ((errors < 10)) || return 2
+    fi
+    sleep "$interval"
+  done
+}
+
+unreachable() {
+  echo "$1 の CI（$2）の状態を GitHub から 10 回続けて取得できませんでした。通信を確かめ、https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo '<リポジトリ>')/actions/runs/$2 で結果を確認してください。"
+}
+
 # main では、main の CI のビルドをタグの CI がコピーするので、それを待ってからタグを付ける。ブランチへの push では
 # CI がビルドしないので、すぐにタグを付け、タグの CI に検査とビルドを任せる。
 if [[ "$branch" == "main" ]]; then
   main_run="$(run_of main)" || fail "main の CI の実行が見つかりません。https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions を確認してください。"
   echo "main の CI（${main_run}）がテストとビルドを終えるのを待っています"
-  gh run watch "$main_run" --exit-status --interval 30 >/dev/null ||
+  waited=0
+  wait_run "$main_run" 30 || waited=$?
+  ((waited != 2)) || fail "$(unreachable main "$main_run") タグは付けていません。"
+  ((waited == 0)) ||
     fail "main の CI（${main_run}）が失敗しました。gh run view $main_run --log-failed で理由を確認し、直してからバージョンを変えずにもう一度実行してください（バージョンのコミットは main に残っています）。タグは付けていません。"
 fi
 
@@ -116,6 +142,9 @@ git push -q origin "$tag"
 
 tag_run="$(run_of "$tag")" || fail "タグの CI の実行が見つかりません。リリースができているかを gh release view $tag で確認してください。"
 echo "タグの CI（${tag_run}）がリリースを公開するのを待っています"
-gh run watch "$tag_run" --exit-status --interval 15 >/dev/null ||
+waited=0
+wait_run "$tag_run" 15 || waited=$?
+((waited != 2)) || fail "$(unreachable タグ "$tag_run")"
+((waited == 0)) ||
   fail "タグの CI（${tag_run}）が失敗しました。gh run view $tag_run --log-failed で理由を確認してください。"
 gh release view "$tag" --json url,isPrerelease --jq '"\(if .isPrerelease then "プレリリース" else "正式なリリース" end)を公開しました: \(.url)"'
